@@ -16,9 +16,50 @@ import { BuerFloatingButton } from "@/components/BuerFloatingButton";
  *   ④ 加顶部 sticky 导航栏
  */
 
+// 5 模块对应的简笔 SVG icon(esther 蓝,手绘风,Lucide 风格)
+const MODULE_ICONS = {
+  compass: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="10" />
+      <polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88" />
+    </svg>
+  ),
+  notebook: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20" />
+      <line x1="9" y1="7" x2="15" y2="7" />
+      <line x1="9" y1="11" x2="15" y2="11" />
+    </svg>
+  ),
+  file: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" />
+      <polyline points="14 2 14 8 20 8" />
+      <line x1="8" y1="13" x2="16" y2="13" />
+      <line x1="8" y1="17" x2="13" y2="17" />
+    </svg>
+  ),
+  bulb: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M9 18h6" />
+      <path d="M10 22h4" />
+      <path d="M12 2a7 7 0 0 0-4 12.7c.8.7 1.3 1.7 1.3 2.8V18h5.4v-.5c0-1.1.5-2.1 1.3-2.8A7 7 0 0 0 12 2Z" />
+    </svg>
+  ),
+  mic: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="9" y="2" width="6" height="11" rx="3" />
+      <path d="M19 10a7 7 0 0 1-14 0" />
+      <line x1="12" y1="17" x2="12" y2="22" />
+      <line x1="8" y1="22" x2="16" y2="22" />
+    </svg>
+  ),
+};
+
 const MODULES = [
   {
     no: "01",
+    icon: "compass" as const,
     title: "先找到适合你的方向",
     helper: "测一测 + 聊聊经历,推 3-5 个方向",
     chip: "霍兰德 RIASEC",
@@ -26,6 +67,7 @@ const MODULES = [
   },
   {
     no: "02",
+    icon: "notebook" as const,
     title: "把零散经历讲明白",
     helper: "课程 / 实习 / 项目 整理成完整 STAR 故事",
     chip: "Skeptical Recruiter",
@@ -33,6 +75,7 @@ const MODULES = [
   },
   {
     no: "03",
+    icon: "file" as const,
     title: "把简历改成能过筛的版本",
     helper: "基于目标 JD 调整,产出 Word 直接投递",
     chip: "WebSearch 实时 JD",
@@ -40,6 +83,7 @@ const MODULES = [
   },
   {
     no: "04",
+    icon: "bulb" as const,
     title: "补一段能写进简历的项目",
     helper: "2-4 周 ship · 每日 task 卡组陪你做完",
     chip: "每日 task 卡组",
@@ -47,6 +91,7 @@ const MODULES = [
   },
   {
     no: "05",
+    icon: "mic" as const,
     title: "练一场,再拿到具体反馈",
     helper: "4 维评分 + 复盘亮点反哺简历",
     chip: "3 性格 · 反哺简历",
@@ -75,62 +120,52 @@ const PROMISES = [
 
 const CASES = [
   {
-    name: "陈昊",
-    initial: "陈",
     color: "blue" as const,
     emoji: "💻",
-    background: "CS 大四 · 冲字节 AI PM 实习",
+    background: "CS 大四,冲字节 AI PM 实习",
     moduleNo: "03",
     moduleLabel: "简历整理",
     outcome: "Word 简历 + 目标 JD 关键词命中率从 30% 提到 70%",
   },
   {
-    name: "林婷",
-    initial: "林",
     color: "yellow" as const,
     emoji: "🔄",
-    background: "英专大三 · 想转 AI PM",
+    background: "英专大三,想转 AI PM",
     moduleNo: "01+03",
     moduleLabel: "兴趣测评 + 简历",
     outcome: "AI PM 方向确认 + 转专业版简历(强调可迁移技能)",
   },
   {
-    name: "小张",
-    initial: "张",
     color: "red" as const,
     emoji: "🧭",
-    background: "大三 · 完全没方向",
+    background: "大三,完全没方向",
     moduleNo: "01",
     moduleLabel: "兴趣测评",
     outcome: "3 个推荐行业方向 + RIASEC 编码 + 经历交叉解释",
   },
   {
-    name: "李明",
-    initial: "李",
     color: "blue" as const,
     emoji: "🎤",
-    background: "大四 · 投了 30 份简历没回应",
+    background: "大四,投了 30 份简历没回应",
     moduleNo: "05",
     moduleLabel: "模拟面试 + 反哺",
-    outcome: "4 维评分发现「具体性」3 分 → 反哺给简历 3 条新 bullet",
+    outcome: "4 维评分发现「具体性」3 分 → 反哺简历 3 条新 bullet",
   },
   {
-    name: "王雯",
-    initial: "王",
     color: "yellow" as const,
     emoji: "🚀",
-    background: "双非大四 · 想冲大厂 AI",
+    background: "双非大四,想冲大厂 AI",
     moduleNo: "04",
     moduleLabel: "项目设计 + 学习卡组",
     outcome: "4 周项目 brief + Week 1 task list + 学习资源",
   },
 ];
 
-// 头像颜色映射
-const AVATAR_COLORS = {
-  blue: "bg-esther-blue text-white",
-  yellow: "bg-esther-yellow text-ink",
-  red: "bg-esther-red text-white",
+// 头像底色 — 不同 esther 三色制造多样性
+const AVATAR_BG = {
+  blue: "bg-esther-blue/15 border-esther-blue/40",
+  yellow: "bg-esther-yellow/30 border-esther-yellow/60",
+  red: "bg-esther-red/15 border-esther-red/40",
 };
 
 export default function Home() {
@@ -373,6 +408,10 @@ export default function Home() {
 
                       {/* 节点下方卡片 */}
                       <Card className="mt-5 p-5 w-full bg-card border-2 border-border group-hover:border-esther-blue group-hover:shadow-md transition-all">
+                        {/* SVG icon */}
+                        <div className="w-9 h-9 mb-3 text-esther-blue group-hover:scale-110 transition-transform">
+                          {MODULE_ICONS[m.icon]}
+                        </div>
                         <h3 className="text-base font-semibold text-ink mb-2 leading-snug">
                           {m.title}
                         </h3>
@@ -409,9 +448,14 @@ export default function Home() {
                     </div>
                     {/* 卡片 */}
                     <Card className="flex-1 p-5 bg-card border-2 border-border group-hover:border-esther-blue transition-all">
-                      <h3 className="text-base font-semibold text-ink mb-1.5 leading-snug">
-                        {m.title}
-                      </h3>
+                      <div className="flex items-start gap-3 mb-2">
+                        <div className="w-7 h-7 text-esther-blue flex-shrink-0 mt-0.5">
+                          {MODULE_ICONS[m.icon]}
+                        </div>
+                        <h3 className="text-base font-semibold text-ink leading-snug">
+                          {m.title}
+                        </h3>
+                      </div>
                       <p className="text-xs text-ink-soft leading-relaxed mb-3">
                         {m.helper}
                       </p>
@@ -481,42 +525,32 @@ export default function Home() {
             <div className="relative">
               <div className="overflow-x-auto scroll-smooth snap-x snap-mandatory pb-4 -mx-6 px-6">
                 <div className="flex gap-5 min-w-max">
-                  {CASES.map((c) => (
+                  {CASES.map((c, idx) => (
                     <div
-                      key={c.name}
-                      className="snap-start w-[clamp(300px,28vw,380px)] flex-shrink-0 bg-card border border-border rounded-2xl overflow-hidden hover:border-esther-blue/60 hover:shadow-md transition-all flex flex-col"
+                      key={idx}
+                      className="snap-start w-[clamp(300px,28vw,380px)] flex-shrink-0 bg-card border border-border rounded-2xl overflow-hidden hover:border-esther-blue/60 hover:shadow-md transition-all flex flex-col relative"
                     >
-                      {/* 顶部:头像 + 名字 + 背景 */}
+                      {/* sample 角标(右上) */}
+                      <span className="absolute top-3 right-3 z-10 inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium bg-warm-bg-deep text-ink-muted border border-border">
+                        sample
+                      </span>
+
+                      {/* 顶部:emoji 头像 + 背景 */}
                       <div className="p-5 pb-4 border-b border-border">
-                        <div className="flex items-start gap-4 mb-3">
-                          {/* 头像圆形 + emoji 小标签 */}
-                          <div className="relative flex-shrink-0">
-                            <div
-                              className={`w-14 h-14 rounded-full flex items-center justify-center font-display italic text-2xl font-bold ${AVATAR_COLORS[c.color]}`}
-                            >
-                              {c.initial}
-                            </div>
-                            <div className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full bg-card border border-border flex items-center justify-center text-sm">
-                              {c.emoji}
-                            </div>
+                        <div className="flex items-center gap-4 mb-3">
+                          {/* emoji 头像圆形 */}
+                          <div
+                            className={`w-14 h-14 rounded-full border-2 flex items-center justify-center text-3xl flex-shrink-0 ${AVATAR_BG[c.color]}`}
+                          >
+                            {c.emoji}
                           </div>
-                          <div className="flex-1 min-w-0 pt-1">
-                            <div className="flex items-center gap-2 mb-1 flex-wrap">
-                              <h3 className="text-lg font-semibold text-ink">
-                                {c.name}
-                              </h3>
-                              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-warm-bg-deep text-ink-muted border border-border">
-                                sample
-                              </span>
-                            </div>
-                            <p className="text-xs text-ink-soft leading-relaxed">
-                              {c.background}
-                            </p>
-                          </div>
+                          <p className="text-sm text-ink leading-relaxed font-medium flex-1">
+                            {c.background}
+                          </p>
                         </div>
                         {/* 用了哪个模块 chip */}
-                        <div className="flex items-center gap-2 mt-3">
-                          <span className="font-display italic text-xs font-bold text-esther-blue">
+                        <div className="flex items-center gap-2 mt-2">
+                          <span className="font-display italic text-sm font-bold text-esther-blue">
                             {c.moduleNo}
                           </span>
                           <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-esther-blue/10 text-esther-blue text-[11px] font-medium">
@@ -556,7 +590,7 @@ export default function Home() {
             </div>
 
             <p className="text-xs text-ink-muted mt-6 text-center font-display italic">
-              所有 case 均为 sample(贯穿 5 类典型 persona)· demo 上线后会逐步换成真实学生的成果
+              所有 case 均为 sample(覆盖 5 类典型场景)· demo 上线后会逐步换成真实学生的成果
             </p>
           </div>
         </section>

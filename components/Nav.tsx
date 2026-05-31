@@ -33,25 +33,25 @@ export function Nav() {
           : "bg-transparent"
       }`}
     >
-      <div className="max-w-[1300px] mx-auto px-6 h-16 flex items-center justify-between gap-6">
+      <div className="max-w-[1300px] mx-auto px-6 h-20 flex items-center justify-between gap-6">
         {/* Logo */}
-        <Link href="#top" className="flex items-center gap-2.5 flex-shrink-0">
-          <div className="w-9 h-9 rounded-full overflow-hidden ring-2 ring-esther-yellow">
+        <Link href="#top" className="flex items-center gap-3 flex-shrink-0">
+          <div className="w-11 h-11 rounded-full overflow-hidden ring-2 ring-esther-yellow">
             <Image
               src="/esther-assets/avatar.jpg"
               alt="不二"
-              width={36}
-              height={36}
+              width={44}
+              height={44}
               className="object-cover"
             />
           </div>
-          <span className="font-display italic text-xl font-semibold text-esther-blue">
+          <span className="font-display italic text-2xl font-semibold text-esther-blue">
             Offer 捕手
           </span>
         </Link>
 
         {/* Center nav */}
-        <div className="hidden md:flex items-center gap-8 text-sm text-ink-soft">
+        <div className="hidden md:flex items-center gap-10 text-base text-ink-soft">
           {NAV_ITEMS.map((n) => (
             <a
               key={n.href}
@@ -66,7 +66,7 @@ export function Nav() {
         {/* CTA */}
         <Link
           href="#persona"
-          className="inline-flex items-center justify-center rounded-full bg-esther-blue text-white px-5 py-2 text-sm font-medium hover:bg-esther-blue-dark transition-colors flex-shrink-0"
+          className="inline-flex items-center justify-center rounded-full bg-esther-blue text-white px-6 py-2.5 text-sm font-medium hover:bg-esther-blue-dark transition-colors flex-shrink-0 shadow-sm"
         >
           开始使用 →
         </Link>
