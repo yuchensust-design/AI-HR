@@ -6,8 +6,8 @@ import { PersonaSelector } from "@/components/PersonaSelector";
 import { BuerFloatingButton } from "@/components/BuerFloatingButton";
 
 /**
- * Landing 首页 v2 — Offer 捕手学生求职智能体
- * 修订 §8.13:温暖文艺基调 + 用户任务语言 + 加"成果感"区
+ * Landing 首页 v3 — Offer 捕手学生求职智能体
+ * 修订 §8.14:简化 7→6 section,加亮点 chip,加案例区占位
  */
 
 const MODULES = [
@@ -15,74 +15,64 @@ const MODULES = [
     no: "01",
     title: "先找到适合你的方向",
     helper: "测一测 + 聊聊经历,推 3-5 个方向",
+    chips: ["霍兰德 RIASEC", "永不推公司名"],
     href: "/m1",
   },
   {
     no: "02",
     title: "把零散经历讲明白",
-    helper: "帮你把课程 / 实习 / 项目 整理成完整故事",
+    helper: "课程 / 实习 / 项目 整理成完整故事 + STAR bullet",
+    chips: ["Skeptical Recruiter", "STAR 自动生成"],
     href: "/m2",
   },
   {
     no: "03",
     title: "把简历改成更能过筛的版本",
     helper: "基于目标 JD 调整,产出 Word 直接投递",
+    chips: ["WebSearch 实时 JD", "Word 一键下载"],
     href: "/m3",
   },
   {
     no: "04",
     title: "补一段能写进简历的项目经历",
-    helper: "2-4 周可 ship · 每日 task 陪你做完",
+    helper: "2-4 周 ship · 每日 task 卡组陪你做完",
+    chips: ["每日 task 卡组", "4 层防鸡肋"],
     href: "/m4",
   },
   {
     no: "05",
     title: "练一场,再拿到具体反馈",
-    helper: "4 维评分 + 复盘亮点反哺简历",
+    helper: "4 维评分 + 复盘亮点直接反哺简历",
+    chips: ["3 性格切换", "反哺简历首创"],
     href: "/m5",
-  },
-];
-
-const TAKEAWAYS = [
-  {
-    no: "01",
-    title: "一份更聚焦目标岗位的简历",
-    helper: "可直接投递的 Word 版本,基于你的目标 JD 优化过",
-  },
-  {
-    no: "02",
-    title: "一场带复盘证据的模拟面试",
-    helper: "4 维评分 + 每条评分配 transcript 原文证据",
-  },
-  {
-    no: "03",
-    title: "一条适合你的岗位方向建议",
-    helper: "基于兴趣 + 经历的交叉判断,不是空泛标签",
-  },
-  {
-    no: "04",
-    title: "一份 2-4 周的补 gap 行动计划",
-    helper: "每日 task 拆解,陪你真把项目做完",
   },
 ];
 
 const PROMISES = [
   {
     title: "帮你提前发现 HR 会追问的漏洞",
-    helper: "关键节点 AI 主动扮演怀疑型 HR,把简历水分挑出来",
+    helper: "关键节点 AI 扮演怀疑型 HR,把简历水分挑出来",
   },
   {
-    title: "不会替你编故事,保证可投递、可解释",
-    helper: "做没做过的项目永远标 PROPOSED,不进你的真简历",
+    title: "不会替你编故事",
+    helper: "没做过的项目永远标 PROPOSED,不进你的真简历",
   },
   {
-    title: "发现短板后,直接给你补强路径",
+    title: "发现短板后直接给补强路径",
     helper: "缺什么就推什么项目 + 每日 task,不只是诊断",
   },
   {
-    title: "不让 AI 用漂亮话掩盖真实问题",
-    helper: "AI 想偷懒、想哄你时的常见借口,我们提前堵了",
+    title: "不让 AI 用漂亮话掩盖真问题",
+    helper: "AI 想偷懒、想哄你时的常见借口,提前堵了",
   },
+];
+
+const CASE_OUTPUTS = [
+  { label: "01 兴趣测评", helper: "RIASEC 编码 + 推方向" },
+  { label: "02 简历整理", helper: "前后对比 + Word 下载" },
+  { label: "03 项目设计", helper: "Week 1 task 学习卡组" },
+  { label: "04 模拟面试", helper: "4 维评分复盘" },
+  { label: "05 反哺简历", helper: "面试亮点 → 新 bullet" },
 ];
 
 export default function Home() {
@@ -158,63 +148,37 @@ export default function Home() {
       </section>
 
       {/* ============================================================
-          Pain Section — "我们听过最多的话"(共情,非控诉)
+          Pain Pull Quote — 1 句衬线大引号(节奏过渡,替换 3 卡片冗余)
           ============================================================ */}
-      <section className="bg-warm-bg-deep border-t border-b border-border">
-        <div className="max-w-[1300px] mx-auto px-6 py-20">
-          <p className="font-display italic text-sm text-esther-blue mb-2">
-            What we hear most
+      <section className="bg-warm-bg-deep border-y border-border">
+        <div className="max-w-[900px] mx-auto px-6 py-20 text-center">
+          <p className="font-display italic text-7xl text-esther-blue/40 leading-none mb-6">
+            &ldquo;
           </p>
-          <h2 className="text-3xl md:text-4xl font-bold text-ink mb-12">
-            我们听过最多的,是这 3 句话
-          </h2>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            {[
-              {
-                quote: "我连找什么方向都不确定",
-                helper:
-                  "投了很多岗位都没回应,我也不知道是不是连方向都选错了。",
-              },
-              {
-                quote: "投了一摞简历,没人告诉我哪里不对",
-                helper:
-                  "已读不回,自己改了好几版,还是不知道是简历的问题还是岗位不对口。",
-              },
-              {
-                quote: "面试里到底卡在哪,我自己也说不清",
-                helper:
-                  "复盘的时候只觉得「答得不好」,但不知道是逻辑乱、不够具体,还是语速太快。",
-              },
-            ].map((p, idx) => (
-              <div
-                key={idx}
-                className="p-7 bg-card rounded-2xl border border-border"
-              >
-                <p className="font-display italic text-5xl text-esther-blue/30 leading-none mb-3">
-                  &ldquo;
-                </p>
-                <p className="text-lg font-semibold text-ink mb-3 leading-snug">
-                  {p.quote}
-                </p>
-                <p className="text-sm text-ink-soft leading-relaxed">
-                  {p.helper}
-                </p>
-              </div>
-            ))}
-          </div>
+          <p className="text-2xl md:text-3xl font-bold text-ink leading-relaxed">
+            投了一摞简历没回应,
+            <br className="md:hidden" />
+            面试卡在哪自己也说不清,
+            <br />
+            连
+            <span className="bg-esther-yellow/50 px-2">找的方向是不是错的</span>
+            都不确定。
+          </p>
+          <p className="text-base text-ink-soft mt-6">
+            — 这是我们听过最多的 3 句话
+          </p>
         </div>
       </section>
 
       {/* ============================================================
-          Persona 场景自选(陪伴式,不分类)
+          Persona 自选(陪伴式)
           ============================================================ */}
       <div id="persona" className="bg-warm-bg">
         <PersonaSelector />
       </div>
 
       {/* ============================================================
-          Modules — 5 件能陪你做的事(用户任务语言)
+          Modules — 5 件事(每卡含 helper + 2 亮点 chip)
           ============================================================ */}
       <section
         id="modules"
@@ -222,30 +186,39 @@ export default function Home() {
       >
         <div className="max-w-[1300px] mx-auto px-6 py-20">
           <p className="font-display italic text-sm text-esther-blue mb-2">
-            5 things we can do together
+            5 things we do together
           </p>
           <h2 className="text-3xl md:text-4xl font-bold text-ink mb-3">
             能陪你做的 5 件事
           </h2>
           <p className="text-ink-soft mb-12 max-w-2xl">
-            从「不知道适合什么方向」一直到「拿到面试反馈改简历」,
-            每一步都不让你一个人面对。
+            每件事都让你拿到可以直接用的东西,不只是给建议。
           </p>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
             {MODULES.map((m) => (
               <Link key={m.no} href={m.href} className="group block">
-                <Card className="h-full p-7 bg-card border-2 border-border hover:border-esther-blue hover:shadow-lg transition-all">
+                <Card className="h-full p-7 bg-card border-2 border-border hover:border-esther-blue hover:shadow-lg transition-all flex flex-col">
                   <span className="font-display italic text-5xl font-bold text-esther-blue/30 leading-none block mb-4">
                     {m.no}
                   </span>
                   <h3 className="text-xl font-semibold text-ink mb-2 leading-snug">
                     {m.title}
                   </h3>
-                  <p className="text-sm text-ink-soft leading-relaxed">
+                  <p className="text-sm text-ink-soft leading-relaxed mb-5">
                     {m.helper}
                   </p>
-                  <p className="mt-5 text-sm font-medium text-esther-blue group-hover:underline">
+                  <div className="flex flex-wrap gap-2 mt-auto mb-3">
+                    {m.chips.map((c) => (
+                      <span
+                        key={c}
+                        className="inline-flex items-center px-2.5 py-1 rounded-md bg-esther-yellow/30 text-ink text-xs font-medium border border-esther-yellow/60"
+                      >
+                        {c}
+                      </span>
+                    ))}
+                  </div>
+                  <p className="text-sm font-medium text-esther-blue group-hover:underline">
                     进去看看 →
                   </p>
                 </Card>
@@ -256,86 +229,107 @@ export default function Home() {
       </section>
 
       {/* ============================================================
-          成果区 — 你会带走的 4 样东西(新增,§8.13 review #5)
+          Case 案例区(占位,Day 3-5 截图回填)
           ============================================================ */}
       <section className="bg-warm-bg border-t border-border">
         <div className="max-w-[1300px] mx-auto px-6 py-20 relative overflow-hidden">
-          <div className="pointer-events-none absolute -right-12 -top-8 select-none leading-none font-display italic font-bold text-[clamp(8rem,18vw,16rem)] text-esther-blue/[0.08]">
-            4
+          <div className="pointer-events-none absolute -left-8 top-12 select-none leading-none font-display italic font-bold text-[clamp(6rem,12vw,11rem)] text-esther-red/[0.08]">
+            Case
           </div>
 
           <div className="relative">
             <p className="font-display italic text-sm text-esther-blue mb-2">
-              What you&apos;ll take with you
+              How others used it
             </p>
             <h2 className="text-3xl md:text-4xl font-bold text-ink mb-3">
-              走完一遍,你会带走 4 样东西
+              真实走过的案例
             </h2>
-            <p className="text-ink-soft mb-12 max-w-2xl">
-              不是 4 个空泛功能,是 4 件可以拿出去用的东西。
+            <p className="text-ink-soft mb-10 max-w-2xl">
+              下面是一个学生从「不知道适合什么」走到「拿到面试 offer」的完整路径。
             </p>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-              {TAKEAWAYS.map((t) => (
-                <div
-                  key={t.no}
-                  className="flex gap-5 p-6 bg-card border border-border rounded-2xl hover:border-esther-yellow hover:bg-warm-bg-deep transition-colors"
-                >
-                  <span className="font-display italic text-4xl font-bold text-esther-yellow flex-shrink-0 leading-none">
-                    {t.no}
-                  </span>
-                  <div>
-                    <h3 className="text-lg font-semibold text-ink mb-1.5 leading-snug">
-                      {t.title}
-                    </h3>
-                    <p className="text-sm text-ink-soft leading-relaxed">
-                      {t.helper}
+            <div className="bg-card border border-border rounded-3xl p-8 md:p-10">
+              <div className="flex items-start gap-5 mb-8 pb-8 border-b border-border">
+                <div className="flex-shrink-0 w-14 h-14 rounded-full bg-esther-blue/15 flex items-center justify-center text-2xl font-display italic font-bold text-esther-blue">
+                  陈
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-3 mb-1.5 flex-wrap">
+                    <h3 className="text-xl font-semibold text-ink">陈昊</h3>
+                    <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium bg-warm-bg-deep text-ink-muted border border-border">
+                      sample case
+                    </span>
+                  </div>
+                  <p className="text-sm text-ink-soft leading-relaxed">
+                    CS 大四 · 冲字节 AI PM 实习 · 简历有 1 段实习但方向不够聚焦
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                {CASE_OUTPUTS.map((o) => (
+                  <div
+                    key={o.label}
+                    className="aspect-[3/4] bg-gradient-to-br from-warm-bg-deep to-warm-bg-deep/40 rounded-xl border border-dashed border-border p-3 flex flex-col justify-between hover:border-esther-blue/40 transition-colors"
+                  >
+                    <p className="text-xs font-semibold text-esther-blue leading-tight">
+                      {o.label}
+                    </p>
+                    <div className="flex-1 flex items-center justify-center">
+                      <p className="text-[10px] text-ink-muted text-center leading-snug">
+                        截图 <br /> 即将填充
+                      </p>
+                    </div>
+                    <p className="text-[11px] text-ink-soft leading-snug">
+                      {o.helper}
                     </p>
                   </div>
-                </div>
-              ))}
+                ))}
+              </div>
+
+              <p className="text-xs text-ink-muted mt-8 text-center font-display italic">
+                demo 上线后,这里会换成真实学生的成果
+              </p>
             </div>
           </div>
         </div>
       </section>
 
       {/* ============================================================
-          差异化区 — 我们不只是哄你(收益话语)
+          差异化区 — 2×2 紧凑网格(收益话语)
           ============================================================ */}
       <section className="bg-esther-blue text-white">
-        <div className="max-w-[1300px] mx-auto px-6 py-24">
+        <div className="max-w-[1300px] mx-auto px-6 py-20">
           <p className="font-display italic text-sm text-esther-yellow mb-3">
             Why we&apos;re not just nice
           </p>
           <h2 className="text-3xl md:text-4xl font-bold mb-3">
             我们不只是哄你
           </h2>
-          <p className="text-white/80 mb-14 max-w-2xl text-lg leading-relaxed">
+          <p className="text-white/80 mb-12 max-w-2xl text-base leading-relaxed">
             行业里的 AI 求职工具基本都是
             <span className="text-esther-yellow font-semibold">
-              「你答得很好」、「这条 bullet 不错」
+              「你答得不错」
             </span>
-            的鼓励。我们做了 4 件不一样的事,让你真能拿到 offer。
+            的鼓励 — 我们做了 4 件不一样的。
           </p>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {PROMISES.map((p, idx) => (
               <div
                 key={idx}
-                className="p-7 bg-white/5 backdrop-blur-sm border border-white/10 rounded-2xl"
+                className="flex items-start gap-4 p-6 bg-white/5 backdrop-blur-sm border border-white/10 rounded-2xl"
               >
-                <div className="flex items-start gap-4">
-                  <span className="font-display italic text-3xl text-esther-yellow font-bold flex-shrink-0 leading-none mt-1">
-                    {String(idx + 1).padStart(2, "0")}
-                  </span>
-                  <div>
-                    <h3 className="text-lg font-semibold mb-2 leading-snug">
-                      {p.title}
-                    </h3>
-                    <p className="text-white/75 leading-relaxed text-sm">
-                      {p.helper}
-                    </p>
-                  </div>
+                <span className="font-display italic text-2xl text-esther-yellow font-bold flex-shrink-0 leading-none mt-1">
+                  {String(idx + 1).padStart(2, "0")}
+                </span>
+                <div>
+                  <h3 className="text-base font-semibold mb-1.5 leading-snug">
+                    {p.title}
+                  </h3>
+                  <p className="text-white/70 leading-relaxed text-sm">
+                    {p.helper}
+                  </p>
                 </div>
               </div>
             ))}
