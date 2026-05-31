@@ -1,26 +1,170 @@
 @import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+@custom-variant dark (&:is(.dark *));
+
+/* ============================================================
+   Esther Design System — Brand DNA tokens
+   ref: ~/Documents/Project/AI-HR/esther-design-system/brand-dna.md
+   ============================================================ */
 
 @theme inline {
+  /* ===== Esther 三色(蓝 60% · 黄 30% · 红 10%)===== */
+  --color-esther-blue: #2B7FD8;
+  --color-esther-blue-dark: #1f5fb0;
+  --color-esther-yellow: #F4D758;
+  --color-esther-yellow-dark: #d9bc3f;
+  --color-esther-red: #E84A5F;
+  --color-esther-red-dark: #c33d4f;
+
+  /* ===== 暖色背景(brand-dna §配色扩展)===== */
+  --color-warm-bg: #fefcf6;
+  --color-warm-bg-deep: #faf6eb;
+  --color-ink: #1A1A2E;
+  --color-ink-soft: #4A4A5A;
+  --color-ink-muted: #888;
+
+  /* ===== Esther 字体栈 ===== */
+  --font-display: "Fraunces", ui-serif, Georgia, serif;            /* 英文装饰/标题衬线 */
+  --font-heading-zh: "Noto Serif SC", ui-serif, serif;             /* 中文标题衬线 */
+  --font-body-zh: "Noto Sans SC", -apple-system, "PingFang SC", "Helvetica Neue", system-ui, sans-serif;  /* 中文正文无衬线 */
+  --font-caveat: "Caveat", cursive;                                /* 英文手写 */
+
+  /* ===== shadcn 默认变量(保留)===== */
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
+  --font-sans: var(--font-body-zh);
   --font-mono: var(--font-geist-mono);
+  --font-heading: var(--font-heading-zh);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+/* ===== Light mode: esther 暖色基调 ===== */
+:root {
+  --background: #fefcf6;          /* esther 暖色主背景 */
+  --foreground: #1A1A2E;          /* esther 墨色,非纯黑 */
+  --card: #ffffff;
+  --card-foreground: #1A1A2E;
+  --popover: #ffffff;
+  --popover-foreground: #1A1A2E;
+  --primary: #2B7FD8;             /* esther 蓝 */
+  --primary-foreground: #ffffff;
+  --secondary: #faf6eb;           /* esther 深奶 */
+  --secondary-foreground: #1A1A2E;
+  --muted: #faf6eb;
+  --muted-foreground: #4A4A5A;
+  --accent: #F4D758;              /* esther 黄,用作 accent */
+  --accent-foreground: #1A1A2E;
+  --destructive: #E84A5F;         /* esther 红 */
+  --border: #e8e2d2;
+  --input: #e8e2d2;
+  --ring: #2B7FD8;
+  --chart-1: #2B7FD8;
+  --chart-2: #F4D758;
+  --chart-3: #E84A5F;
+  --chart-4: #4A4A5A;
+  --chart-5: #888;
+  --radius: 0.75rem;              /* 12px 中等圆角(brand-dna 主流 SaaS 风) */
+  --sidebar: #faf6eb;
+  --sidebar-foreground: #1A1A2E;
+  --sidebar-primary: #2B7FD8;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #fefcf6;
+  --sidebar-accent-foreground: #1A1A2E;
+  --sidebar-border: #e8e2d2;
+  --sidebar-ring: #2B7FD8;
+}
+
+/* ===== Dark mode: HTML 全屏深色场景(brand-dna §配色扩展)===== */
+.dark {
+  --background: #151821;          /* 冷蓝调暗底 */
+  --foreground: #fefcf6;
+  --card: #1a1d28;
+  --card-foreground: #fefcf6;
+  --popover: #1a1d28;
+  --popover-foreground: #fefcf6;
+  --primary: #2B7FD8;
+  --primary-foreground: #ffffff;
+  --secondary: #1f2330;
+  --secondary-foreground: #fefcf6;
+  --muted: #1f2330;
+  --muted-foreground: #a8a8b8;
+  --accent: #F4D758;
+  --accent-foreground: #1A1A2E;
+  --destructive: #E84A5F;
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: #2B7FD8;
+  --chart-1: #2B7FD8;
+  --chart-2: #F4D758;
+  --chart-3: #E84A5F;
+  --chart-4: #a8a8b8;
+  --chart-5: #6a6a78;
+  --sidebar: #1a1d28;
+  --sidebar-foreground: #fefcf6;
+  --sidebar-primary: #2B7FD8;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #1f2330;
+  --sidebar-accent-foreground: #fefcf6;
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: #2B7FD8;
+}
+
+/* ===== Base layer ===== */
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
   }
-}
-
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-family: var(--font-body-zh);
+  }
+  html {
+    @apply font-sans;
+  }
+  /* esther: 选中文本黄底墨字 */
+  ::selection {
+    background: var(--color-esther-yellow);
+    color: var(--color-ink);
+  }
+  /* esther: 标题用衬线 */
+  h1, h2, h3, h4 {
+    font-family: var(--font-heading-zh);
+  }
 }
