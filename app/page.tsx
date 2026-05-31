@@ -236,83 +236,132 @@ export default function Home() {
               <span className="text-esther-blue font-medium">闭环求职路径</span>。
             </p>
 
-            {/* Desktop: 横向 step flow */}
-            <div className="hidden lg:flex items-stretch gap-3">
-              {MODULES.map((m, idx) => (
-                <Fragment key={m.no}>
-                  <Link href={m.href} className="group flex-1 min-w-0">
-                    <Card className="h-full p-5 bg-card border-2 border-border hover:border-esther-blue hover:shadow-md transition-all flex flex-col">
-                      <span className="font-display italic text-4xl font-bold text-esther-blue/30 leading-none block mb-3">
+            {/* Desktop: 圆形节点 + 连接线 + SVG 反哺弧线 */}
+            <div className="hidden lg:block relative pt-24">
+              {/* 反哺虚线弧 SVG overlay(从 05 弯回到 03) */}
+              <svg
+                viewBox="0 0 1000 120"
+                preserveAspectRatio="none"
+                className="absolute inset-x-0 top-0 w-full h-24 pointer-events-none"
+                aria-hidden="true"
+              >
+                <defs>
+                  <marker
+                    id="arrow-yellow"
+                    viewBox="0 0 10 10"
+                    refX="8"
+                    refY="5"
+                    markerWidth="6"
+                    markerHeight="6"
+                    orient="auto-start-reverse"
+                  >
+                    <path d="M 0 0 L 10 5 L 0 10 z" fill="#F4D758" />
+                  </marker>
+                </defs>
+                {/* 弧线:从 05 节点中心(x=900)上方 → 弯到 03 节点中心(x=500)上方 */}
+                <path
+                  d="M 900 105 C 900 0, 500 0, 500 105"
+                  stroke="#F4D758"
+                  strokeWidth="2.5"
+                  strokeDasharray="7 5"
+                  fill="none"
+                  markerEnd="url(#arrow-yellow)"
+                  vectorEffect="non-scaling-stroke"
+                />
+              </svg>
+              {/* 弧线中央标注 */}
+              <div className="absolute top-2 left-1/2 -translate-x-1/2 z-10">
+                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-esther-yellow text-ink text-xs font-medium shadow-sm">
+                  <span className="text-base leading-none">↺</span>
+                  模拟面试反哺简历优化
+                </span>
+              </div>
+
+              {/* 节点 row + 连接横线 */}
+              <div className="relative">
+                {/* 横向连接线(在节点中心高度,从 01 到 05 贯穿) */}
+                <div
+                  className="absolute top-7 h-0.5 bg-gradient-to-r from-esther-blue/40 via-esther-blue/70 to-esther-blue/40 z-0"
+                  style={{ left: "10%", right: "10%" }}
+                  aria-hidden="true"
+                />
+
+                {/* 5 节点 */}
+                <div className="grid grid-cols-5 gap-3 relative z-10">
+                  {MODULES.map((m) => (
+                    <Link
+                      key={m.no}
+                      href={m.href}
+                      className="group flex flex-col items-center"
+                    >
+                      {/* 圆形节点 */}
+                      <div className="w-14 h-14 rounded-full bg-card border-[3px] border-esther-blue flex items-center justify-center shadow-md group-hover:scale-110 group-hover:shadow-lg transition-all">
+                        <span className="font-display italic text-xl font-bold text-esther-blue leading-none">
+                          {m.no}
+                        </span>
+                      </div>
+
+                      {/* 节点下方卡片 */}
+                      <Card className="mt-5 p-5 w-full bg-card border-2 border-border group-hover:border-esther-blue group-hover:shadow-md transition-all">
+                        <h3 className="text-base font-semibold text-ink mb-2 leading-snug">
+                          {m.title}
+                        </h3>
+                        <p className="text-xs text-ink-soft leading-relaxed mb-4 min-h-[3em]">
+                          {m.helper}
+                        </p>
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-esther-yellow/30 text-ink text-[11px] font-medium border border-esther-yellow/60">
+                          {m.chip}
+                        </span>
+                      </Card>
+                    </Link>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Mobile: 纵向 timeline 风(左侧竖线 + 右侧卡片) */}
+            <div className="lg:hidden relative">
+              {/* 竖线 */}
+              <div className="absolute left-7 top-7 bottom-7 w-0.5 bg-esther-blue/30" />
+
+              <div className="flex flex-col gap-5">
+                {MODULES.map((m) => (
+                  <Link
+                    key={m.no}
+                    href={m.href}
+                    className="group flex items-start gap-4 relative"
+                  >
+                    {/* 圆节点 */}
+                    <div className="w-14 h-14 rounded-full bg-card border-[3px] border-esther-blue flex items-center justify-center shadow-sm flex-shrink-0 z-10">
+                      <span className="font-display italic text-xl font-bold text-esther-blue leading-none">
                         {m.no}
                       </span>
-                      <h3 className="text-base font-semibold text-ink mb-2 leading-snug">
+                    </div>
+                    {/* 卡片 */}
+                    <Card className="flex-1 p-5 bg-card border-2 border-border group-hover:border-esther-blue transition-all">
+                      <h3 className="text-base font-semibold text-ink mb-1.5 leading-snug">
                         {m.title}
                       </h3>
-                      <p className="text-xs text-ink-soft leading-relaxed mb-4 flex-1">
+                      <p className="text-xs text-ink-soft leading-relaxed mb-3">
                         {m.helper}
                       </p>
-                      <span className="inline-flex items-center self-start px-2 py-0.5 rounded-md bg-esther-yellow/30 text-ink text-[11px] font-medium border border-esther-yellow/60">
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-esther-yellow/30 text-ink text-[11px] font-medium border border-esther-yellow/60">
                         {m.chip}
                       </span>
                     </Card>
                   </Link>
-                  {idx < MODULES.length - 1 && (
-                    <div
-                      className="flex items-center justify-center flex-shrink-0 text-esther-blue/40 text-2xl font-display"
-                      aria-hidden="true"
-                    >
-                      →
-                    </div>
-                  )}
-                </Fragment>
-              ))}
-            </div>
+                ))}
+              </div>
 
-            {/* Mobile: 纵向堆叠 + 向下箭头 */}
-            <div className="lg:hidden flex flex-col gap-3">
-              {MODULES.map((m, idx) => (
-                <Fragment key={m.no}>
-                  <Link href={m.href} className="group block">
-                    <Card className="p-5 bg-card border-2 border-border hover:border-esther-blue transition-all">
-                      <div className="flex items-start gap-4">
-                        <span className="font-display italic text-3xl font-bold text-esther-blue/30 leading-none flex-shrink-0">
-                          {m.no}
-                        </span>
-                        <div className="flex-1 min-w-0">
-                          <h3 className="text-base font-semibold text-ink mb-1.5 leading-snug">
-                            {m.title}
-                          </h3>
-                          <p className="text-xs text-ink-soft leading-relaxed mb-3">
-                            {m.helper}
-                          </p>
-                          <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-esther-yellow/30 text-ink text-[11px] font-medium border border-esther-yellow/60">
-                            {m.chip}
-                          </span>
-                        </div>
-                      </div>
-                    </Card>
-                  </Link>
-                  {idx < MODULES.length - 1 && (
-                    <div
-                      className="flex justify-center text-esther-blue/40 text-2xl"
-                      aria-hidden="true"
-                    >
-                      ↓
-                    </div>
-                  )}
-                </Fragment>
-              ))}
-            </div>
-
-            {/* 闭环标注 */}
-            <div className="mt-8 flex justify-center">
-              <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-esther-yellow/30 border border-esther-yellow/60 text-sm text-ink">
-                <span className="text-esther-blue text-lg leading-none">↻</span>
-                <span>
-                  <span className="font-medium">05 模拟面试</span> 还会反哺
-                  <span className="font-medium"> 03 简历</span> ——
-                  形成完整闭环
-                </span>
+              {/* 移动端反哺标注 */}
+              <div className="mt-6 flex justify-center">
+                <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-esther-yellow/40 border border-esther-yellow text-sm text-ink">
+                  <span className="text-esther-blue text-lg leading-none">↺</span>
+                  <span>
+                    <span className="font-medium">05 模拟面试</span> 还会反哺
+                    <span className="font-medium"> 03 简历</span>
+                  </span>
+                </div>
               </div>
             </div>
           </div>
