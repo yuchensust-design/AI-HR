@@ -101,13 +101,13 @@ export function PersonaSelector() {
     <section className="max-w-[1300px] mx-auto px-6 py-20">
       <div className="mb-12">
         <p className="font-display italic text-sm text-esther-blue mb-2">
-          Find your path
+          Where you are
         </p>
         <h2 className="text-3xl md:text-4xl font-bold text-ink mb-3">
-          你属于哪种情况?
+          你现在更接近哪种状态?
         </h2>
         <p className="text-ink-soft text-base">
-          点一张卡片我直接带你去对应的工具(可跳过)
+          选一个最像你的,我带你从最合适的第一步开始 · 不强制,可跳过
         </p>
       </div>
 

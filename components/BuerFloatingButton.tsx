@@ -32,9 +32,9 @@ export function BuerFloatingButton() {
       </button>
 
       {open && (
-        <div className="fixed bottom-24 right-6 z-50 w-[340px] max-w-[calc(100vw-3rem)] bg-card border-2 border-esther-yellow rounded-2xl shadow-2xl overflow-hidden">
+        <div className="fixed bottom-24 right-6 z-50 w-[320px] max-w-[calc(100vw-3rem)] bg-card border-2 border-esther-yellow rounded-2xl shadow-2xl overflow-hidden">
           <div className="bg-warm-bg-deep p-5 border-b border-border">
-            <div className="flex items-center gap-3 mb-2">
+            <div className="flex items-center gap-3 mb-3">
               <Image
                 src="/esther-assets/avatar.jpg"
                 alt="不二"
@@ -48,25 +48,17 @@ export function BuerFloatingButton() {
               </div>
             </div>
             <p className="text-sm text-ink-soft leading-relaxed">
-              学业 / 求职 / 自我怀疑 都可以跟我聊聊~
+              我是不二~
+              <br />
+              学业 / 求职 / 自我怀疑 都可以跟我聊聊。
             </p>
           </div>
 
-          <div className="p-5 space-y-3">
-            <p className="text-xs text-ink-muted mb-1">常聊场景</p>
-            {["面试焦虑了", "简历卡住了", "offer 被拒了", "又开始否定自己了"].map(
-              (scene) => (
-                <button
-                  key={scene}
-                  disabled
-                  className="w-full text-left px-4 py-2.5 rounded-lg bg-warm-bg-deep text-ink-soft text-sm hover:bg-esther-yellow/30 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
-                >
-                  {scene}
-                </button>
-              )
-            )}
-            <p className="text-[11px] text-ink-muted pt-2 text-center">
-              💛 即将上线 · 我们正在精调对话能力
+          <div className="p-5">
+            <p className="text-sm text-ink-soft leading-relaxed text-center">
+              不过我还在慢慢学说话,
+              <br />
+              马上就能陪你了 ✨
             </p>
           </div>
 
