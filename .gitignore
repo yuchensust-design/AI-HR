@@ -39,3 +39,10 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Playwright MCP cache
+.playwright-mcp/
+
+# screenshots / images dropped by user for review
+*.png
+!public/**/*.png
