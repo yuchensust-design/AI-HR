@@ -37,7 +37,7 @@ export default function RootLayout({
   return (
     <html
       lang="zh-CN"
-      className={`${notoSans.variable} ${notoSerif.variable} ${fraunces.variable} h-full antialiased`}
+      className={`${notoSans.variable} ${notoSerif.variable} ${fraunces.variable} h-full antialiased scroll-smooth`}
       suppressHydrationWarning
     >
       <body className="min-h-full flex flex-col bg-background text-foreground">
