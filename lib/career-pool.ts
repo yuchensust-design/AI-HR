@@ -295,7 +295,9 @@ export const CAREER_POOL: CareerEntry[] = [
 /**
  * 候选池打分 + 取 top N
  *
- * score = Σ(riasec_weights[d] × scores[d] / 10) + Σ(tag_signals[t] × 0.5)
+ * score = Σ(riasec_weights[d] × scores[d] / 15) + Σ(tag_signals[t] × 0.5)
+ *
+ * 适配 18REST-2 5 点 Likert(每维 3-15 分)— 用 / 15 归一化到 0-1
  *
  * 返回:按 score 排序的 top N(默认 30),供 LLM Step 3 综合
  */
@@ -309,11 +311,11 @@ export function generateCandidates(
   const ranked = CAREER_POOL.map((entry) => {
     let score = 0;
 
-    // RIASEC 维度匹配分
+    // RIASEC 维度匹配分 — 18REST-2 每维 3-15,除以 15 归一化到 0-1
     for (const [dim, weight] of Object.entries(entry.riasec_weights)) {
       const dimIdx = dimOrder.indexOf(dim as Dimension);
       if (dimIdx >= 0) {
-        score += (weight || 0) * (scores[dimIdx] / 10);
+        score += (weight || 0) * (scores[dimIdx] / 15);
       }
     }
 

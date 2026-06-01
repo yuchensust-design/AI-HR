@@ -61,7 +61,8 @@ c) 工作模式与用户 RIASEC 类型反向(E 型坐冷板凳 / I 型纯销售 
       "industry": "互联网",
       "role_type": "内容运营",
       "why_fit": "你的 A 高 + 选了音乐兴趣,这类岗位偏向乐感和审美(1-2 句,温和)",
-      "match": "高"
+      "match": "高",
+      "match_percentage": 87
     }
   ],
   "negative": [
@@ -74,6 +75,12 @@ c) 工作模式与用户 RIASEC 类型反向(E 型坐冷板凳 / I 型纯销售 
   "refine_chips": ["去掉销售类岗位", "想要更稳定的方向", "加技术深度", "偏内容创作"]
 }
 
+【match_percentage 计分规则】
+- 高匹配:75-95(基于用户 Top 3 维度跟该岗位 RIASEC 偏好的契合度)
+- 中匹配:55-74
+- 不要给 100%(避免过度承诺)/ 不要低于 50%(那应该进 negative)
+- 每个 positive 之间至少差 3% 区分度
+
 positive 正好 5 个,negative 正好 3 个,refine_chips 正好 4-6 个。`;
 }
 
@@ -84,9 +91,10 @@ function buildUserPrompt(
   pool: Array<{ industry: string; role_type: string }>
 ): string {
   const [r, i, a, s, e, c] = scores;
-  return `用户测评结果:
+  return `用户测评结果(18REST-2 学术量表,5 点 Likert,每维 3 题加和,范围 3-15 分):
 RIASEC 编码: ${code}
-6 维分数(0-10): R${r} I${i} A${a} S${s} E${e} C${c}
+6 维分数(3-15): R${r} I${i} A${a} S${s} E${e} C${c}
+分数解读:≥12 高 / 9-11 中 / ≤8 低
 选中兴趣 tag: ${tagKeys.length > 0 ? tagKeys.join(", ") : "(无)"}
 
 候选池(${pool.length} 项,只能从这里选):
@@ -98,7 +106,8 @@ ${pool.map((p, idx) => `${idx + 1}. ${p.industry} / ${p.role_type}`).join("\n")}
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const answers = body.answers as Record<number, string | string[]>;
+    // 18REST-2: RIASEC 题答案是 Likert 1-5 数字,兴趣 tag 是 string[]
+    const answers = body.answers as Record<number, number | string[]>;
 
     if (!answers || typeof answers !== "object") {
       return NextResponse.json(

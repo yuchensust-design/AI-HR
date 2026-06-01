@@ -1,17 +1,19 @@
 /**
  * RIASEC 雷达图 — 6 维度可视化(Server-rendered SVG,无 client JS)
- * scores: [R, I, A, S, E, C],每维 0-10
+ * scores: [R, I, A, S, E, C]
+ * maxScore: 单维满分(18REST-2 是 15,旧版是 10)
  */
 
 type Props = {
   scores: [number, number, number, number, number, number];
   size?: number;
+  maxScore?: number;
 };
 
 const LABELS_EN = ["R", "I", "A", "S", "E", "C"];
 const LABELS_CN = ["实用", "研究", "艺术", "社交", "企业", "常规"];
 
-export function RIASECRadar({ scores, size = 320 }: Props) {
+export function RIASECRadar({ scores, size = 320, maxScore = 15 }: Props) {
   const cx = size / 2;
   const cy = size / 2;
   const radius = size / 2 - 56; // 留 padding 给标签
@@ -24,9 +26,9 @@ export function RIASECRadar({ scores, size = 320 }: Props) {
   // 同心 4 级 polygon
   const levels = [0.25, 0.5, 0.75, 1.0];
 
-  // 数据 polygon 点
+  // 数据 polygon 点(scores 归一化到 0-1)
   const dataPoints = scores.map((score, i) => {
-    const r = (radius * score) / 10;
+    const r = (radius * Math.min(score, maxScore)) / maxScore;
     return {
       x: cx + r * Math.cos(angles[i]),
       y: cy + r * Math.sin(angles[i]),

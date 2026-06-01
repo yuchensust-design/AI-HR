@@ -11,17 +11,30 @@ import { RIASECRadar } from "@/components/RIASECRadar";
 import { ConfidenceBadge } from "@/components/ConfidenceBadge";
 import { NegativeReveal, type NegativeItem } from "@/components/NegativeReveal";
 import { RefineChips } from "@/components/RefineChips";
-import type { Confidence } from "@/lib/quiz-data";
+import {
+  DIMENSION_DESCRIPTIONS,
+  DIMENSION_LABELS,
+  DIMENSION_LEVEL_LABELS,
+  formatHollandCode,
+  getDimensionLevel,
+  type Confidence,
+  type Dimension,
+} from "@/lib/quiz-data";
 
 /**
- * 模块 1 测评结果页(v1 真实化)
+ * 模块 1 测评结果页(v2 18REST-2 学术验证版)
  * 路由 /m1/result
  *
  * 数据来源:
  *   - localStorage.riasec_result(来自 /m1/quiz → /api/m1/recommend)
  *   - 没数据 → 显示陈昊 sample(评委直接访问 demo 友好)
  *
- * plan §8.16 §D-§K lock
+ * 18REST-2 适配:
+ *   - scores 范围 0-15(原 0-10)
+ *   - positive 加 match_percentage 百分比进度条
+ *   - 新增 6 维详细描述展开(基于 Holland 经典 + 论文修订)
+ *
+ * plan §8.16 §D-§K lock + §8.17 升级层(部分)
  */
 
 type PositiveItem = {
@@ -29,6 +42,7 @@ type PositiveItem = {
   role_type: string;
   why_fit: string;
   match: string;
+  match_percentage?: number; // 18REST-2 升级:0-100 百分比
 };
 
 type Scores = [number, number, number, number, number, number];
@@ -43,8 +57,10 @@ type RecommendResult = {
   disclaimer: string;
   completedAt: string;
   refineCount?: number;
-  answers?: Record<number, string | string[]>;
+  answers?: Record<number, number | string[]>;
 };
+
+const DIMS: Dimension[] = ["R", "I", "A", "S", "E", "C"];
 
 const SAMPLE: RecommendResult & { isSample: true; sampleMeta: { background: string; emoji: string; tags: string[]; experiences: string[] } } = {
   isSample: true,
@@ -54,39 +70,47 @@ const SAMPLE: RecommendResult & { isSample: true; sampleMeta: { background: stri
     tags: ["数据 & AI", "内容创作"],
     experiences: ["字节用户增长实习", "AI 学习助手(B 端用户 30+)", "Python 数据分析"],
   },
-  scores: [5, 8, 4, 6, 9, 5],
-  code: "E9 I8 S6 R5 C5 A4",
+  scores: [5, 13, 8, 10, 14, 6],
+  code: "E14 I13 S10 A8 C6 R5",
   confidence: "high",
   positive: [
     {
       industry: "互联网",
       role_type: "AI / 增长产品经理",
-      why_fit: "E 9 + I 8 → 你既爱推动事情发生,又重逻辑分析,跟 PM 高度契合",
+      why_fit:
+        "E 14 + I 13 → 你既爱推动事情发生,又重逻辑分析,跟 PM 高度契合",
       match: "高",
-    },
-    {
-      industry: "互联网",
-      role_type: "数据分析师 / 增长分析",
-      why_fit: "I 8 + C 5 → 你重数据推理,愿意系统化拆解,适合用数字说话的角色",
-      match: "高",
+      match_percentage: 92,
     },
     {
       industry: "创业 / 自由职业",
       role_type: "0-1 产品创始人 / 联创",
-      why_fit: "E 9(企业型最高)+ 已经做过 AI 学习助手 → 你不只是想'打工',更想'主导一件事'",
+      why_fit:
+        "E 14(企业型最高)+ 已经做过 AI 学习助手 → 你不只是想'打工',更想'主导一件事'",
       match: "高",
+      match_percentage: 89,
+    },
+    {
+      industry: "互联网",
+      role_type: "数据分析师 / 增长分析",
+      why_fit: "I 13 + C 6 → 你重数据推理,愿意系统化拆解,适合用数字说话的角色",
+      match: "高",
+      match_percentage: 86,
     },
     {
       industry: "互联网",
       role_type: "用户研究员",
-      why_fit: "I 8 + S 6 → 你愿意挖背后原理,又能跟人聊,适合做用户洞察",
+      why_fit: "I 13 + S 10 → 你愿意挖背后原理,又能跟人聊,适合做用户洞察",
       match: "中",
+      match_percentage: 78,
     },
     {
       industry: "互联网",
       role_type: "内容运营",
-      why_fit: "选了内容创作兴趣 + S 6 → 你能持续表达 + 跟用户互动,适合做内容驱动的运营",
+      why_fit:
+        "选了内容创作兴趣 + S 10 → 你能持续表达 + 跟用户互动,适合做内容驱动的运营",
       match: "中",
+      match_percentage: 71,
     },
   ],
   negative: [
@@ -100,13 +124,13 @@ const SAMPLE: RecommendResult & { isSample: true; sampleMeta: { background: stri
       industry: "销售商务",
       role_type: "电话销售 / 地推",
       why_consuming:
-        "你的 I 8 偏好深度思考,纯转化型销售对'快节奏 + 浅交互'的要求会让你疲倦",
+        "你的 I 13 偏好深度思考,纯转化型销售对'快节奏 + 浅交互'的要求会让你疲倦",
     },
     {
       industry: "制造业",
       role_type: "质量管理 / 品控",
       why_consuming:
-        "C 5 + R 5 都不算高,这类岗位长期靠流程 + 标准化,你的创造性会找不到出口",
+        "C 6 + R 5 都不算高,这类岗位长期靠流程 + 标准化,你的创造性会找不到出口",
     },
   ],
   refine_chips: ["去掉销售类岗位", "想要更稳定的方向", "加技术深度", "偏内容创作"],
@@ -263,7 +287,7 @@ export default function Module1ResultPage() {
               我们觉得你可能适合的方向
             </h1>
             <p className="text-ink-soft text-sm">
-              基于霍兰德 RIASEC 测评(18 题)+ 兴趣 tag 综合判断
+              基于 18REST-2 学术量表(18 题)+ 兴趣 tag 综合判断
             </p>
           </div>
         </section>
@@ -283,7 +307,7 @@ export default function Module1ResultPage() {
                 <ConfidenceBadge confidence={result.confidence} />
               </div>
               <p className="text-[11px] text-ink-muted text-center mt-3 leading-relaxed">
-                每维 0-10 分,数值越高表示倾向越强
+                每维 3-15 分(5 点 Likert × 3 题),数值越高表示倾向越强
               </p>
             </div>
 
@@ -370,6 +394,99 @@ export default function Module1ResultPage() {
           </div>
         </section>
 
+        {/* 自我探索 — 6 维深度解读(基于 Holland 1997 经典 + 18REST-2 修订) */}
+        <section className="border-b border-border">
+          <div className="max-w-[1100px] mx-auto px-6 py-14">
+            <p className="font-display italic text-sm text-esther-blue mb-2">
+              Know yourself first
+            </p>
+            <h2 className="text-2xl md:text-3xl font-bold text-ink mb-3">
+              你是怎样的人 · 6 维深度解读
+            </h2>
+            <p className="text-sm text-ink-soft mb-8 max-w-2xl">
+              基于霍兰德经典 6 维 + 18REST-2 修订项 — 不只是"推荐"标签,先理解你自己。
+            </p>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {DIMS.map((dim, idx) => {
+                const score = result.scores[idx];
+                const level = getDimensionLevel(score);
+                const desc = DIMENSION_DESCRIPTIONS[dim];
+                const isTop3 = result.code.split(" ").slice(0, 3).some((c) => c.startsWith(dim));
+                const levelColor =
+                  level === "high"
+                    ? "bg-esther-blue text-white"
+                    : level === "mid"
+                    ? "bg-esther-yellow text-ink"
+                    : "bg-warm-bg-deep text-ink-muted";
+
+                return (
+                  <div
+                    key={dim}
+                    className={`p-5 rounded-2xl border-2 transition-all ${
+                      isTop3
+                        ? "border-esther-blue bg-card shadow-sm"
+                        : "border-border bg-card opacity-90"
+                    }`}
+                  >
+                    <div className="flex items-baseline gap-3 mb-2 flex-wrap">
+                      <span className="font-display italic text-3xl font-bold text-esther-blue">
+                        {dim}
+                      </span>
+                      <span className="text-lg font-bold text-ink">
+                        {DIMENSION_LABELS[dim].cn}
+                      </span>
+                      <span
+                        className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold ${levelColor}`}
+                      >
+                        {DIMENSION_LEVEL_LABELS[level]}
+                        <span className="ml-1 font-display italic">
+                          {score}/15
+                        </span>
+                      </span>
+                    </div>
+                    <p className="text-sm text-ink-soft mb-3 font-medium">
+                      {desc.tagline}
+                    </p>
+                    {isTop3 && (
+                      <div className="space-y-2 mt-3 pt-3 border-t border-border">
+                        <p className="text-xs text-ink-muted font-display italic">
+                          You tend to ↓
+                        </p>
+                        <ul className="space-y-1">
+                          {desc.strengths.map((s, i) => (
+                            <li
+                              key={i}
+                              className="text-xs text-ink leading-relaxed flex items-start gap-2"
+                            >
+                              <span className="text-esther-blue mt-1 text-[8px]">
+                                ●
+                              </span>
+                              {s}
+                            </li>
+                          ))}
+                        </ul>
+                        <p className="text-xs text-ink-soft mt-3 leading-relaxed">
+                          <span className="font-medium text-ink">适合方向:</span>{" "}
+                          {desc.suited}
+                        </p>
+                        <p className="text-xs text-ink-muted/80 leading-relaxed italic">
+                          <span className="font-medium">留意:</span>{" "}
+                          {desc.caution}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            <p className="text-xs text-ink-muted mt-6 italic font-display">
+              * 蓝色高亮 = 你的 Top 3 维度(优先看这 3 个) · 其他 3 维供参考
+            </p>
+          </div>
+        </section>
+
         {/* 5 正向方向 */}
         <section className="border-b border-border">
           <div className="max-w-[1100px] mx-auto px-6 py-14">
@@ -400,10 +517,28 @@ export default function Module1ResultPage() {
                       <h3 className="text-xl font-bold text-ink mb-2 leading-snug">
                         🎯 {r.role_type}
                       </h3>
-                      <div className="flex items-center gap-2 mb-3">
+                      <div className="flex items-center gap-3 mb-3 flex-wrap">
                         <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-esther-yellow/30 text-ink text-[11px] font-medium">
                           匹配度 {r.match}
                         </span>
+                        {typeof r.match_percentage === "number" && (
+                          <div className="flex items-center gap-2 flex-1 min-w-[140px] max-w-[260px]">
+                            <div className="flex-1 h-2 rounded-full bg-warm-bg-deep overflow-hidden">
+                              <div
+                                className="h-full bg-gradient-to-r from-esther-blue to-esther-yellow rounded-full transition-all duration-500"
+                                style={{
+                                  width: `${Math.min(
+                                    100,
+                                    Math.max(0, r.match_percentage)
+                                  )}%`,
+                                }}
+                              />
+                            </div>
+                            <span className="font-display italic text-sm font-bold text-esther-blue">
+                              {r.match_percentage}%
+                            </span>
+                          </div>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -499,8 +634,11 @@ export default function Module1ResultPage() {
             <p className="text-sm text-ink-muted font-display italic">
               ℹ️ 测评仅供参考,愿你的热爱与擅长终在某处相逢
             </p>
-            <p className="text-xs text-ink-muted mt-3">
-              基于霍兰德 RIASEC 职业兴趣理论
+            <p className="text-xs text-ink-muted mt-3 leading-relaxed">
+              测评基于 <span className="font-medium">18REST-2</span> 学术量表
+              (Martins et al., 2024, <em>J. Career Assessment</em> 33(1)),
+              <br />
+              结合霍兰德 RIASEC 经典 6 维理论(Holland, 1997)
             </p>
           </div>
         </footer>

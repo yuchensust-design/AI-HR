@@ -123,8 +123,9 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
+    // 18REST-2: RIASEC 题答案是 Likert 1-5 数字,兴趣 tag 是 string[]
     const { answers, previous, chip } = body as {
-      answers: Record<number, string | string[]>;
+      answers: Record<number, number | string[]>;
       previous: unknown;
       chip: string;
     };
