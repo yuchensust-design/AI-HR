@@ -37,6 +37,8 @@ export type ChatMessage = {
 
 /**
  * 通用 chat 调用 — 返回完整 response
+ *
+ * jsonMode = true 时要求模型返 JSON(prompt 里必须明示要返 JSON,否则 API 报错)
  */
 export async function chat(
   messages: ChatMessage[],
@@ -44,15 +46,22 @@ export async function chat(
     model?: keyof typeof MODELS;
     temperature?: number;
     max_tokens?: number;
+    jsonMode?: boolean;
   } = {}
 ): Promise<string> {
-  const { model = "chat", temperature = 0.7, max_tokens = 2000 } = options;
+  const {
+    model = "chat",
+    temperature = 0.7,
+    max_tokens = 2000,
+    jsonMode = false,
+  } = options;
 
   const response = await llm.chat.completions.create({
     model: MODELS[model],
     messages,
     temperature,
     max_tokens,
+    ...(jsonMode ? { response_format: { type: "json_object" as const } } : {}),
   });
 
   return response.choices[0]?.message?.content ?? "";

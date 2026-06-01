@@ -5,83 +5,62 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Nav } from "@/components/Nav";
+import {
+  RIASEC_QUESTIONS,
+  INTEREST_QUESTION,
+  INTEREST_TAGS,
+} from "@/lib/quiz-data";
 
 /**
- * 模块 1 测评答题页(简化原型版,5 题示意)
+ * 模块 1 测评答题页(v1 真实化)
  * 路由 /m1/quiz
- * 完成后 setItem('riasec_result') + redirect /m1/result
+ * 完成后 POST /api/m1/recommend → setItem('riasec_result') → redirect /m1/result
  *
- * 注:v1 原型阶段,答题不真实计算 RIASEC(后端实装时做),
- * 这里 5 题走完即可,localStorage 记录"完成过"标识,
- * result 页显示陈昊 sample 数据(已 lock 在 plan)。
+ * 题库来源:lib/quiz-data.ts(18 题 RIASEC + 1 题兴趣)
+ * 算法:plan §8.16 §D-§G 三段融合
  */
 
-const QUESTIONS = [
+type QuestionForUI =
+  | {
+      no: number;
+      text: string;
+      multi: false;
+      options: Array<{ label: string; text: string }>;
+      helper?: string;
+    }
+  | {
+      no: number;
+      text: string;
+      multi: true;
+      options: Array<{ label: string; text: string }>;
+      helper?: string;
+    };
+
+const ALL_QUESTIONS: QuestionForUI[] = [
+  ...RIASEC_QUESTIONS.map((q) => ({
+    no: q.no,
+    text: q.text,
+    multi: false as const,
+    options: q.options.map((o) => ({ label: o.label, text: o.text })),
+  })),
   {
-    no: 1,
-    text: "周末有空,你更想做什么?",
-    options: [
-      { label: "A", text: "修家里坏掉的东西 / DIY 做点小物件" },
-      { label: "B", text: "户外运动(跑步 / 爬山 / 打球)" },
-      { label: "C", text: "把家里收拾归位,东西分类" },
-      { label: "D", text: "帮朋友搬家或修个东西" },
-    ],
-  },
-  {
-    no: 2,
-    text: "看到一个有意思的现象,你的第一反应是?",
-    options: [
-      { label: "A", text: "找资料 / 查论文 弄清楚原理" },
-      { label: "B", text: "自己想几个假设,慢慢验证" },
-      { label: "C", text: "跟懂行的人聊,听他们怎么看" },
-      { label: "D", text: "等下次再观察,先放着" },
-    ],
-  },
-  {
-    no: 3,
-    text: "团队做项目时,你最常的角色是?",
-    options: [
-      { label: "A", text: "主动提议方向,带大家走" },
-      { label: "B", text: "协调资源,确保事情推进" },
-      { label: "C", text: "跟外部沟通争取支持" },
-      { label: "D", text: "找最高效的方法做事" },
-    ],
-  },
-  {
-    no: 4,
-    text: "朋友遇到困难,你通常?",
-    options: [
-      { label: "A", text: "主动找 ta 聊聊,听 ta 说" },
-      { label: "B", text: "给 ta 出主意,帮 ta 想办法" },
-      { label: "C", text: "拉 ta 一起做点事,转移注意力" },
-      { label: "D", text: "默默关心,需要时再出现" },
-    ],
-  },
-  {
-    no: 5,
-    text: "你对哪些有强烈兴趣?(可多选,沾边都算)",
-    multi: true,
-    options: [
-      { label: "🎵", text: "音乐(听歌 / 弹琴 / 鉴赏)" },
-      { label: "📸", text: "摄影与影像(拍照 / 剪片)" },
-      { label: "🎮", text: "游戏与二次元" },
-      { label: "✍️", text: "内容创作(写作 / 视频 / 播客)" },
-      { label: "🍳", text: "美食(烹饪 / 探店)" },
-      { label: "🎨", text: "设计(UI / 平面 / 产品)" },
-      { label: "📊", text: "数据 & AI" },
-    ],
+    no: INTEREST_QUESTION.no,
+    text: INTEREST_QUESTION.text,
+    multi: true as const,
+    helper: INTEREST_QUESTION.helper,
+    options: INTEREST_TAGS.map((tag) => ({ label: tag.label, text: tag.text })),
   },
 ];
-
-const TOTAL = 19; // 真实题数(原型只展示 5 题示意)
 
 export default function Module1QuizPage() {
   const router = useRouter();
   const [current, setCurrent] = useState(0);
   const [answers, setAnswers] = useState<Record<number, string | string[]>>({});
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const q = QUESTIONS[current];
-  const isLast = current === QUESTIONS.length - 1;
+  const q = ALL_QUESTIONS[current];
+  const isLast = current === ALL_QUESTIONS.length - 1;
   const isMulti = q.multi;
   const currentAnswer = answers[q.no];
   const hasAnswer = isMulti
@@ -100,20 +79,39 @@ export default function Module1QuizPage() {
     setAnswers({ ...answers, [q.no]: next });
   };
 
-  const handleNext = () => {
-    if (isLast) {
-      // 完成测评,存 localStorage,跳 result
+  const submitToBackend = async (finalAnswers: typeof answers) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/m1/recommend", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ answers: finalAnswers }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || `请求失败: ${res.status}`);
+      }
+      const data = await res.json();
       localStorage.setItem(
         "riasec_result",
         JSON.stringify({
-          completedAt: new Date().toISOString(),
-          answers,
-          // v1 原型用 sample 陈昊数据 (后端实装时真算 RIASEC)
-          riasec: [5, 8, 4, 6, 9, 5],
-          riasecCode: "E9 I8 S6 R5 C5 A4",
+          ...data,
+          answers: finalAnswers,
+          refineCount: 0,
         })
       );
       router.push("/m1/result");
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "未知错误";
+      setError(`分析失败:${msg}。可以重试。`);
+      setLoading(false);
+    }
+  };
+
+  const handleNext = () => {
+    if (isLast) {
+      submitToBackend(answers);
     } else {
       setCurrent(current + 1);
     }
@@ -127,8 +125,31 @@ export default function Module1QuizPage() {
     handleNext();
   };
 
-  // 进度(原型展示:5 题 = 100%,因为只做 5 题示意;真版本是 19 题)
-  const progress = ((current + 1) / QUESTIONS.length) * 100;
+  const progress = ((current + 1) / ALL_QUESTIONS.length) * 100;
+
+  if (loading) {
+    return (
+      <>
+        <Nav />
+        <main className="min-h-screen bg-warm-bg flex flex-col items-center justify-center px-6">
+          <div className="text-center max-w-md">
+            <div className="inline-block animate-spin w-12 h-12 border-4 border-esther-blue border-t-transparent rounded-full mb-6" />
+            <h2 className="text-xl font-bold text-ink mb-3">
+              不二正在帮你分析…
+            </h2>
+            <p className="text-sm text-ink-soft leading-relaxed">
+              根据你的 18 题答案和兴趣 tag,
+              <br />
+              从 40+ 职业方向里挑出最契合的 5 个
+            </p>
+            <p className="text-xs text-ink-muted mt-6 font-display italic">
+              通常 5-10 秒
+            </p>
+          </div>
+        </main>
+      </>
+    );
+  }
 
   return (
     <>
@@ -147,11 +168,7 @@ export default function Module1QuizPage() {
                 ← 退出测评(进度会丢)
               </Link>
               <p className="text-xs text-ink-muted font-display italic">
-                {current + 1} / {QUESTIONS.length}
-                <span className="text-ink-muted/60">
-                  {" "}
-                  · 完整 {TOTAL} 题(原型展示前 5)
-                </span>
+                {current + 1} / {ALL_QUESTIONS.length}
               </p>
             </div>
             <div className="h-1.5 rounded-full bg-warm-bg-deep overflow-hidden">
@@ -174,7 +191,7 @@ export default function Module1QuizPage() {
             </h2>
 
             {/* 选项 */}
-            <div className={`space-y-3 ${isMulti ? "" : ""}`}>
+            <div className="space-y-3">
               {q.options.map((opt) => {
                 const selected = isMulti
                   ? Array.isArray(currentAnswer) &&
@@ -211,12 +228,18 @@ export default function Module1QuizPage() {
               })}
             </div>
 
-            {isMulti && (
+            {q.helper && (
               <p className="text-xs text-ink-muted mt-4 font-display italic">
-                * 多选 · 选越多越能精准推荐
+                * {q.helper}
               </p>
             )}
           </Card>
+
+          {error && (
+            <div className="mt-4 p-4 rounded-xl bg-esther-red/5 border border-esther-red/30 text-sm text-esther-red">
+              {error}
+            </div>
+          )}
 
           {/* 控件 */}
           <div className="flex items-center justify-between mt-6 gap-4">
@@ -237,7 +260,7 @@ export default function Module1QuizPage() {
               </button>
               <button
                 onClick={handleNext}
-                disabled={!hasAnswer}
+                disabled={!hasAnswer && !isLast}
                 className="inline-flex items-center justify-center rounded-full bg-esther-blue text-white px-6 py-2.5 text-sm font-medium hover:bg-esther-blue-dark transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {isLast ? "完成 → 看推荐" : "下一题 →"}
@@ -246,8 +269,7 @@ export default function Module1QuizPage() {
           </div>
 
           <p className="text-xs text-ink-muted text-center mt-6 font-display italic">
-            * 原型只展示 5 题(覆盖 RIASEC 4 维 + 兴趣 tag)·
-            正式版 19 题约 3-4 分钟做完
+            * 共 {ALL_QUESTIONS.length} 题约 3-4 分钟 · 答不上可跳过(不致命)
           </p>
         </div>
       </main>
