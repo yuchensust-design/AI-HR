@@ -235,7 +235,7 @@ export default function Module5DebriefPage() {
 
                   <div className="flex flex-wrap items-center gap-3">
                     <Link
-                      href="/m3"
+                      href="/m3?from=debrief"
                       className="inline-flex items-center justify-center rounded-full bg-esther-blue text-white px-5 py-2 text-sm font-medium hover:bg-esther-blue-dark transition-colors"
                     >
                       ✓ 采纳 → 跳简历优化
@@ -244,7 +244,7 @@ export default function Module5DebriefPage() {
                       ✗ 不采纳
                     </button>
                     <p className="text-[11px] text-ink-muted ml-auto">
-                      采纳后可点「返回复盘」回来继续看
+                      简历优化页顶部有「← 返回复盘」按钮
                     </p>
                   </div>
                 </Card>

@@ -84,12 +84,37 @@ const SAMPLE_RESUME = {
   ],
 };
 
-export default function Module3Page() {
+export default async function Module3Page({
+  searchParams,
+}: {
+  searchParams: Promise<{ from?: string }>;
+}) {
+  const params = await searchParams;
+  const fromDebrief = params.from === "debrief";
+
   return (
     <>
       <Nav />
       <main className="min-h-screen bg-warm-bg" id="top">
         <div className="h-20" />
+
+        {/* 从复盘跳来时:顶部固定的返回 banner */}
+        {fromDebrief && (
+          <section className="bg-esther-yellow/40 border-b-2 border-esther-yellow">
+            <div className="max-w-[1200px] mx-auto px-6 py-3 flex items-center justify-between gap-4 flex-wrap">
+              <p className="text-sm text-ink flex items-center gap-2">
+                <span className="text-base">↩️</span>
+                你刚刚从「模拟面试复盘」跳过来 — 看完简历可以回去继续看剩下复盘
+              </p>
+              <Link
+                href="/m5/debrief"
+                className="inline-flex items-center justify-center rounded-full bg-esther-blue text-white px-5 py-2 text-sm font-medium hover:bg-esther-blue-dark transition-colors shadow-sm whitespace-nowrap"
+              >
+                ← 返回复盘
+              </Link>
+            </div>
+          </section>
+        )}
 
         {/* 顶部 */}
         <section className="border-b border-border">
