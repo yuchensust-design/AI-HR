@@ -391,6 +391,65 @@ npm install pdfjs-dist mammoth docx
 
 ---
 
+#### 🛑 Step 0(阻塞):调研对比 + 整合方案 — 不完成不能开始写代码
+
+**任务**:下面 9 个候选 skill / 仓库都跟"简历优化"相关。**你要逐个调研,评估优劣,写出"采用 / 借鉴 / 不用"的整合方案**,跟用户确认后再开干。
+
+##### 候选清单(必须每个都看一眼)
+
+| # | 名称 | URL | License | 一句话定位 | 已知关键点 |
+|---|---|---|---|---|---|
+| 1 | **lib/prompts/skill-matching** + refs/ | 已搬入仓 `offer-catcher-web/lib/prompts/skill-matching.md`(79 行) + `skill-matching-refs/*`(480 行) | 项目内 | 我们自己的 Skill 3 — 5 phase 完整 SOP,plan §A.1 lock 的主流程 | 这是**主框架**,不可替换;其他 skill 是补充 |
+| 2 | **Echo-Smith/tencent-campus-recruit-generic** | https://github.com/Echo-Smith/tencent-campus-recruit-generic | **MIT** ✅ | 腾讯校招特化 — 提炼自 WorkBuddy 平台,2026-04 更新 | `references/resume-guide.md`(6.7KB,STAR + 6 误区 + 表达优化 + 院校中性) / `interview-prep.md`(11.6KB,模块 C 用) / `job-database.md`(6.4KB) / `scripts/fetch_recruit_jds.py`(抓 join.qq.com,不入 Web) |
+| 3 | **wyh0626/resume-optimizer** | https://github.com/wyh0626/resume-optimizer | 待 check | "So what?" 5 步深度审计 + STAR 重写,**校招社招都支持** | 强项是 review 已有简历的"句句质疑",我们 Phase 5 之后做 candidate bullets 优化时可借鉴 |
+| 4 | **Paramchoudhary/ResumeSkills**(20 skill 合集) | https://github.com/Paramchoudhary/ResumeSkills | 待 check | 20 个 AI agent skill — resume-bullet-writer / resume-ats-optimizer / resume-section-builder / executive-resume-writer / tech-resume-optimizer 等 | plan 里 §1.2 多次提及作"下游 ResumeSkills";原本设计是 Skill 3 handoff 给其中某个;**重点看 resume-bullet-writer 和 ats-optimizer** |
+| 5 | **chen3tu/interview-master-skill** | https://github.com/chen3tu/interview-master-skill | 待 check | 全流程面试准备 + 求职决策系统(中文 Claude Skill) | 主要给模块 C 用,但简历优化可能也有副产物模板 |
+| 6 | **liyupi/yupi-skill**(鱼皮 skill) | https://github.com/liyupi/yupi-skill | 待 check | 程序员鱼皮的 agent skill — 编程学习/求职/AI 编程/简历优化/技术选型 | 中文程序员视角,STAR 写法 + 大厂简历评估;考察"是不是会跟我们风格冲突" |
+| 7 | **srbhr/Resume-Matcher** | https://github.com/srbhr/Resume-Matcher | **Apache 2.0** ✅ | LLM 简历 + JD 匹配重写,Reader LLM 对比排序 | **可读 prompt**,JD 匹配思路可借鉴(Phase 2),不 fork 代码 |
+| 8 | **xitanggg/open-resume** | https://github.com/xitanggg/open-resume | **AGPL-3.0** ❌ 不能 fork | client-side PDF parser(PDF.js) + ATS 检测 + react-pdf 生成 | **只看 UI 设计 + 解析算法思路**,不抄代码;PDF 解析我们用同款 pdfjs-dist |
+| 9 | **olyaiy/resume-lm** | https://github.com/olyaiy/resume-lm | **AGPL-3.0** ❌ 不能 fork | Next.js 15 + React 19 + Tailwind(同栈)wizard 流程 + AI tailor | **只看 wizard UX**,跟我们 5 phase 进度条对比借鉴;不 fork |
+
+##### 评估每个时,问这 6 个问题
+
+1. **License 安不安全?**(MIT/Apache/BSD = 可用 / AGPL = 只能视觉参考 / 没标 = 写 README 找作者授权或不用)
+2. **内容质量?**(随便看 SKILL.md + README,有没有空洞口号 / 有没有"零编造""不夸大"等纪律)
+3. **跟我们 plan §A.1 + §B + §改进 1-8 契合度?**(是不是同一种"不审判 / 院校中性 / Anti-fabrication"风格)
+4. **能直接用的部分?**(prompt 文本嵌入 / 算法思路 / 数据库 / npm 包 / UI 模板)
+5. **不能用的部分?**(license 冲突 / 风格冲突 / 太特化没意义 / 跟"永远不推公司名"硬约束冲突)
+6. **怎么组合?**(主框架 = #1 我们自己的;补充 = 哪几条;舍弃 = 哪几条 + 理由)
+
+##### 输出格式 — 写 `docs/B-skill-research-report.md`
+
+```markdown
+# 模块 B 简历优化 skill 调研报告
+
+## 1. 主框架
+采用 lib/prompts/skill-matching.md + refs/(理由:...)
+
+## 2. 补充借鉴
+- 从 #X 拷 references/Y.md 到 lib/prompts/external/(理由 + 嵌入哪个 endpoint 的 prompt)
+- 从 #Z 借鉴算法 thinking(不抄代码)
+- ...
+
+## 3. 舍弃
+- #N 不用,因为(license / 风格冲突 / 重复)
+- ...
+
+## 4. 整合方案
+- Phase 1 parse-resume:用主框架 + 嵌入 #X.references.Y 的某段
+- Phase 2 parse-jd:用主框架 + 借鉴 #7 (Resume-Matcher) 的 JD 拆解 prompt 思路
+- Phase 5 generate-resume:用主框架 + 嵌入 #2 (tencent) resume-guide.md 通用部分(STAR + 误区) + 用户 JD 含腾讯时额外嵌入腾讯特化部分
+- ...
+```
+
+##### 提交报告后
+
+跟用户确认这份调研报告 → 用户给"go"后才能 begin coding。
+
+**不能跳过**:不调研直接写 = NIH 风险高,最终 prompt 质量低于复用现成 skill。这是用户明确的方法论要求(2026-06-01)。
+
+---
+
 #### PRD 关键章节
 - `03-产品PRD.md` §3.3 模块 3(简历整理)
 - §3.3.5 5 phase 详述
