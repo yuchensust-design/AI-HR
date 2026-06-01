@@ -327,6 +327,113 @@ export default async function Module3Page({
             <p className="text-xs text-ink-muted text-center font-display italic">
               字体:思源黑体 / 苹方 fallback · 1 页 · 无彩色 · 直接投递
             </p>
+
+            {/* ASK AI 对话区(简历预览下方) */}
+            <Card className="border-2 border-esther-yellow/60 bg-warm-bg-deep/30 overflow-hidden mt-6">
+              <div className="bg-esther-yellow/30 px-5 py-3 border-b border-esther-yellow/60 flex items-center gap-2">
+                <span className="text-base">💬</span>
+                <p className="text-sm font-semibold text-ink">
+                  跟 AI 继续聊 — 改 / 补充 / 调整
+                </p>
+                <span className="ml-auto inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium bg-card text-ink-muted border border-border">
+                  对话历史
+                </span>
+              </div>
+
+              <div className="p-5 space-y-4 max-h-[420px] overflow-y-auto">
+                {/* 用户消息 1 */}
+                <div className="flex gap-3 flex-row-reverse">
+                  <div className="w-8 h-8 rounded-full bg-esther-yellow/40 flex items-center justify-center text-sm flex-shrink-0">
+                    👤
+                  </div>
+                  <div className="max-w-[80%] p-3 rounded-2xl rounded-tr-sm bg-esther-yellow text-ink text-sm leading-relaxed">
+                    我之前还做过一个山区支教志愿者,3 个月,带 12 个学生数学。这要不要加?
+                  </div>
+                </div>
+
+                {/* AI 回复 1 */}
+                <div className="flex gap-3">
+                  <div className="w-8 h-8 rounded-full bg-esther-blue/15 flex items-center justify-center text-sm flex-shrink-0">
+                    🤖
+                  </div>
+                  <div className="max-w-[80%] space-y-2">
+                    <div className="p-3 rounded-2xl rounded-tl-sm bg-card border border-border text-sm text-ink leading-relaxed">
+                      要加。这跟你的「字节数据分析」形成
+                      <span className="bg-esther-yellow/40" style={{ padding: "0 0.15em" }}>
+                        「人本 + 数据」双能力
+                      </span>
+                      ,AI PM 招人正喜欢这种。我建议在「项目经验」加一条 ↓
+                    </div>
+                    <div className="p-3 rounded-xl bg-warm-bg-deep border-l-4 border-esther-blue">
+                      <p className="text-[11px] text-ink-muted mb-1.5 font-display italic">
+                        拟稿:
+                      </p>
+                      <p className="text-sm text-ink leading-relaxed">
+                        山区支教志愿者 · 12 名高中学生数学辅导 · 3 个月持续跟进
+                        <br />
+                        · 设计针对性练习,期末数学平均提升 22 分
+                        <br />
+                        · 跟家长沟通学情,撰写 3 份学习分析报告
+                      </p>
+                    </div>
+                    <div className="flex gap-2 flex-wrap">
+                      <button className="inline-flex items-center justify-center rounded-full bg-esther-blue text-white px-4 py-1.5 text-xs font-medium hover:bg-esther-blue-dark transition-colors">
+                        ✓ 采纳 加进简历
+                      </button>
+                      <button className="inline-flex items-center justify-center rounded-full border border-border bg-card text-ink-soft px-4 py-1.5 text-xs hover:border-esther-blue transition-colors">
+                        ✗ 我自己改
+                      </button>
+                      <button className="inline-flex items-center justify-center rounded-full border border-border bg-card text-ink-soft px-4 py-1.5 text-xs hover:border-esther-blue transition-colors">
+                        🔁 换个拟法
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 用户消息 2 */}
+                <div className="flex gap-3 flex-row-reverse">
+                  <div className="w-8 h-8 rounded-full bg-esther-yellow/40 flex items-center justify-center text-sm flex-shrink-0">
+                    👤
+                  </div>
+                  <div className="max-w-[80%] p-3 rounded-2xl rounded-tr-sm bg-esther-yellow text-ink text-sm leading-relaxed">
+                    那「实习经历」第 1 条 bullet 能不能再短一点?现在看着太长了
+                  </div>
+                </div>
+
+                {/* AI 回复 2 */}
+                <div className="flex gap-3">
+                  <div className="w-8 h-8 rounded-full bg-esther-blue/15 flex items-center justify-center text-sm flex-shrink-0">
+                    🤖
+                  </div>
+                  <div className="max-w-[80%] p-3 rounded-2xl rounded-tl-sm bg-card border border-border text-sm text-ink leading-relaxed">
+                    OK。原版:「主导用户增长漏斗分析,定位关键流失节点,推动 DAU 留存率提升 18%」
+                    <br />
+                    精简版:
+                    <span className="bg-esther-yellow/40" style={{ padding: "0 0.15em" }}>
+                      「主导用户增长漏斗分析,DAU 留存率提升 18%」
+                    </span>
+                    — 关键数字保留,中间链路去掉。要不?
+                  </div>
+                </div>
+              </div>
+
+              {/* 输入框 */}
+              <div className="border-t border-border bg-card p-4">
+                <div className="flex items-end gap-2">
+                  <textarea
+                    placeholder="继续改 / 补充 — 例如「项目经验里加一条志愿者经历」「学历部分换个顺序」"
+                    rows={2}
+                    className="flex-1 px-4 py-2.5 rounded-xl border border-border bg-warm-bg text-sm text-ink placeholder-ink-muted focus:outline-none focus:border-esther-blue resize-none"
+                  />
+                  <button className="flex-shrink-0 inline-flex items-center justify-center rounded-full bg-esther-blue text-white px-5 py-2.5 text-sm font-medium hover:bg-esther-blue-dark transition-colors">
+                    发送 →
+                  </button>
+                </div>
+                <p className="text-[11px] text-ink-muted mt-2 leading-relaxed">
+                  💡 提示:每改一次都会更新右上方的简历预览;不满意可以一句话回退
+                </p>
+              </div>
+            </Card>
           </div>
         </div>
 
