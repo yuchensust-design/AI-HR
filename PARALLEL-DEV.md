@@ -37,7 +37,33 @@
 | 6 | **不要 commit `.env.local`**(已在 .gitignore) | 所有 |
 | 7 | **JSON mode prompt 必须明示"返 JSON"**(否则 DeepSeek 报错) | 任何用 LLM 出 JSON 的 |
 
-### 0.4 4 套思辨纪律(模块开发时要内化进 prompt)
+### 0.4 第一性原理 + 站在巨人肩膀上(强制方法论)
+
+**写代码前 30 分钟先调研:你这模块的功能,有没有现成的 skill prompt / 开源 npm / 公开数据 已经做了 80%?**
+
+1. **优先复用 `lib/prompts/`** — 3 个 skill 完整 prompt 已搬入仓:
+   - `skill-matching.md` + refs/(5-phase 简历整理)— 模块 B 用
+   - `skill-excavating.md` + refs/(6-phase 经历挖掘)— 模块 E.1 用,模块 C 行为面追问参考
+   - `skill-designing-bridge.md` + refs/(5-phase 项目设计)— 模块 E.2 用
+   - **写 system prompt 时 fs.readFile 嵌入对应 .md 段,不要重新设计 phase 流程**
+2. **优先 MIT/Apache/BSD license npm 包** — 已知好用的:
+   - `pdfjs-dist`(Apache 2.0)PDF → text(client-side)
+   - `mammoth`(BSD-2)Word → text(client-side)
+   - `docx`(MIT)markdown → .docx 生成(server-side)
+   - `react-markdown`(MIT)markdown → HTML 渲染
+   - `recharts`(MIT)dashboard 图表
+3. **AGPL 项目仅可视觉/UX 参考,不能 fork 代码**(病毒条款污染本项目)
+   - OpenResume / resume-lm:看 UI 设计思路,不抄代码
+4. **WebSearch 兜底**:模糊的方向都先 WebSearch 一次,看 GitHub 有没有同类 skill / repo
+
+**Anti-pattern**:
+- ❌ 自己重新设计 5 phase 流程(prompt 已有)
+- ❌ 自写 PDF/Word parser(npm 已有)
+- ❌ 自写 docx 序列化(npm 已有)
+- ❌ "我觉得 prompt 这样写更好"(skill .md 是 4 轮 review 稳定版,只能在 plan §X.X lock 的修改方向上 override)
+- ❌ 不调研就开干
+
+### 0.5 4 套思辨纪律(模块开发时要内化进 prompt)
 
 - **Skeptical Recruiter**:关键产出前 AI 扮演怀疑 HR 提 3 weak spot
 - **Anti-fabrication**:项目未完成不能加简历 / 不替用户编故事
@@ -288,27 +314,110 @@ cd ../oc-A-quiz-tune && npm install && cp ../offer-catcher-web/.env.local . && n
 - ⚠️ 完全没接 LLM,全是静态展示
 - ✅ 收到 `from=debrief` searchParam → 显示返回 banner(双向闭环来路)
 
+---
+
+#### ⚠️ 第一性原理 + 站在巨人肩膀上(强制)
+
+**不要重新发明轮子**。本模块 95% 的工作 = **复用已有 prompt + 接 3 个开源 npm 包**。
+
+##### 复用 1:已有的 Skill 3 完整 prompt
+
+`offer-catcher-web/lib/prompts/skill-matching.md` 已写好 Skill 3 的:
+- Voice / Overview / When to Use / 5-Phase SOP 总览
+- Handoff Decision Table
+- Common Patterns / Red Flags
+
+`offer-catcher-web/lib/prompts/skill-matching-refs/question-batteries.md` 已写好每 phase 的:
+- Phase 1 简历解析 Opener + 解析步骤
+- Phase 2 派生候选岗位池 + priority score + 不足分析
+- **Phase 3 选择题完整模板**(通用模板 + 字节音乐业务举例)
+- Phase 4 时间预算分流(< 1 周突击 / 1-4 周中期 / ≥ 1 月长期)
+- Phase 5 综合输出 + 路由
+
+`offer-catcher-web/lib/prompts/skill-matching-refs/multiple-choice-design.md`(166 行)— Phase 3 选择题设计 5 条原则(沾边都算 / 4+1 填空 / 双维度 / 不审判 / follow-up 深挖)。
+
+`offer-catcher-web/lib/prompts/skill-matching-refs/red-flags-and-rationalizations.md` — Anti-fabrication 防偷工减料表。
+
+`offer-catcher-web/lib/prompts/skill-matching-refs/matched-jobs-template.md` — 输出 schema 模板。
+
+**写 API endpoint 的 system prompt 时:直接 cat 这些 .md 文件拼到 prompt 里,不要重新设计 phase 流程**。例:
+
+```typescript
+import { promises as fs } from "fs";
+import path from "path";
+
+const PROMPT_BASE = path.join(process.cwd(), "lib/prompts/skill-matching-refs");
+
+async function loadQuestionBatteries() {
+  return await fs.readFile(
+    path.join(PROMPT_BASE, "question-batteries.md"),
+    "utf-8"
+  );
+}
+
+// 在 SYSTEM prompt 里嵌入相应 phase section
+```
+
+##### 复用 2:开源 npm 包(MIT/BSD,可商用)
+
+| npm 包 | License | 用途 | 替代什么 |
+|---|---|---|---|
+| **`pdfjs-dist`** | Apache 2.0 | client-side PDF → text 提取 | 自写 PDF parser(几百行) |
+| **`mammoth`** | BSD-2-Clause | client-side Word(.docx) → text 提取 | 自写 docx parser |
+| **`docx`** | MIT | server-side markdown/JSON → .docx 生成 | 自写 docx 序列化 |
+
+**这 3 个 npm install 就完事**:
+```bash
+npm install pdfjs-dist mammoth docx
+```
+
+##### 视觉/UX 参考(只看不 fork)
+
+| 项目 | URL | License | 借鉴什么 |
+|---|---|---|---|
+| **OpenResume** | https://github.com/xitanggg/open-resume | AGPL-3.0(**不能 fork**) | client-side parser 思路 / ATS 检测维度 / 简历模板版式 |
+| **resume-lm** | https://github.com/olyaiy/resume-lm | AGPL-3.0(**不能 fork**) | Next.js 15 + React 19 + Tailwind 4(跟我们同栈) wizard 流程设计 |
+| **Resume-Matcher** | https://github.com/srbhr/Resume-Matcher | Apache 2.0 | LLM-based 简历 + JD 匹配 prompt 思路 |
+
+**做法**:打开它们网页或 GitHub 仓库,看 UI 截图和 README 描述,**不要 fork 代码**(AGPL 病毒条款会强制本项目也变 AGPL)。Resume-Matcher 可以读 prompt design 学习。
+
+##### Anti-pattern(违反 = 退回)
+
+- ❌ 自己重新设计 5 phase 流程(已经在 lib/prompts 里写好,直接抄)
+- ❌ 自写 PDF/Word parser(用 pdfjs-dist + mammoth)
+- ❌ 自写 docx 序列化(用 docx npm)
+- ❌ Fork AGPL 项目代码(license 污染)
+- ❌ "我觉得 prompt 这样写更好"(skill-matching.md 是 4 轮 review 后的稳定版,不要轻易动设计;**只能在 plan §A.1 lock 的修改方向上 override**)
+
+---
+
 #### PRD 关键章节
 - `03-产品PRD.md` §3.3 模块 3(简历整理)
 - §3.3.5 5 phase 详述
 - §3.3.6 输出 = 1 份整理好的简历(默认),3 个补充产物按需 unlock(改进 1)
 
-#### plan 关键决议
-- §A.1 Skill 3 5 个 Phase 输出 / 交互重构(★)
-- §A.1 Q1/Q2(中间数据不存 .md,只存 localStorage)
-- §C "对,公司维度的权重可以不那么高"(JD : 公司 = 80 : 20)
-- §D.1 PDF 解析方案(粘贴 > pdfplumber > 截图多模态)
+#### plan 关键决议(**override skill-matching.md 的 4 处**)
+- **§A.1 Skill 3 5 个 Phase 输出 / 交互重构 ★** — 关键!skill-matching.md 写"5 phase 各产出 1 个 .md",但 plan §A.1 lock:
+  - Phase 1:产出 `parsed_resume`(localStorage,不存 .md)
+  - Phase 2-3:**全部进 localStorage 结构化**(`jd_summary` / `jd_requirements_parsed` / `match_highlights` / `hidden_experience_candidates`),**不存 .md 文件**
+  - Phase 4:可选,用户主动询问"按需 unlock" (改进 1)
+  - Phase 5:**默认 = 1 份整理好的简历**(.docx + .md),**不再 4 个 artifact**
+- §C 公司维度权重低 → JD : 公司 = 80 : 20
+- §D.1 PDF 解析:粘贴优先 → 失败明示用户(不瞎猜)→ 引导上传截图(多模态)
 - §D.6 简历内容必须含 Phase 2/3 对话挖到的隐藏经验
-- §E.1 Word 版式(1 页 / 思源黑体 / 12pt 章节 / 10.5pt 正文 / 1.2 行距 / 黑白)
-- §8.12 §B.1 模块 3 Phase 2/3 中间数据必须 **结构化落 localStorage**(`jd_summary` / `jd_requirements_parsed` / `match_highlights` / `hidden_experience_candidates`)
-- §改进 5 candidate bullets 自动产出(Skill 3 在 Phase 5 末尾直接产 3-5 候选 bullet)
+- §E.1 Word 版式:1 页 / 思源黑体或 fallback / 章节标题 12pt / 正文 10.5pt / 1.2 行距 / 黑白
+- §改进 5 **candidate bullets 自动产出**:Phase 5 末尾直接产 3-5 候选 bullet(STAR / X-Y-Z),用户直接 copy
+- §8.12 §B.1 中间数据**结构化落 localStorage** 关键字段名:`jd_summary` / `jd_requirements_parsed` / `match_highlights` / `hidden_experience_candidates`
 
-#### 已有文件清单
-- `app/m3/page.tsx` — 现有 stub
-- `lib/prompts/skill-matching.md` — Skill 3 完整 prompt(读这个理解 5 phase 含义)
-- `lib/prompts/skill-matching-refs/*` — references(question batteries 等)
-- `lib/llm.ts` — DeepSeek wrapper
-- `lib/use-local-state.ts` — STORAGE_KEYS 含 PARSED_RESUME / JD_CONTEXT / HIDDEN_EXPERIENCES / FINAL_RESUME
+#### 已有文件清单(读这些理解现状)
+- `app/m3/page.tsx` — 现有 stub(444 行)
+- `lib/prompts/skill-matching.md`(79 行) — Skill 3 SKILL.md(看 5 phase 总览)
+- `lib/prompts/skill-matching-refs/question-batteries.md`(189 行) — **每 phase 的精确提问模板**(写 prompt 直接用)
+- `lib/prompts/skill-matching-refs/multiple-choice-design.md`(166 行) — Phase 3 选择题设计原则
+- `lib/prompts/skill-matching-refs/matched-jobs-template.md`(70 行) — matched-jobs 输出 schema
+- `lib/prompts/skill-matching-refs/red-flags-and-rationalizations.md` — Anti-fabrication
+- `lib/llm.ts` — DeepSeek wrapper(复用 chat() + jsonMode)
+- `lib/use-local-state.ts` — STORAGE_KEYS 已有 PARSED_RESUME / JD_CONTEXT / HIDDEN_EXPERIENCES / FINAL_RESUME
 
 #### 待新建/修改的文件
 
@@ -321,11 +430,16 @@ app/m3/
 ├── result/page.tsx       新:Phase 5 最终简历预览 + Word 下载
 
 app/api/m3/
-├── parse-resume/route.ts 新:Phase 1 解析简历文本 → 结构化 JSON
-├── parse-jd/route.ts     新:Phase 2 解析 JD + 匹配度 → JSON
-├── excavate/route.ts     新:Phase 3 对话挖掘 (chat 风格,messages[] 进出)
-├── generate-resume/route.ts 新:Phase 5 综合产出 markdown + 候选 bullets
-├── export-docx/route.ts  新:Phase 5 markdown → docx(npm 装 docx 库,server-side 生成)
+├── parse-resume/route.ts   新:Phase 1 解析简历文本 → 结构化 JSON
+├── parse-jd/route.ts       新:Phase 2 解析 JD + 匹配度 → JSON
+├── excavate/route.ts       新:Phase 3 对话挖掘(chat 风格)
+├── generate-resume/route.ts 新:Phase 5 综合产出 markdown + candidate_bullets
+├── export-docx/route.ts    新:markdown → .docx 用 docx npm 包
+
+lib/
+├── pdf-extract.ts          新:client-side PDF.js helper(wrap pdfjs-dist)
+├── docx-extract.ts         新:client-side Word helper(wrap mammoth)
+└── docx-build.ts           新:server-side markdown → docx(用 docx 包)
 
 components/
 ├── ResumePhaseProgress.tsx  新:5 phase 进度条(从现 m3/page.tsx 拆)
@@ -335,81 +449,106 @@ components/
 
 #### LLM 调用要点(每 endpoint 一段)
 
-**parse-resume** — 输入用户粘贴的简历文本,JSON 输出:
-```
+**所有 endpoint 的 SYSTEM prompt 要做的事**:
+1. 读对应 `lib/prompts/skill-matching-refs/question-batteries.md` 的 Phase X section
+2. 加 PRD/plan override 段(§A.1 修改 lock)
+3. 加 JSON schema 严格要求(jsonMode: true)
+4. 加 Anti-fabrication 提醒(没的不编造,简历里没有的 field 输出 null)
+
+**parse-resume** — 输入用户粘贴 / PDF/Word 提取后的简历 raw text,JSON 输出:
+```typescript
 {
-  basic: { name, phone, email, school, major, gpa },
-  education: [...],
-  experience: [{ org, role, period, bullets: [...] }],
-  projects: [{ name, period, role, bullets: [...] }],
-  skills: [...]
+  basic: { name, phone, email, school, major, gpa, year_level },
+  education: [{ school, major, period, gpa, courses[] }],
+  experience: [{ org, role, period, bullets: string[] }],
+  projects: [{ name, period, role, tech_stack[], bullets: string[] }],
+  activities: [{ org, role, period, bullets: string[] }],
+  skills: { languages[], frameworks[], tools[], domain[] }
 }
 ```
+- prompt 嵌入 question-batteries.md 的 "Phase 1 解析步骤" 段
 - 用 `jsonMode: true`
-- prompt 硬约束:**不允许幻觉**,简历里没有的字段输出 null,不编造
+- 缺失字段输出 null,**绝不编造**
 
 **parse-jd** — 输入 JD 文本 + parsed_resume,JSON 输出:
-```
+```typescript
 {
-  jd_summary: "1 句话核心要求",
-  must_have: [...],      // 硬性要求
-  nice_to_have: [...],   // 加分项
-  match_highlights: [{ user_strength, jd_requirement, why_match }],  // 已匹配
-  gaps: [{ jd_requirement, why_gap }]                                // 未匹配
+  jd_summary: string,           // 1 句话核心要求
+  must_have: string[],          // 硬性要求
+  nice_to_have: string[],       // 加分项
+  jd_requirements_parsed: [     // 细化拆解(plan §8.12 §B.1 key 名)
+    { type: "tech" | "soft" | "tool" | "domain", text }
+  ],
+  match_highlights: [{ user_strength, jd_requirement, evidence }],
+  gaps: [
+    { jd_requirement, why_gap, fixable: "易补 < 2 周" | "中等 1-2 月" | "难补 ≥ 3 月" }
+  ],
+  priority_score: 1-5
 }
 ```
+- prompt 嵌入 question-batteries.md 的 "Phase 2 派生候选岗位池" + "Step 2 priority score" 段
 - JD : 公司业务 = 80 : 20(plan §C)
-- gaps 字段是 Phase 3 挖掘 + 改进 5 的入口
+- 如果 JD 写得模糊 / 用户只给岗位名 → 用 WebSearch 兜底拿真实 JD(plan §A.1 Phase 2 决议)
 
-**excavate** — Phase 3 选择题对话挖隐藏经验:
-- 输入 messages[] + parsed_resume + gaps,输出下一题(4 选项 + 1 填空,沾边都算)
-- prompt 内化 Skeptical Recruiter:质疑用户"100 个用户是真的吗"
-- 用户每选 1 答 → 后端把"挖到的素材"写入 `hidden_experience_candidates` localStorage
-- 退出对话条件:用户连续 3 个"跳过"或用户点"够了"按钮
+**excavate** — Phase 3 选择题挖隐藏经验:
+- 输入 messages[] + parsed_resume + jd_context.gaps,流式输出下一题
+- prompt 直接嵌入 question-batteries.md "Phase 3" 全段(含字节音乐业务举例)
+- 严格用 4 选项 + 1 填空 + "都没有" 第 6 选项 模板
+- 用户每答 1 题 → 后端把"挖到的素材"转 STAR 形态写 `hidden_experience_candidates`
+- 退出:用户连续 3 个"都没有" 或 用户点"够了"按钮 或 ≥ 5 个新 STAR 收集到
 
 **generate-resume** — Phase 5 综合:
 - 输入 parsed_resume + jd_context + hidden_experience_candidates
 - 输出:
-  ```
+  ```typescript
   {
-    markdown: "完整简历 markdown",
-    candidate_bullets: ["bullet1", "bullet2", ...]  // 5 个候选(改进 5)
+    markdown: string,                  // 完整简历 markdown(plan §E.1 版式约束)
+    candidate_bullets: [               // 改进 5: 3-5 个候选 bullet
+      { source: "original" | "hidden", text, star_breakdown }
+    ],
+    optimization_summary: string       // "本次调整了 N 处,主要..."
   }
   ```
-- prompt 内化 Anti-fabrication:hidden 经验里如果是"未完成项目"必须标 ⚠️
+- prompt 嵌入 question-batteries.md "Phase 5 综合输出" 段
+- 内化 Anti-fabrication:hidden 经验里如果是"未完成项目"必须标 ⚠️(skill-designing-bridge.md 的纪律 2)
 
-**export-docx** — server-side `docx` npm 包(`pnpm add docx`)生成 .docx 文件流返回。
+**export-docx** — 输入 markdown → 返 .docx Blob:
+- 用 `docx` npm 包 server-side 生成
+- 版式照 plan §E.1:1 页 / 思源黑体 fallback / 章节标题 12pt 加粗 / 正文 10.5pt / 1.2 行距 / 黑白
 
 #### localStorage schema 新增
 
-| key | value |
+| key(plan §8.12 §B.1 lock) | value |
 |---|---|
 | `parsed_resume` | parse-resume 输出 |
-| `jd_context` | parse-jd 输出 |
-| `hidden_experience_candidates` | excavate 累积 |
-| `final_resume` | { markdown, lastUpdated, candidate_bullets } |
-
-(对齐 `lib/use-local-state.ts` STORAGE_KEYS)
+| `jd_context` | parse-jd 输出(含 jd_summary / jd_requirements_parsed / match_highlights / gaps) |
+| `hidden_experience_candidates` | excavate 累积的 STAR 列表 |
+| `final_resume` | { markdown, candidate_bullets, optimization_summary, lastUpdated } |
 
 #### UI 关键交互
 - Phase 进度条永远在顶部(5 个圆点 + 当前高亮)
 - Phase 之间可回退(localStorage 里有的 phase 都能跳)
 - 任何 phase 完成后右下角"下一步"按钮 → 推进
-- Phase 5 完成后:Word 下载按钮 + "练一场模拟面试 →" CTA(跳 /m5)
+- Phase 1 上传 PDF/Word → **client-side**(pdfjs-dist / mammoth)提取 text → 发 API parse(避免 server 处理二进制)
+- Phase 3 选择题用 multi-select chip,沾边都算
+- Phase 5 完成后:Word 下载按钮 + "练一场模拟面试 →" CTA(跳 /m5)+ 简历 markdown 内嵌预览(用 react-markdown)
 
 #### 验证 checklist
 - 真粘贴 1 份学生简历 + 1 段 JD,全 phase 跑通无 LLM 报错
-- 输出 markdown 含 Phase 3 挖到的隐藏经验
-- Word 下载 .docx,Office 打开版式正常
-- 双向闭环:`/m3?from=debrief` 显示 banner,从 banner 跳回 /m5/debrief
+- 输出 markdown 含 Phase 3 挖到的隐藏经验(grep 验证)
+- candidate_bullets 至少 3 个(plan 改进 5)
+- Word 下载 .docx,Office 打开版式正常,**单页**
+- PDF 上传 → 提取文字 → 跳 parse-resume 成功
+- 双向闭环:`/m3?from=debrief` 显示 banner
 - build 0 错
+- **grep 验证无公司名露出**:`curl POST /api/m3/parse-jd ... | grep -E '阿里|腾讯|字节|...'` → JD 里有公司名 OK(用户输入),输出 jd_summary 里不应该出现
 
 #### git worktree
 ```bash
 cd ~/Documents/Project/AI-HR/offer-catcher-web
 git worktree add ../oc-B-resume -b feat/B-resume main
 cd ../oc-B-resume && npm install && cp ../offer-catcher-web/.env.local . && \
-  npm install docx && \
+  npm install pdfjs-dist mammoth docx react-markdown && \
   npm run dev -- -p 3002
 ```
 
