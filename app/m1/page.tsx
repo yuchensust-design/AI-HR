@@ -210,11 +210,7 @@ export default function Module1ResultPage() {
               3 个推荐方向(按贴合度排)
             </h2>
             <p className="text-sm text-ink-soft mb-10 max-w-2xl">
-              我们只推
-              <span className="bg-esther-yellow/40" style={{ padding: "0 0.15em" }}>
-                行业方向 + 职位类型
-              </span>
-              ,不绑具体公司名 — 你拿着这个方向,自己去 BOSS / 拉勾筛公司更合理。
+              下面 3 个方向是基于你的测评 + 经历的双维度判断 — 拿着方向去看具体岗位 / 整理简历都更聚焦。
             </p>
 
             <div className="space-y-5">
@@ -326,7 +322,7 @@ export default function Module1ResultPage() {
               ℹ️ 测评仅供参考,愿你的热爱与擅长终在某处相逢
             </p>
             <p className="text-xs text-ink-muted mt-3">
-              基于霍兰德 RIASEC 职业兴趣理论 · 推荐永不绑定具体公司名
+              基于霍兰德 RIASEC 职业兴趣理论
             </p>
           </div>
         </footer>
