@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { ResetQuizButton } from "@/components/ResetQuizButton";
 import { Nav } from "@/components/Nav";
 import { BuerFloatingButton } from "@/components/BuerFloatingButton";
 import { RIASECRadar } from "@/components/RIASECRadar";
@@ -114,12 +115,7 @@ export default function Module1ResultPage() {
               >
                 ← 回首页
               </Link>
-              <Link
-                href="/m1/quiz"
-                className="inline-flex items-center gap-1 text-sm text-esther-blue hover:underline"
-              >
-                🔁 重新测一次
-              </Link>
+              <ResetQuizButton />
             </div>
             <Badge className="bg-esther-yellow text-ink hover:bg-esther-yellow/90 mb-3 px-3 py-1 text-xs font-medium">
               模块 01 · 兴趣岗位发现
@@ -307,13 +303,13 @@ export default function Module1ResultPage() {
             </div>
 
             <div className="mt-8 flex flex-wrap items-center justify-between gap-4">
-              <p className="text-xs text-ink-muted">
+              <p className="text-xs text-ink-muted flex items-center flex-wrap gap-1">
                 也可以选择 →
-                <button className="ml-2 underline text-ink-soft hover:text-esther-blue">
+                <ResetQuizButton className="ml-1 underline text-ink-soft hover:text-esther-blue text-xs">
                   重新做一次测评
-                </button>
-                <span className="mx-2 text-ink-muted/40">/</span>
-                <button className="underline text-ink-soft hover:text-esther-blue">
+                </ResetQuizButton>
+                <span className="mx-1 text-ink-muted/40">/</span>
+                <button className="underline text-ink-soft hover:text-esther-blue text-xs">
                   导出推荐为 PDF
                 </button>
               </p>
