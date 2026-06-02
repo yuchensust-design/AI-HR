@@ -69,11 +69,11 @@ a) 工作内容与用户 enjoy 信号反向
 b) 长期天花板低 — 本科起点 5 年后晋升空间 < 30%
 c) 工作模式与用户 RIASEC 类型反向(E 型坐冷板凳 / I 型纯销售 / A 型纯流程)
 
-【★ 5 推荐多样性硬约束 ★】
-- positive 5 个**必须来自至少 3 个不同的行业大类**(industry_cn 不同)
-- 严禁 5 个都是"教育与图书"或都是"计算机与数学"等同一大类
-- 优先策略:从候选池里**每个 industry_cn 至多选 2 个**(防同类挤占)
-- 评委会一眼看出"5 个都同类型" = 推荐质量差,你要避免
+【★ 推荐多样性硬约束(v6) ★】
+- **positive 共 15-25 个,覆盖 3-5 个行业大类**(industry_cn 不同)
+- **每大类内 3-5 个具体职业**(给用户横向对比空间)
+- 严禁某一大类塞 10+ 个(平均分配)
+- 评委会一眼看出"全堆一类" = 推荐质量差,要避免
 
 【chip 设计】
 - 4-6 个 chip,每个 ≤ 12 字,中文,口语化
@@ -107,7 +107,7 @@ c) 工作模式与用户 RIASEC 类型反向(E 型坐冷板凳 / I 型纯销售 
 - 不要给 100%(避免过度承诺)/ 不要低于 50%(那应该进 negative)
 - 每个 positive 之间至少差 3% 区分度
 
-positive 正好 5 个,negative 正好 3 个,refine_chips 正好 4-6 个。`;
+positive 共 15-25 个(3-5 大类 × 每大类 3-5),negative 正好 3 个,refine_chips 正好 4-6 个。`;
 }
 
 function buildUserPrompt(
@@ -142,10 +142,16 @@ ${pool
   )
   .join("\n")}
 
-【输出要求】
-- positive 5 项:industry 填中文行业大类(如"计算机与数学")/ role_type 填中文职业名(从候选池抄)
+【★ 输出要求(v6 改造) ★】
+- **positive 共 15-25 项,分布在 3-5 个行业大类,每大类 3-5 个具体职业**
+  - 例:计算机大类 5 个职位 + 商业大类 5 个 + 艺术大类 5 个 + 教育大类 5 个 = 20 个 positive
+  - 同一 industry_cn 下的多个职业都列出来(eg 计算机大类下 "系统分析师 92%" + "信息安全分析师 88%" + "数据库管理员 85%" ...)
+  - 给用户横向对比的空间,不是只 5 个挤一类
+- **industry 字段填中文行业大类**(如"计算机与数学"),role_type 填中文职业名(从候选池抄)
+- **每大类内按 match_percentage 降序排**(让用户看到该大类下最匹配的优先)
 - negative 3 项:从候选池里挑跟用户 Top 3 维度反向的(eg 用户 R 低 → 推 R 高的"机械维修"作反向)
-- 推荐时**严格匹配候选池 RIASEC 数值跟用户 Top 3 维度**,百分比要反映真实契合度
+- 推荐**严格匹配候选池 RIASEC 数值跟用户 Top 3 维度**,百分比反映真实契合度
+- why_fit **≤ 30 字简短**(因为 20+ 个推荐,太长读不完)
 
 请返 JSON。`;
 }
@@ -189,7 +195,8 @@ export async function POST(request: NextRequest) {
     }
 
     // Step 2 候选池(规则)
-    const candidates = generateCandidates(scores, interests, 30);
+    // v6: 候选池扩到 50,让 LLM 在每大类里有 5-8 个候选选择
+    const candidates = generateCandidates(scores, interests, 50);
 
     // Step 3 LLM 综合(deepseek-chat,jsonMode)
     const raw = await chat(
@@ -203,7 +210,8 @@ export async function POST(request: NextRequest) {
       {
         model: "chat",
         temperature: 0.5,
-        max_tokens: 1500,
+        // v6: 25 个 positive 含 why_fit ≈ 2500 tokens,留余量到 3500
+        max_tokens: 3500,
         jsonMode: true,
       }
     );

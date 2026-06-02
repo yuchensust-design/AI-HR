@@ -141,12 +141,13 @@ export function generateCandidates(
     return { entry, score: riasecScore + tagScore };
   }).sort((a, b) => b.score - a.score);
 
-  // ★ Industry Diversification(v4.1):
-  // 先取 top 80(粗筛 RIASEC 最匹配)
-  // 然后每个 industry 最多 3 个(强制多样性)
-  // 最终取前 topN
-  const PER_INDUSTRY_CAP = 3;
-  const ROUGH_POOL = 80;
+  // ★ Industry Diversification(v6):
+  // 用户要"每大类 5 个职位",所以候选池要更宽
+  //   - 粗筛 top 100
+  //   - 每个 industry 最多 8 个(让 LLM 在每大类里有 5 个职业的选择空间)
+  //   - 最终取前 topN(默认 30,recommend route 改为 50)
+  const PER_INDUSTRY_CAP = 8;
+  const ROUGH_POOL = 100;
 
   const rough = scored.slice(0, ROUGH_POOL);
   const perIndustryCount: Record<string, number> = {};
