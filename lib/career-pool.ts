@@ -321,23 +321,25 @@ export function generateCandidates(
       : (interests as InterestWithStrength[]);
 
   const ranked = CAREER_POOL.map((entry) => {
-    let score = 0;
+    let riasecScore = 0;
 
-    // RIASEC 维度匹配分
+    // RIASEC 维度匹配分 — 单维 max 3(权重 3 × 满分 1)
     for (const [dim, weight] of Object.entries(entry.riasec_weights)) {
       const dimIdx = dimOrder.indexOf(dim as Dimension);
       if (dimIdx >= 0) {
-        score += (weight || 0) * (scores[dimIdx] / 15);
+        riasecScore += (weight || 0) * (scores[dimIdx] / 15);
       }
     }
 
-    // 兴趣 tag boost(乘以强度)
+    // 兴趣 tag boost — cap 总贡献 ≤ 2,防多 tag 压倒 RIASEC 主导
+    let tagScore = 0;
     for (const { key, strength } of interestList) {
       const signal = entry.tag_signals[key] || 0;
-      score += signal * (strength / 5);
+      tagScore += signal * (strength / 5) * 0.5;
     }
+    tagScore = Math.min(tagScore, 2);
 
-    return { entry, score };
+    return { entry, score: riasecScore + tagScore };
   })
     .sort((a, b) => b.score - a.score)
     .slice(0, topN)
