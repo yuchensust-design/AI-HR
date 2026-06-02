@@ -104,7 +104,7 @@ export function generateCandidates(
       ? (interests as string[]).map((key) => ({ key, strength: 4 }))
       : (interests as InterestWithStrength[]);
 
-  const ranked = CAREER_POOL.map((entry) => {
+  const scored = CAREER_POOL.map((entry) => {
     let riasecScore = 0;
 
     // RIASEC 维度匹配 — O*NET 1-7 × 用户 / 15
@@ -115,13 +115,9 @@ export function generateCandidates(
       riasecScore += careerVal * (userScore / 15);
     }
 
-    // 兴趣 tag boost — v4 暂无 O*NET mapping,留 cap 2 的算术给后续扩展
-    // (现在所有职业 tag_signals 为空,tagScore 始终 0)
+    // 兴趣 tag boost — 启发式 industry 关键词匹配
     let tagScore = 0;
-    // 未来:可以基于 industry_cn / desc_en 关键词匹配 interest tag
-    // 例:industry_cn 含"艺术" → boost music/photo/design 兴趣用户
     for (const { key, strength } of interestList) {
-      // 启发式 industry 关键词 boost(轻微)
       const industryMatch =
         (key === "design" && entry.industry_cn.includes("艺术")) ||
         (key === "data_ai" && entry.industry_cn.includes("计算机")) ||
@@ -143,12 +139,29 @@ export function generateCandidates(
     tagScore = Math.min(tagScore, 2);
 
     return { entry, score: riasecScore + tagScore };
-  })
-    .sort((a, b) => b.score - a.score)
-    .slice(0, topN)
-    .map((x) => x.entry);
+  }).sort((a, b) => b.score - a.score);
 
-  return ranked;
+  // ★ Industry Diversification(v4.1):
+  // 先取 top 80(粗筛 RIASEC 最匹配)
+  // 然后每个 industry 最多 3 个(强制多样性)
+  // 最终取前 topN
+  const PER_INDUSTRY_CAP = 3;
+  const ROUGH_POOL = 80;
+
+  const rough = scored.slice(0, ROUGH_POOL);
+  const perIndustryCount: Record<string, number> = {};
+  const diversified: typeof rough = [];
+
+  for (const item of rough) {
+    const cnt = perIndustryCount[item.entry.industry_cn] || 0;
+    if (cnt < PER_INDUSTRY_CAP) {
+      diversified.push(item);
+      perIndustryCount[item.entry.industry_cn] = cnt + 1;
+    }
+    if (diversified.length >= topN) break;
+  }
+
+  return diversified.map((x) => x.entry);
 }
 
 /**

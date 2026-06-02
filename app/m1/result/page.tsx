@@ -487,21 +487,48 @@ export default function Module1ResultPage() {
           </div>
         </section>
 
-        {/* 5 正向方向 */}
+        {/* 5 正向方向 — v4.1 按行业大类分组 */}
         <section className="border-b border-border">
           <div className="max-w-[1100px] mx-auto px-6 py-14">
             <p className="font-display italic text-sm text-esther-blue mb-2">
-              {result.positive.length} directions for you
+              {result.positive.length} directions for you · across {new Set(result.positive.map((p) => p.industry)).size} industries
             </p>
             <h2 className="text-2xl md:text-3xl font-bold text-ink mb-3">
-              {result.positive.length} 个推荐方向(按贴合度排)
+              {result.positive.length} 个推荐方向 · 覆盖 {new Set(result.positive.map((p) => p.industry)).size} 个行业大类
             </h2>
             <p className="text-sm text-ink-soft mb-10 max-w-2xl">
-              下面方向是基于你的测评 + 兴趣的双维度判断 — 拿着方向去看具体岗位 / 整理简历都更聚焦。
+              下面按 <span className="font-medium text-ink">行业大类</span> 分组,每个大类下是具体职业方向 — 不再 5 个挤一类。
             </p>
 
-            <div className="space-y-5">
-              {result.positive.map((r, idx) => (
+            {/* 按 industry 分组渲染 */}
+            <div className="space-y-8">
+              {Array.from(
+                result.positive.reduce<Map<string, typeof result.positive>>(
+                  (map, item) => {
+                    const key = item.industry || "其他";
+                    if (!map.has(key)) map.set(key, []);
+                    map.get(key)!.push(item);
+                    return map;
+                  },
+                  new Map()
+                )
+              ).map(([industry, items]) => (
+                <div key={industry}>
+                  {/* 行业大类 header */}
+                  <div className="flex items-baseline gap-3 mb-4 pb-2 border-b-2 border-esther-blue/20">
+                    <span className="font-display italic text-2xl text-esther-blue/60">
+                      ┌─
+                    </span>
+                    <h3 className="text-lg font-bold text-ink">
+                      {industry}
+                    </h3>
+                    <span className="text-xs text-ink-muted font-display italic">
+                      · {items.length} 个匹配职业
+                    </span>
+                  </div>
+                  {/* 该 industry 下的职业卡片 */}
+                  <div className="space-y-4 pl-6 border-l-2 border-esther-blue/10">
+                    {items.map((r, idx) => (
                 <Card
                   key={idx}
                   className="p-7 border-2 border-border hover:border-esther-blue transition-colors"
@@ -554,6 +581,9 @@ export default function Module1ResultPage() {
                     </div>
                   </div>
                 </Card>
+                    ))}
+                  </div>
+                </div>
               ))}
             </div>
 
