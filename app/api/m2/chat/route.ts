@@ -174,23 +174,65 @@ function personaHeroPriority(persona?: string): {
   };
 }
 
-function guessPhase(intake: IntakeArtifact, ambitious: boolean): Phase {
+type Depth = "shallow" | "medium" | "deep";
+
+function guessPhase(
+  intake: IntakeArtifact,
+  ambitious: boolean,
+  depth: Depth
+): Phase {
   const roleCount = intake.roles?.length ?? 0;
   if (roleCount === 0) return "anchor";
-  const hasReadyRole = (intake.roles ?? []).some(
-    (r) =>
-      r.charter &&
-      (r.excavation_depth === "medium" || r.excavation_depth === "deep")
-  );
+  // shallow: 任何 role 有 charter 就够;medium/deep: 需要 medium+ 深度
+  const hasReadyRole =
+    depth === "shallow"
+      ? (intake.roles ?? []).some((r) => r.charter)
+      : (intake.roles ?? []).some(
+          (r) =>
+            r.charter &&
+            (r.excavation_depth === "medium" || r.excavation_depth === "deep")
+        );
   if (!hasReadyRole) return "per_role";
   const strengthThreshold = ambitious ? 3 : 2;
   const strongStories = (intake.stories ?? []).filter(
     (s) => (s.strength ?? 0) >= strengthThreshold
   ).length;
-  if (strongStories < 3) return "hero_story";
+  // shallow: 1 个 story 就够进 skeptical;medium/deep: 需要 3 个
+  const storyGoal = depth === "shallow" ? 1 : 3;
+  if (strongStories < storyGoal) return "hero_story";
   const skepticalFlagCount = intake.skeptical_flags?.length ?? 0;
-  if (skepticalFlagCount < 3) return "skeptical";
+  // shallow: 1 个 weak spot 就够;medium: 3;deep: 3
+  const flagGoal = depth === "shallow" ? 1 : 3;
+  if (skepticalFlagCount < flagGoal) return "skeptical";
   return "synthesis";
+}
+
+function buildDepthBlock(depth: Depth): string {
+  if (depth === "shallow") {
+    return `【当前追问深度:浅 — 简单聊聊,3-5 turn 收尾】
+- 每段经历 1-2 turn 即收尾(基本信息 + charter,不深挖 metric)
+- BLANK / "没有" → **立即换主题**,不二次 reframe(用户可能真没有,不强求)
+- Hero story 目标 **1-2 个**(strength ≥ 2 即可,不卡 3 个)
+- Metric Mining 只问 1 维(用户最容易答的)
+- Skeptical 阶段提 **1 个** 最关键 weak spot(constructive 口吻,不强求补)
+- 整体目标 8-12 turn 内收尾,**优先 done=true + bullets**`;
+  }
+  if (depth === "deep") {
+    return `【当前追问深度:深 — 详细 metric 追问】
+- 每段经历 4-6 turn 详细挖
+- BLANK / "没有" → **2 次 reframe** 才接受(给字典里 2-3 类相邻提示)
+- Hero story 目标 **3-5 个**,每个 4 follow-up(STAR walk + Earned Secret + Metric + Self-rating)
+- Metric Mining **5 维全跑**(How big / How fast / How much / How many / How well)
+- Skeptical 阶段提 **3-5 个** weak spot,深度追问每个的可量化补充
+- 整体可以 25-40 turn`;
+  }
+  return `【当前追问深度:中 — 平衡挖掘(默认)】
+- 每段经历 2-3 turn(charter + scale + 1 维 metric)
+- BLANK / "没有" → **1 次 reframe**,然后换主题
+- Hero story 目标 **3 个**,每个 2 follow-up(STAR + Earned Secret)
+- Metric Mining 抽 1-2 维
+- Skeptical 阶段提 **3 个** weak spot,softer + constructive 口吻
+- 整体 15-25 turn(v2 默认行为)`;
 }
 
 function buildSystemPrompt(args: {
@@ -199,10 +241,12 @@ function buildSystemPrompt(args: {
   persona?: string;
   hint: Phase;
   selectedCategories: string[];
+  depth: Depth;
 }): string {
-  const { questionBatteries, redFlags, persona, hint, selectedCategories } = args;
+  const { questionBatteries, redFlags, persona, hint, selectedCategories, depth } = args;
   const { categories, skepticalTone } = personaHeroPriority(persona);
   const ambitious = isAmbitiousPersona(persona);
+  const depthBlock = buildDepthBlock(depth);
 
   const zeroExperienceBlock = ambitious
     ? `【用户画像】陈昊型 / 拔高型 — 用户已有大厂实习或扎实经历,目标是把现有素材拔到顶级 offer 水平。
@@ -234,6 +278,8 @@ function buildSystemPrompt(args: {
   return `你是「Offer 捕手」的经历挖掘助手。任务:帮没简历或简历散乱的学生,用 6-phase 结构化访谈把零散经历挖成可用素材库,产出给下游「简历整理」模块直接消费。
 
 ${zeroExperienceBlock}
+
+${depthBlock}
 
 【硬约束 — 永远不许违反】
 1. **永远不输出任何公司名**(只到"行业 + 职位类型")。**用户讲了公司名,你 acknowledge 时必须抽象掉**:
@@ -509,7 +555,10 @@ export async function POST(request: NextRequest) {
 
     const { questionBatteries, redFlags } = await loadPromptSections();
     const ambitious = isAmbitiousPersona(persona);
-    const hint = guessPhase(current_intake, ambitious);
+    const depth: Depth = ["shallow", "medium", "deep"].includes(body.depth)
+      ? (body.depth as Depth)
+      : "medium";
+    const hint = guessPhase(current_intake, ambitious, depth);
     const selectedCategories: string[] = Array.isArray(body.categories)
       ? (body.categories as string[]).filter(
           (c) => typeof c === "string" && c.length > 0
@@ -522,6 +571,7 @@ export async function POST(request: NextRequest) {
       persona,
       hint,
       selectedCategories,
+      depth,
     });
     const userPrompt = buildUserPrompt({
       history,

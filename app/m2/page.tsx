@@ -74,22 +74,53 @@ type ChatMsg = { from: "ai" | "user"; text: string };
 
 type UserProfile = { persona_tag?: string; selected_at?: string };
 
-const PHASES = [
-  "Anchor:目标方向 + 当前状态",
-  "Timeline:经历轮廓(2-3 段)",
-  "Per-role 挖掘:每段经历 metric mining",
-  "Hero stories:挖 3-5 个 STAR 故事",
-  "Gap 分析:跟目标 JD 差什么",
-  "Synthesis:整合 + Skeptical Recruiter checkpoint",
+type Depth = "shallow" | "medium" | "deep";
+
+const DEPTH_OPTIONS: { value: Depth; label: string; hint: string }[] = [
+  { value: "shallow", label: "浅", hint: "简单聊聊,3-5 turn 收尾" },
+  { value: "medium", label: "中", hint: "平衡挖掘(默认)" },
+  { value: "deep", label: "深", hint: "详细 metric 追问" },
 ];
 
-const PHASE_HIGHLIGHT: Record<Phase, number[]> = {
-  anchor: [0, 1],
-  per_role: [2],
-  hero_story: [3],
-  skeptical: [5],
-  synthesis: [4, 5],
+const CATEGORY_BADGE: Record<StoryCategory, { label: string; cls: string }> = {
+  Peak: { label: "Peak", cls: "bg-esther-blue/15 text-esther-blue" },
+  Challenge: { label: "Challenge", cls: "bg-esther-red/15 text-esther-red" },
+  Impact: { label: "Impact", cls: "bg-esther-blue/15 text-esther-blue" },
+  Failure: { label: "Failure", cls: "bg-ink-soft/15 text-ink-soft" },
+  LearningSprint: { label: "Learning", cls: "bg-esther-yellow/40 text-ink" },
+  Praise: { label: "Praise", cls: "bg-esther-yellow/40 text-ink" },
 };
+
+function buildResumeMarkdown(intake: IntakeArtifact): string {
+  const lines: string[] = [];
+  if (intake.roles.length > 0) {
+    lines.push("## 经历");
+    lines.push("");
+    intake.roles.forEach((r) => {
+      const titleParts = [r.role, r.org_type, r.period].filter(Boolean);
+      lines.push(`**${r.role}** | ${r.org_type}${r.period ? ` | ${r.period}` : ""}`);
+      if (r.charter) lines.push(`- 核心: ${r.charter}`);
+      if (r.scale) lines.push(`- 规模: ${r.scale}`);
+      lines.push("");
+      void titleParts;
+    });
+  }
+  if (intake.stories.length > 0) {
+    lines.push("## Hero Stories");
+    lines.push("");
+    intake.stories.forEach((s) => {
+      const stars = "⭐".repeat(s.strength || 0);
+      lines.push(`### ${s.title || "未命名故事"}(${s.category}${stars ? `,${stars}` : ""})`);
+      if (s.earned_secret) lines.push(`- 反直觉洞察: ${s.earned_secret}`);
+      if (s.star?.situation) lines.push(`- 情境: ${s.star.situation}`);
+      if (s.star?.task) lines.push(`- 任务: ${s.star.task}`);
+      if (s.star?.action) lines.push(`- 行动: ${s.star.action}`);
+      if (s.star?.result) lines.push(`- 结果: ${s.star.result}`);
+      lines.push("");
+    });
+  }
+  return lines.join("\n").trim() || "(还没素材 — 跟 AI 聊几轮就会有)";
+}
 
 const EXPERIENCE_CATEGORIES: { key: string; label: string; hint: string }[] = [
   { key: "course_project", label: "课程项目", hint: "任何 final project / 小组作业" },
@@ -191,6 +222,8 @@ export default function Module2Page() {
   const [pendingCats, setPendingCats] = useState<string[]>([]);
   const [expandedBullets, setExpandedBullets] = useState<Set<number>>(new Set());
   const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
+  const [copiedAll, setCopiedAll] = useState(false);
+  const [depth, setDepth] = useLocalState<Depth>("m2_depth", "medium");
 
   // 拔高型 persona / 已勾过类别 / 已有 stories → 进 chat;否则进类别枚举
   const ambitious = isAmbitiousPersonaTag(profile.persona_tag);
@@ -240,6 +273,7 @@ export default function Module2Page() {
           })),
           persona_tag: profile.persona_tag,
           categories,
+          depth,
           current_intake: intake,
           current_bullets: bullets,
         }),
@@ -284,6 +318,7 @@ export default function Module2Page() {
     messages,
     profile.persona_tag,
     categories,
+    depth,
     intake,
     bullets,
     setIntake,
@@ -344,8 +379,17 @@ export default function Module2Page() {
     }
   };
 
-  const highlightSet = new Set(PHASE_HIGHLIGHT[phase] ?? []);
-  const maxHighlight = highlightSet.size > 0 ? Math.max(...highlightSet) : -1;
+  const copyAllSummary = async () => {
+    try {
+      await navigator.clipboard.writeText(buildResumeMarkdown(intake));
+      setCopiedAll(true);
+      setTimeout(() => setCopiedAll(false), 1500);
+    } catch {
+      setError("复制失败,请手动选中复制");
+    }
+  };
+
+  const hasAnySummary = intake.roles.length > 0 || intake.stories.length > 0;
 
   return (
     <>
@@ -374,57 +418,99 @@ export default function Module2Page() {
         </section>
 
         <div className="max-w-[1100px] mx-auto px-6 py-10 grid grid-cols-1 lg:grid-cols-[1fr_1.6fr] gap-8">
-          {/* 左:6 phase 进度 */}
+          {/* 左:你的素材积累 + 统计 */}
           <aside className="space-y-5">
-            <Card className="p-6 border-2 border-border">
-              <p className="font-display italic text-xs text-esther-blue mb-3">
-                6-phase SOP
+            <Card className="p-5 border-2 border-border">
+              <div className="flex items-center justify-between mb-1">
+                <p className="text-sm font-semibold text-ink">
+                  📄 你的素材积累
+                </p>
+                {hasAnySummary && (
+                  <button
+                    onClick={copyAllSummary}
+                    className="px-2 py-0.5 text-[10px] rounded-md bg-esther-yellow/30 text-ink hover:bg-esther-yellow/50 transition-colors"
+                  >
+                    {copiedAll ? "✓ 已复制" : "📋 全部"}
+                  </button>
+                )}
+              </div>
+              <p className="text-[11px] text-ink-muted mb-3 italic">
+                {hasAnySummary
+                  ? "(随你说的内容慢慢成形,可直接复制到简历)"
+                  : "(还没素材 — 跟 AI 聊几轮,这里会自动累积)"}
               </p>
-              <h3 className="text-base font-semibold text-ink mb-4">
-                我们怎么挖
-              </h3>
-              <ol className="space-y-3">
-                {PHASES.map((p, i) => {
-                  const isActive = highlightSet.has(i);
-                  const isPast = !done && maxHighlight > i && !isActive;
-                  const isDoneAll = done;
-                  return (
-                    <li key={i} className="flex items-start gap-3">
-                      <span
-                        className={`flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold transition-colors ${
-                          isDoneAll
-                            ? "bg-esther-blue text-white"
-                            : isActive
-                            ? "bg-esther-blue text-white ring-2 ring-esther-blue/30"
-                            : isPast
-                            ? "bg-esther-blue/60 text-white"
-                            : "bg-esther-blue/10 text-esther-blue"
-                        }`}
-                      >
-                        {isDoneAll || isPast ? "✓" : i + 1}
-                      </span>
-                      <p
-                        className={`text-xs leading-relaxed pt-1 ${
-                          isActive ? "text-ink font-medium" : "text-ink"
-                        }`}
-                      >
-                        {p}
+              {intake.roles.length > 0 && (
+                <div className="space-y-3">
+                  {intake.roles.map((r, i) => (
+                    <div
+                      key={`r-${i}`}
+                      className="bg-warm-bg-deep/30 border border-border rounded-lg p-2.5"
+                    >
+                      <p className="text-[11px] text-ink-muted mb-0.5">
+                        经历 {i + 1}
                       </p>
-                    </li>
-                  );
-                })}
-              </ol>
-            </Card>
-
-            <Card className="p-6 border-2 border-esther-yellow/60 bg-esther-yellow/10">
-              <p className="text-sm font-semibold text-ink mb-2">
-                ⚡ 关键纪律: Skeptical Recruiter
-              </p>
-              <p className="text-xs text-ink leading-relaxed">
-                hero story 拿出后 AI 会扮演「怀疑型 HR」提 3 个最尖锐的追问,
-                提前暴露简历里的 weak spot — 把水分挑出来,
-                而不是上线后被 HR 当面问倒。
-              </p>
+                      <p className="text-xs font-medium text-ink leading-tight">
+                        {r.role}{" "}
+                        <span className="text-ink-soft">· {r.org_type}</span>
+                      </p>
+                      {r.period && (
+                        <p className="text-[11px] text-ink-muted mt-0.5">
+                          {r.period}
+                        </p>
+                      )}
+                      {r.charter && (
+                        <p className="text-[11px] text-ink mt-1 leading-snug">
+                          核心: {r.charter}
+                        </p>
+                      )}
+                      {r.scale && (
+                        <p className="text-[11px] text-ink leading-snug">
+                          规模: {r.scale}
+                        </p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+              {intake.stories.length > 0 && (
+                <>
+                  <div className="flex items-center gap-2 mt-4 mb-2">
+                    <div className="flex-1 h-px bg-border" />
+                    <p className="text-[10px] text-ink-muted">故事</p>
+                    <div className="flex-1 h-px bg-border" />
+                  </div>
+                  <div className="space-y-2.5">
+                    {intake.stories.map((s, i) => {
+                      const badge = CATEGORY_BADGE[s.category];
+                      return (
+                        <div
+                          key={`s-${i}`}
+                          className="bg-warm-bg-deep/30 border border-border rounded-lg p-2.5"
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <p className="text-xs font-medium text-ink leading-tight flex-1">
+                              {s.title || `故事 ${i + 1}`}
+                            </p>
+                            <span
+                              className={`inline-flex flex-shrink-0 items-center px-1.5 py-0.5 rounded text-[9px] font-medium ${badge.cls}`}
+                            >
+                              {badge.label}
+                            </span>
+                          </div>
+                          <p className="text-[10px] text-esther-yellow leading-none mt-1">
+                            {"⭐".repeat(s.strength || 0)}
+                          </p>
+                          {s.earned_secret && (
+                            <p className="text-[11px] text-ink-soft italic mt-1.5 leading-snug">
+                              「{s.earned_secret}」
+                            </p>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
             </Card>
 
             <Card className="p-4 border border-border bg-card">
@@ -444,20 +530,39 @@ export default function Module2Page() {
 
           {/* 右:真聊天 */}
           <div>
-            <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center justify-between mb-4 gap-3 flex-wrap">
               <p className="text-sm text-ink-soft">
                 <span className="font-medium text-ink">经历挖掘对话</span>{" "}
                 · 当前阶段:<span className="text-esther-blue">{phase}</span>
               </p>
-              <span
-                className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium border ${
-                  done
-                    ? "bg-esther-blue/15 text-esther-blue border-esther-blue/40"
-                    : "bg-warm-bg-deep text-ink-muted border-border"
-                }`}
-              >
-                {done ? "✓ 挖完了" : "P1 真 LLM"}
-              </span>
+              <div className="flex items-center gap-2">
+                <label className="text-[11px] text-ink-soft flex items-center gap-1">
+                  🎚 追问深度
+                  <select
+                    value={depth}
+                    onChange={(e) => setDepth(e.target.value as Depth)}
+                    className="ml-1 px-2 py-1 rounded-md border border-border bg-card text-xs text-ink focus:outline-none focus:ring-2 focus:ring-esther-blue/40 cursor-pointer"
+                    title={
+                      DEPTH_OPTIONS.find((d) => d.value === depth)?.hint
+                    }
+                  >
+                    {DEPTH_OPTIONS.map((opt) => (
+                      <option key={opt.value} value={opt.value}>
+                        {opt.label} — {opt.hint}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <span
+                  className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium border ${
+                    done
+                      ? "bg-esther-blue/15 text-esther-blue border-esther-blue/40"
+                      : "bg-warm-bg-deep text-ink-muted border-border"
+                  }`}
+                >
+                  {done ? "✓ 挖完了" : "P1 真 LLM"}
+                </span>
+              </div>
             </div>
 
             <Card className="border-2 border-border overflow-hidden">
