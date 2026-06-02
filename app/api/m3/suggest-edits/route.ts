@@ -1,0 +1,345 @@
+/**
+ * POST /api/m3/suggest-edits — Phase 5 改动建议(新 redesigned,2026-06-02)
+ *
+ * Body:
+ *   {
+ *     parsedResume,
+ *     jdContext?,          // null = 快速模式,做通用 polish
+ *     hiddenExperiences?,  // null / [] = 没挖
+ *   }
+ *
+ * 流程:
+ *   1. lib/skill-router.ts decideSkillRoute() 决定加载哪些补充 skill 段
+ *   2. 主框架 prompt + 路由后的 segments → LLM → JSON edits[]
+ *   3. Normalize + 兜底 narrative_tag heuristic
+ *
+ * 输出 schema(plan §Phase 5 redesigned):
+ *   {
+ *     edits: [
+ *       { id, target, original_text, suggested_text, reason, category, priority }
+ *     ],
+ *     default_accept_count: 3,
+ *     optimization_summary: "本次找了 N 处可改",
+ *     used_supplements: string[]   // 透明:用了哪几个 skill 段
+ *   }
+ */
+
+import { NextRequest, NextResponse } from "next/server";
+import { chat } from "@/lib/llm";
+import {
+  decideSkillRoute,
+  inferPersona,
+  SKILL_SEGMENTS,
+  type SkillSegmentKey,
+} from "@/lib/skill-router";
+
+const PROMPT_MAIN = `你是「Offer 捕手」模块 3 简历整理 Phase 5 改动建议引擎。
+
+【任务】
+基于 parsed_resume + jd_context + hidden_experience_candidates,产出 **N 条具体改动建议**(不是整版简历)。用户会在 UI 上**逐条 accept/reject/regen**。
+
+【硬约束 — 永远不许违反(违反 = 用户会反 hallucinate,直接 reject 还会失去信任)】
+
+1. **公司名脱敏**:suggested_text 永不出现公司名(只到"某互联网大厂 / 某短视频公司"等行业类型);用户简历里的真实公司名,你**不要替换原文,也不要自己新增**公司名
+
+2. **Anti-fabrication 4 条铁律**(违反 = 直接被用户识破):
+   - 2.1 **不编造用户原始素材里没有的数字 / metric**(原始素材 = parsed_resume + hidden_experience_candidates)
+   - 2.2 **不编造用户原始素材里没有的技能 / 工具 / 经验**(eg 简历没 SQL,你不能在 suggested_text 加 SQL,哪怕标"学习中"也不行 — JD 要求 ≠ 用户能力)
+   - 2.3 **未完成的项目** 要在 reason 里标 ⚠️ 并降为 medium 优先级
+   - 2.4 hidden_experience.anti_fab_note 有的,reason 里必须继承说明
+
+3. **改动建议必须有 evidence_source(每条 edit 必填字段)**:
+   - 必须指向 parsed_resume 里某具体字段 / 某条 bullet 原文,或 hidden_experiences[N]
+   - **JD 要求(must_have / gaps)不是有效 evidence_source** — JD 是"要什么",不是"你已有什么"
+   - 缺 evidence_source 的建议 = fabrication = 严禁
+
+4. **"new:" 新增 target 的额外约束**:
+   - 只允许从 **hidden_experience_candidates** 里整理成 bullet(category="hidden-experience-add")
+   - 不允许从 JD requirement 凭空补简历缺的(eg "你没做过用户访谈但 JD 要,加一条" ❌)
+   - 凭空补的内容,reason 里**必须明示 ⚠️ 这是你想要的方向,但你没真做过,不建议写**,并 priority=low
+
+5. **ATS 关键词补充(category="ats-keyword")的特殊规则**:
+   - **只能改写原文 bullet,在已有动作上加 JD 关键词**(eg 把"分析数据"改成"用 Pandas 做用户行为数据分析")
+   - **绝不允许新建 bullet 加 ATS 关键词**(eg "SQL(基础查询,学习中)" ❌ — 用户没说过 SQL)
+   - 关键词必须跟用户简历里**已有的动作 / 工具**沾边
+
+6. **文案温和**,不绝对化;每条建议 suggested_text 长度 30-80 字
+
+【category 分类(枚举)】
+- "narrative-tools": 责任→成就重写(必须改原文 bullet)
+- "ats-keyword": 加 JD must_have 关键词(只能在原文 bullet 里加,不新建)
+- "quantification": 量化(只在用户素材里有数字证据时)
+- "hidden-experience-add": 把 Phase 3 挖到的 hidden_experience 整理成 bullet 加进简历
+- "career-translator": 跨专业 transferable skill 翻译(必须改原文 bullet)
+- "tech-deepening": 技术岗 bullet 加深度(架构 / trade-off / metric — 只在用户简历有这些信号时)
+- "section-reorder": 章节顺序 / GPA 删除等结构性建议(不增不删 bullet)
+- "gap-alert": ★ JD 要求但简历完全没体现的能力/经验,显式列给用户,问他有没有相关经历(2026-06-02 v2 新增)
+
+【gap-alert 特殊规则(category="gap-alert")】
+1. 触发条件:对 jd_context.gaps[] 里每个 gap,看 hidden_experiences 是否 cover:
+   - cover = hidden_experiences 里有任何 STAR 跟这个 gap 的 jd_requirement 沾边
+   - 不 cover → 必须出 1 个 gap-alert
+2. 过滤(用户跳过 Phase 3 时):只产 fixable ∈ ["易补<2周", "中等1-2月"] 的 gap-alert
+   - fixable=难补≥3月 的 gap → 不产 alert(应去模块 E.2 项目设计)
+3. 字段约定:
+   - target = "alert:jd_gap_{idx}"(标 alert,不是 bullet path)
+   - original_text = "(JD 缺口)"
+   - suggested_text = "JD 要求 X,你简历里没体现"(简短描述)
+   - evidence_source = "jd_context.gaps[{idx}]" ← 唯一允许 JD 作为 evidence_source 的 category
+   - jd_requirement_text = jd_context.gaps[idx].jd_requirement(完整 JD 要求文本)
+   - fixable = jd_context.gaps[idx].fixable
+   - priority = "medium"(不抢 high priority 改写建议的位置)
+4. 不要凭空补 bullet 到简历 — gap-alert 只是提示,UI 上有专门的 3 按钮("我有,补"/"确实没有"/"做项目补"),不会自动应用
+
+【priority 判定】
+- high:JD must_have 关键词命中 / 严重 responsibility_driven / hidden_experience 强经验
+- medium:能改善但非致命
+- low:风格美化 / Anti-fabrication ⚠️ 标记的"未验证"建议
+
+【输出 JSON,严格 — 无 markdown 包裹】
+{
+  "edits": [
+    {
+      "id": "edit-001",
+      "target": "experience[0].bullets[0]" 或 "projects[1].bullets[2]" 或 "new:projects[2].bullets" (hidden-experience-add) 或 "alert:jd_gap_0" (gap-alert),
+      "original_text": "用户简历里的原文(target = new: / alert: 时 = '(新增)' / '(JD 缺口)')",
+      "suggested_text": "改后的文本 / gap 简短描述",
+      "evidence_source": "parsed_resume.experience[0].bullets[0]" 或 "hidden_experiences[2]" 或 "parsed_resume.skills.tools" 或 "jd_context.gaps[0]" (仅 gap-alert),
+      "reason": "1-2 句为什么 — 引用 narrative_tag / JD 关键词 / 隐藏经验 / Phase 3 你说没",
+      "category": "narrative-tools" | "ats-keyword" | "gap-alert" | ...,
+      "priority": "high" | "medium" | "low",
+      "fab_warning": null | "⚠️ ...",
+      "jd_requirement_text": "(仅 gap-alert,完整 JD 要求)",
+      "fixable": "(仅 gap-alert: 易补<2周 / 中等1-2月)"
+    },
+    ...
+  ],
+  "default_accept_count": 3-5,
+  "optimization_summary": "本次找了 N 处可改,K 处推荐你优先看"
+}
+
+【自检 checklist(返 JSON 前内部过一遍)】
+□ 每条 edit 都有 evidence_source 指向具体字段
+□ "new:" target 只用于 hidden-experience-add 类别
+□ suggested_text 里没有用户原始素材没的数字 / 工具 / 经验
+□ ats-keyword 类别没新建 bullet,只改写原文
+□ 公司名脱敏
+
+数量:**8-15 条建议**。high priority 占 30-50%。`;
+
+export async function POST(request: NextRequest) {
+  try {
+    const body = await request.json();
+    const { parsedResume, jdContext, hiddenExperiences } = body;
+
+    if (!parsedResume) {
+      return NextResponse.json({ error: "parsedResume required" }, { status: 400 });
+    }
+
+    // === Step 1: skill router 决定加载哪几段 ===
+    const persona = inferPersona(parsedResume, jdContext ?? null);
+    const targetRoleText = jdContext
+      ? `${jdContext.jd_summary ?? ""} ${(jdContext.must_have ?? []).join(" ")}`
+      : null;
+    const resumeState = parsedResume?.meta?.narrative_tag_distribution ?? {};
+
+    const route = decideSkillRoute({
+      persona,
+      targetRoleText,
+      resumeState,
+    });
+
+    // === Step 2: 拼 system prompt ===
+    const segmentsText = route
+      .map((k) => SKILL_SEGMENTS[k as SkillSegmentKey])
+      .join("\n");
+
+    const systemPrompt = `${PROMPT_MAIN}
+
+【动态加载的补充 skill 段(基于 persona=${persona} + target_role + resume_state 路由)】
+${segmentsText}
+
+【路由决策(给你 metadata,不要输出给用户)】
+- inferred_persona: ${persona}
+- used_supplements: ${JSON.stringify(route)}
+- has_jd: ${jdContext ? "yes" : "no(快速模式 - 只做通用 polish,不针对 JD 关键词)"}
+- has_hidden_experiences: ${
+      Array.isArray(hiddenExperiences) && hiddenExperiences.length > 0 ? "yes" : "no"
+    }`;
+
+    const userPrompt = `parsed_resume(用户简历结构化):
+${JSON.stringify(parsedResume, null, 2)}
+
+jd_context(JD 拆解 + match + gaps;null 表示快速模式):
+${JSON.stringify(jdContext ?? null, null, 2)}
+
+hidden_experience_candidates(Phase 3 挖到的):
+${JSON.stringify(hiddenExperiences ?? [], null, 2)}
+
+请按 schema 产出 edits[]。返 JSON。`;
+
+    const raw = await chat(
+      [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt },
+      ],
+      { model: "chat", temperature: 0.4, max_tokens: 4000, jsonMode: true }
+    );
+
+    let parsed: Record<string, unknown>;
+    try {
+      parsed = JSON.parse(raw);
+    } catch (e) {
+      console.error("/api/m3/suggest-edits — LLM JSON parse failed:", raw.slice(0, 500));
+      return NextResponse.json(
+        { error: "LLM 返回格式异常,请重试", raw: raw.slice(0, 500) },
+        { status: 502 }
+      );
+    }
+
+    // Normalize edits
+    const VALID_CAT = [
+      "narrative-tools", "ats-keyword", "quantification", "hidden-experience-add",
+      "career-translator", "tech-deepening", "section-reorder", "gap-alert",
+    ];
+    const VALID_PRIORITY = ["high", "medium", "low"];
+    const VALID_FIXABLE = ["易补<2周", "中等1-2月", "难补≥3月"];
+
+    const editsRaw = Array.isArray(parsed.edits) ? parsed.edits : [];
+    let filteredOutCount = 0;
+    const filterReasons: string[] = [];
+
+    const edits = editsRaw
+      .map((e, i: number) => {
+        const el = e as Record<string, unknown>;
+        const cat = VALID_CAT.includes(el.category as string) ? (el.category as string) : "narrative-tools";
+        const pri = VALID_PRIORITY.includes(el.priority as string) ? (el.priority as string) : "medium";
+        const target = String(el.target ?? "");
+        const evidenceSource = String(el.evidence_source ?? "");
+        const suggestedText = String(el.suggested_text ?? "");
+        const fabWarning = el.fab_warning ? String(el.fab_warning) : null;
+        const jdReqText = el.jd_requirement_text ? String(el.jd_requirement_text) : null;
+        const fixable = VALID_FIXABLE.includes(el.fixable as string) ? String(el.fixable) : null;
+
+        return {
+          id: String(el.id ?? `edit-${String(i + 1).padStart(3, "0")}`),
+          target,
+          original_text: String(el.original_text ?? ""),
+          suggested_text: suggestedText,
+          evidence_source: evidenceSource,
+          reason: String(el.reason ?? ""),
+          category: cat,
+          priority: pri,
+          fab_warning: fabWarning,
+          jd_requirement_text: jdReqText,
+          fixable,
+        };
+      })
+      .filter((e) => {
+        if (!e.suggested_text) {
+          filteredOutCount++;
+          return false;
+        }
+
+        // === gap-alert 特殊校验(2026-06-02 v2)===
+        if (e.category === "gap-alert") {
+          // gap-alert 必须 target 是 alert:
+          if (!e.target.startsWith("alert:")) {
+            filteredOutCount++;
+            filterReasons.push(`${e.id}: gap-alert 但 target 不是 alert: 开头`);
+            return false;
+          }
+          // gap-alert 必须 evidence_source 指 jd_context.gaps
+          if (!e.evidence_source.toLowerCase().includes("jd_context.gaps")) {
+            filteredOutCount++;
+            filterReasons.push(`${e.id}: gap-alert 但 evidence_source 不指 jd_context.gaps[N]`);
+            return false;
+          }
+          // gap-alert 必须有 jd_requirement_text
+          if (!e.jd_requirement_text) {
+            filteredOutCount++;
+            filterReasons.push(`${e.id}: gap-alert 缺 jd_requirement_text`);
+            return false;
+          }
+          // gap-alert 过滤难补(用户决策 2:只出 fixable<=3 月)
+          if (e.fixable === "难补≥3月") {
+            filteredOutCount++;
+            filterReasons.push(`${e.id}: gap-alert fixable=难补≥3月,过滤(走模块 E.2 项目设计)`);
+            return false;
+          }
+          return true; // gap-alert 通过其他校验
+        }
+
+        // === 非 gap-alert 的常规 anti-fab 校验 ===
+
+        // Anti-fabrication 校验 1:new: target 必须是 hidden-experience-add
+        if (e.target.startsWith("new:") && e.category !== "hidden-experience-add") {
+          filteredOutCount++;
+          filterReasons.push(`${e.id}: new: target 但 category=${e.category}(违反硬约束 #4)`);
+          return false;
+        }
+
+        // Anti-fabrication 校验 2:evidence_source 必填
+        if (!e.evidence_source) {
+          filteredOutCount++;
+          filterReasons.push(`${e.id}: 缺 evidence_source(违反硬约束 #3)`);
+          return false;
+        }
+
+        // Anti-fabrication 校验 3:非 gap-alert 不能 evidence_source 指 JD
+        const lower = e.evidence_source.toLowerCase();
+        if (
+          lower.includes("jd_requirement") ||
+          lower.includes("must_have") ||
+          lower.includes("jd.requirement") ||
+          lower.includes("jd context") ||
+          lower.includes("jd_context") ||
+          lower === "jd"
+        ) {
+          filteredOutCount++;
+          filterReasons.push(`${e.id}: 非 gap-alert 不能 evidence_source 指 JD(违反硬约束 #3)`);
+          return false;
+        }
+
+        // Anti-fabrication 校验 4:ats-keyword 不能用 new: target
+        if (e.category === "ats-keyword" && e.target.startsWith("new:")) {
+          filteredOutCount++;
+          filterReasons.push(`${e.id}: ats-keyword 不能新建 bullet(违反硬约束 #5)`);
+          return false;
+        }
+
+        // Anti-fabrication 校验 5:hidden-experience-add 但 evidence_source 不指 hidden
+        if (
+          e.category === "hidden-experience-add" &&
+          !e.evidence_source.toLowerCase().includes("hidden_experience")
+        ) {
+          filteredOutCount++;
+          filterReasons.push(`${e.id}: hidden-experience-add 但 evidence_source 不指 hidden_experiences(违反硬约束 #4)`);
+          return false;
+        }
+
+        return true;
+      });
+
+    if (filteredOutCount > 0) {
+      console.warn(
+        `[suggest-edits] Anti-fabrication 过滤掉 ${filteredOutCount} 条 edit:\n${filterReasons.join("\n")}`
+      );
+    }
+
+    return NextResponse.json({
+      edits,
+      default_accept_count: Number(parsed.default_accept_count ?? 3),
+      optimization_summary: String(parsed.optimization_summary ?? `本次找了 ${edits.length} 处可改`),
+      used_supplements: route,
+      inferred_persona: persona,
+      anti_fab_filtered: filteredOutCount,
+      anti_fab_filter_reasons: filterReasons,
+      generated_at: new Date().toISOString(),
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Unknown error";
+    console.error("/api/m3/suggest-edits error:", err);
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}
