@@ -57,7 +57,7 @@ type RecommendResult = {
   disclaimer: string;
   completedAt: string;
   refineCount?: number;
-  answers?: Record<number, number | string[]>;
+  answers?: Record<number, number | string[] | Record<string, number>>;
 };
 
 const DIMS: Dimension[] = ["R", "I", "A", "S", "E", "C"];

@@ -18,6 +18,7 @@ import {
   computeRIASEC,
   formatRIASECCode,
   getSelectedInterests,
+  type InterestWithStrength,
 } from "@/lib/quiz-data";
 import { generateCandidates } from "@/lib/career-pool";
 
@@ -83,16 +84,20 @@ positive 正好 5 个,negative 正好 3 个,refine_chips 正好 4-6 个,每 chip
 function buildUserPrompt(
   scores: [number, number, number, number, number, number],
   code: string,
-  tagKeys: string[],
+  interests: InterestWithStrength[],
   pool: Array<{ industry: string; role_type: string }>,
   previous: unknown,
   chip: string
 ): string {
   const [r, i, a, s, e, c] = scores;
+  const interestStr =
+    interests.length > 0
+      ? interests.map((t) => `${t.key}(强度 ${t.strength}/5)`).join(", ")
+      : "(无)";
   return `用户测评结果:
 RIASEC 编码: ${code}
 6 维分数: R${r} I${i} A${a} S${s} E${e} C${c}
-选中兴趣 tag: ${tagKeys.length > 0 ? tagKeys.join(", ") : "(无)"}
+选中兴趣 tag(带喜欢程度): ${interestStr}
 
 候选池(${pool.length} 项):
 ${pool.map((p, idx) => `${idx + 1}. ${p.industry} / ${p.role_type}`).join("\n")}
@@ -123,9 +128,9 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    // 18REST-2: RIASEC 题答案是 Likert 1-5 数字,兴趣 tag 是 string[]
+    // 18REST-2 (v3): Likert 1-5 + 兴趣 tag Record<label, strength> (v2 string[] 兼容)
     const { answers, previous, chip } = body as {
-      answers: Record<number, number | string[]>;
+      answers: Record<number, number | string[] | Record<string, number>>;
       previous: unknown;
       chip: string;
     };
@@ -140,8 +145,8 @@ export async function POST(request: NextRequest) {
     // 重算 Step 1+2
     const scores = computeRIASEC(answers);
     const code = formatRIASECCode(scores);
-    const tagKeys = getSelectedInterests(answers);
-    const candidates = generateCandidates(scores, tagKeys, 30);
+    const interests = getSelectedInterests(answers);
+    const candidates = generateCandidates(scores, interests, 30);
 
     // Step 3 LLM
     const raw = await chat(
@@ -152,7 +157,7 @@ export async function POST(request: NextRequest) {
           content: buildUserPrompt(
             scores,
             code,
-            tagKeys,
+            interests,
             candidates,
             previous,
             chip

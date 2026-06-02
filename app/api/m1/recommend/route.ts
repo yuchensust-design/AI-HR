@@ -29,6 +29,7 @@ import {
   formatRIASECCode,
   computeConfidence,
   getSelectedInterests,
+  type InterestWithStrength,
 } from "@/lib/quiz-data";
 import { generateCandidates } from "@/lib/career-pool";
 
@@ -87,15 +88,22 @@ positive 正好 5 个,negative 正好 3 个,refine_chips 正好 4-6 个。`;
 function buildUserPrompt(
   scores: [number, number, number, number, number, number],
   code: string,
-  tagKeys: string[],
+  interests: InterestWithStrength[],
   pool: Array<{ industry: string; role_type: string }>
 ): string {
   const [r, i, a, s, e, c] = scores;
+  const interestStr =
+    interests.length > 0
+      ? interests
+          .map((t) => `${t.key}(强度 ${t.strength}/5)`)
+          .join(", ")
+      : "(无)";
   return `用户测评结果(18REST-2 学术量表,5 点 Likert,每维 3 题加和,范围 3-15 分):
 RIASEC 编码: ${code}
 6 维分数(3-15): R${r} I${i} A${a} S${s} E${e} C${c}
 分数解读:≥12 高 / 9-11 中 / ≤8 低
-选中兴趣 tag: ${tagKeys.length > 0 ? tagKeys.join(", ") : "(无)"}
+选中兴趣 tag(带喜欢程度): ${interestStr}
+兴趣强度说明:5 = 超爱(强信号) / 3 = 中等 / 1 = 一般。强度高的 tag 优先权重。
 
 候选池(${pool.length} 项,只能从这里选):
 ${pool.map((p, idx) => `${idx + 1}. ${p.industry} / ${p.role_type}`).join("\n")}
@@ -106,8 +114,13 @@ ${pool.map((p, idx) => `${idx + 1}. ${p.industry} / ${p.role_type}`).join("\n")}
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    // 18REST-2: RIASEC 题答案是 Likert 1-5 数字,兴趣 tag 是 string[]
-    const answers = body.answers as Record<number, number | string[]>;
+    // 18REST-2 (v3):
+    //   RIASEC 题答案是 Likert 1-5 数字
+    //   兴趣 tag(第19) v3 是 Record<label,strength>(向后兼容 v2 string[])
+    const answers = body.answers as Record<
+      number,
+      number | string[] | Record<string, number>
+    >;
 
     if (!answers || typeof answers !== "object") {
       return NextResponse.json(
@@ -120,7 +133,7 @@ export async function POST(request: NextRequest) {
     const scores = computeRIASEC(answers);
     const code = formatRIASECCode(scores);
     const confidence = computeConfidence(answers, scores);
-    const tagKeys = getSelectedInterests(answers);
+    const interests = getSelectedInterests(answers);
 
     // 答得太少 — 不调 LLM
     if (confidence === "none") {
@@ -137,7 +150,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Step 2 候选池(规则)
-    const candidates = generateCandidates(scores, tagKeys, 30);
+    const candidates = generateCandidates(scores, interests, 30);
 
     // Step 3 LLM 综合(deepseek-chat,jsonMode)
     const raw = await chat(
@@ -145,7 +158,7 @@ export async function POST(request: NextRequest) {
         { role: "system", content: buildSystemPrompt() },
         {
           role: "user",
-          content: buildUserPrompt(scores, code, tagKeys, candidates),
+          content: buildUserPrompt(scores, code, interests, candidates),
         },
       ],
       {

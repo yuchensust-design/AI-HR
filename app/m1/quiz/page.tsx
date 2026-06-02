@@ -58,14 +58,24 @@ const ALL_QUESTIONS: QuestionUI[] = [
   },
 ];
 
+/**
+ * answers schema(v3):
+ *   - Likert 题(1-18): answers[no] = number 1-5
+ *   - 兴趣题(19): answers[19] = Record<label, strength 1-5>
+ *     例 { "🎵": 5, "✍️": 3 }
+ */
+type AnswersMap = Record<
+  number,
+  LikertValue | Record<string, number>
+>;
+
 export default function Module1QuizPage() {
   const router = useRouter();
   const [current, setCurrent] = useState(0);
-  const [answers, setAnswers] = useState<
-    Record<number, LikertValue | string[]>
-  >({});
+  const [answers, setAnswers] = useState<AnswersMap>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [autoNext, setAutoNext] = useState(true); // v3 §8.18 §C.3 自动跳题
 
   const q = ALL_QUESTIONS[current];
   const isLast = current === ALL_QUESTIONS.length - 1;
@@ -74,18 +84,33 @@ export default function Module1QuizPage() {
   const hasAnswer =
     q.type === "likert"
       ? typeof currentAnswer === "number"
-      : Array.isArray(currentAnswer) && currentAnswer.length > 0;
+      : typeof currentAnswer === "object" &&
+        currentAnswer !== null &&
+        Object.keys(currentAnswer).length > 0;
 
   const selectLikert = (value: LikertValue) => {
     setAnswers({ ...answers, [q.no]: value });
+    // 自动跳下一题(200ms 让用户看到 chip 高亮反馈,最后一题不跳)
+    if (autoNext && !isLast) {
+      setTimeout(() => setCurrent((c) => c + 1), 200);
+    }
   };
 
-  const toggleMulti = (label: string) => {
-    const cur = (answers[q.no] as string[]) || [];
-    const next = cur.includes(label)
-      ? cur.filter((x) => x !== label)
-      : [...cur, label];
-    setAnswers({ ...answers, [q.no]: next });
+  // v3 兴趣题:toggle 选中 + 默认强度 4
+  const toggleInterest = (label: string) => {
+    const cur = (currentAnswer as Record<string, number>) || {};
+    if (cur[label] !== undefined) {
+      const { [label]: _removed, ...rest } = cur;
+      setAnswers({ ...answers, [q.no]: rest });
+    } else {
+      setAnswers({ ...answers, [q.no]: { ...cur, [label]: 4 } });
+    }
+  };
+
+  // v3 兴趣题:设置某 tag 的强度(1-5)
+  const setInterestStrength = (label: string, strength: number) => {
+    const cur = (currentAnswer as Record<string, number>) || {};
+    setAnswers({ ...answers, [q.no]: { ...cur, [label]: strength } });
   };
 
   const submitToBackend = async (finalAnswers: typeof answers) => {
@@ -169,16 +194,28 @@ export default function Module1QuizPage() {
         {/* 顶部进度 */}
         <section className="border-b border-border bg-card sticky top-20 z-10">
           <div className="max-w-[800px] mx-auto px-6 py-4">
-            <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center justify-between mb-2 gap-3 flex-wrap">
               <Link
                 href="/m1"
                 className="text-xs text-ink-soft hover:text-esther-blue transition-colors"
               >
                 ← 退出测评(进度会丢)
               </Link>
-              <p className="text-xs text-ink-muted font-display italic">
-                {current + 1} / {ALL_QUESTIONS.length}
-              </p>
+              <div className="flex items-center gap-3">
+                {/* v3 §8.18 §C.3 自动跳题 toggle */}
+                <label className="flex items-center gap-1.5 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={autoNext}
+                    onChange={(e) => setAutoNext(e.target.checked)}
+                    className="w-3.5 h-3.5 accent-esther-blue cursor-pointer"
+                  />
+                  <span className="text-xs text-ink-soft">自动下一题</span>
+                </label>
+                <p className="text-xs text-ink-muted font-display italic">
+                  {current + 1} / {ALL_QUESTIONS.length}
+                </p>
+              </div>
             </div>
             <div className="h-1.5 rounded-full bg-warm-bg-deep overflow-hidden">
               <div
@@ -255,37 +292,79 @@ export default function Module1QuizPage() {
               </>
             )}
 
-            {/* Multi-select(兴趣 tag) */}
+            {/* Multi-select(兴趣 tag)— v3 §8.18 §C.2 选中后展开 1-5 强度 */}
             {q.type === "multi" && (
               <>
                 <div className="space-y-3">
                   {q.options.map((opt) => {
-                    const selected =
-                      Array.isArray(currentAnswer) &&
-                      currentAnswer.includes(opt.label);
+                    const selectedMap =
+                      typeof currentAnswer === "object" &&
+                      currentAnswer !== null
+                        ? (currentAnswer as Record<string, number>)
+                        : {};
+                    const isSelected = selectedMap[opt.label] !== undefined;
+                    const strength = selectedMap[opt.label] ?? 4;
                     return (
-                      <button
+                      <div
                         key={opt.label}
-                        onClick={() => toggleMulti(opt.label)}
-                        className={`w-full flex items-start gap-4 p-4 rounded-xl border-2 text-left transition-all ${
-                          selected
+                        className={`rounded-xl border-2 transition-all overflow-hidden ${
+                          isSelected
                             ? "border-esther-blue bg-esther-blue/5"
                             : "border-border bg-card hover:border-esther-blue/50"
                         }`}
                       >
-                        <span
-                          className={`flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center text-xl ${
-                            selected
-                              ? "bg-esther-blue/15"
-                              : "bg-warm-bg-deep"
-                          }`}
+                        <button
+                          onClick={() => toggleInterest(opt.label)}
+                          className="w-full flex items-start gap-4 p-4 text-left"
                         >
-                          {opt.label}
-                        </span>
-                        <span className="flex-1 text-sm text-ink leading-relaxed pt-2">
-                          {opt.text}
-                        </span>
-                      </button>
+                          <span
+                            className={`flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center text-xl ${
+                              isSelected
+                                ? "bg-esther-blue/15"
+                                : "bg-warm-bg-deep"
+                            }`}
+                          >
+                            {opt.label}
+                          </span>
+                          <span className="flex-1 text-sm text-ink leading-relaxed pt-2">
+                            {opt.text}
+                          </span>
+                          {isSelected && (
+                            <span className="font-display italic text-xs text-esther-blue font-bold pt-2">
+                              {strength}/5
+                            </span>
+                          )}
+                        </button>
+                        {/* v3 强度选择 — 选中后展开 */}
+                        {isSelected && (
+                          <div className="border-t border-esther-blue/20 px-4 py-3 bg-esther-blue/5">
+                            <p className="text-[11px] text-ink-muted mb-2 font-display italic">
+                              喜欢程度
+                            </p>
+                            <div className="flex gap-2">
+                              {[1, 2, 3, 4, 5].map((v) => (
+                                <button
+                                  key={v}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setInterestStrength(opt.label, v);
+                                  }}
+                                  className={`flex-1 h-9 rounded-md text-sm font-bold transition-colors ${
+                                    v === strength
+                                      ? "bg-esther-blue text-white"
+                                      : "bg-card border border-border text-ink-soft hover:border-esther-blue/50"
+                                  }`}
+                                >
+                                  {v}
+                                </button>
+                              ))}
+                            </div>
+                            <p className="text-[10px] text-ink-muted mt-1.5 text-center">
+                              1 = 一般 · 3 = 中等 · 5 = 超爱
+                            </p>
+                          </div>
+                        )}
+                      </div>
                     );
                   })}
                 </div>

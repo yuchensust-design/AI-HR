@@ -11,7 +11,7 @@
  *   - 候选池只进 LLM prompt context,绝不出现在 UI
  */
 
-import type { Dimension } from "./quiz-data";
+import type { Dimension, InterestWithStrength } from "./quiz-data";
 
 export type CareerEntry = {
   industry: string;
@@ -26,19 +26,19 @@ export const CAREER_POOL: CareerEntry[] = [
     industry: "互联网",
     role_type: "产品经理(用户向)",
     riasec_weights: { E: 3, I: 2, A: 1, S: 1 },
-    tag_signals: { data_ai: 2, content: 1, design: 1 },
+    tag_signals: { data_ai: 2, content: 1, design: 1, business: 2, psychology: 1 },
   },
   {
     industry: "互联网",
     role_type: "用户研究员",
     riasec_weights: { I: 3, S: 2, A: 1 },
-    tag_signals: { content: 1, data_ai: 1 },
+    tag_signals: { content: 1, data_ai: 1, psychology: 3, reading: 1 },
   },
   {
     industry: "互联网",
     role_type: "内容运营",
     riasec_weights: { A: 3, S: 2, E: 1 },
-    tag_signals: { content: 3, music: 1, photo: 1, food: 1, gaming: 1 },
+    tag_signals: { content: 3, music: 1, photo: 1, food: 1, gaming: 1, reading: 2, film: 2 },
   },
   {
     industry: "互联网",
@@ -82,7 +82,7 @@ export const CAREER_POOL: CareerEntry[] = [
     industry: "金融",
     role_type: "投行 / 行业分析师",
     riasec_weights: { E: 3, C: 2, I: 1 },
-    tag_signals: { data_ai: 1 },
+    tag_signals: { data_ai: 1, business: 3, reading: 1 },
   },
   {
     industry: "金融",
@@ -108,7 +108,7 @@ export const CAREER_POOL: CareerEntry[] = [
     industry: "制造业",
     role_type: "工业设计师",
     riasec_weights: { A: 3, R: 2, I: 1 },
-    tag_signals: { design: 3 },
+    tag_signals: { design: 3, diy: 2 },
   },
   {
     industry: "制造业",
@@ -158,7 +158,7 @@ export const CAREER_POOL: CareerEntry[] = [
     industry: "文创媒体",
     role_type: "视频博主 / 内容创作者",
     riasec_weights: { A: 3, E: 2, S: 1 },
-    tag_signals: { content: 3, music: 1, food: 1, gaming: 1 },
+    tag_signals: { content: 3, music: 1, food: 1, gaming: 1, film: 3, travel: 2 },
   },
   {
     industry: "文创媒体",
@@ -190,7 +190,7 @@ export const CAREER_POOL: CareerEntry[] = [
     industry: "教育",
     role_type: "心理咨询师",
     riasec_weights: { S: 3, I: 2 },
-    tag_signals: {},
+    tag_signals: { psychology: 3, volunteer: 1, reading: 1 },
   },
   {
     industry: "教育",
@@ -210,7 +210,7 @@ export const CAREER_POOL: CareerEntry[] = [
     industry: "公共服务",
     role_type: "NGO / 公益项目",
     riasec_weights: { S: 3, E: 1, A: 1 },
-    tag_signals: { content: 1 },
+    tag_signals: { content: 1, volunteer: 3, nature: 2, travel: 1 },
   },
   {
     industry: "公共服务",
@@ -295,23 +295,35 @@ export const CAREER_POOL: CareerEntry[] = [
 /**
  * 候选池打分 + 取 top N
  *
- * score = Σ(riasec_weights[d] × scores[d] / 15) + Σ(tag_signals[t] × 0.5)
+ * v3 公式:
+ *   score = Σ(riasec_weights[d] × scores[d] / 15)
+ *         + Σ(tag_signals[t] × (strength[t] / 5))
  *
- * 适配 18REST-2 5 点 Likert(每维 3-15 分)— 用 / 15 归一化到 0-1
+ * 适配:
+ *   - 18REST-2 5 点 Likert(每维 3-15)→ scores / 15 归一化 0-1
+ *   - 兴趣 tag 1-5 强度(v3 §8.18 §C.2)→ strength / 5 归一化 0-1
  *
- * 返回:按 score 排序的 top N(默认 30),供 LLM Step 3 综合
+ * 向后兼容:传 string[](v2)等价于所有 tag strength = 4
  */
 export function generateCandidates(
   scores: [number, number, number, number, number, number],
-  selectedTagKeys: string[],
+  interests: InterestWithStrength[] | string[],
   topN = 30
 ): CareerEntry[] {
   const dimOrder: Dimension[] = ["R", "I", "A", "S", "E", "C"];
 
+  // 兼容 v2 string[](默认 strength 4)
+  const interestList: InterestWithStrength[] =
+    interests.length === 0
+      ? []
+      : typeof interests[0] === "string"
+      ? (interests as string[]).map((key) => ({ key, strength: 4 }))
+      : (interests as InterestWithStrength[]);
+
   const ranked = CAREER_POOL.map((entry) => {
     let score = 0;
 
-    // RIASEC 维度匹配分 — 18REST-2 每维 3-15,除以 15 归一化到 0-1
+    // RIASEC 维度匹配分
     for (const [dim, weight] of Object.entries(entry.riasec_weights)) {
       const dimIdx = dimOrder.indexOf(dim as Dimension);
       if (dimIdx >= 0) {
@@ -319,9 +331,10 @@ export function generateCandidates(
       }
     }
 
-    // 兴趣 tag boost
-    for (const tag of selectedTagKeys) {
-      score += (entry.tag_signals[tag] || 0) * 0.5;
+    // 兴趣 tag boost(乘以强度)
+    for (const { key, strength } of interestList) {
+      const signal = entry.tag_signals[key] || 0;
+      score += signal * (strength / 5);
     }
 
     return { entry, score };

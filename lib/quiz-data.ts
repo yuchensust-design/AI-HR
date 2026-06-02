@@ -252,14 +252,27 @@ export const LIKERT_OPTIONS = [
 
 export type LikertValue = 1 | 2 | 3 | 4 | 5;
 
-// 兴趣 tag 多选题(第 19 题)
+// 兴趣 tag 多选题(第 19 题)— v3 扩 7 → 16 + 加喜欢程度 1-5
 export type InterestTag = {
   label: string;
   text: string;
   key: string;
 };
 
+/**
+ * v3 兴趣 tag 库 — 16 个
+ * 设计原则:覆盖 RIASEC 6 维均衡 + 贴近 Z 世代大学生场景 + 永不自填
+ *
+ * 6 维对应(粗略):
+ *   R(实用)→ 运动 / 旅行 / 手工
+ *   I(研究)→ 阅读 / 心理哲学 / 自然 / 数据&AI
+ *   A(艺术)→ 音乐 / 摄影 / 内容 / 设计 / 影视 / 美食 / 游戏
+ *   S(社交)→ 公益 / 心理哲学
+ *   E(企业)→ 商业财经
+ *   C(常规)→(无直接 — C 偏专业技能不偏兴趣)
+ */
 export const INTEREST_TAGS: InterestTag[] = [
+  // 原 v2 7 个
   { label: "🎵", text: "音乐(听歌 / 弹琴 / 鉴赏)", key: "music" },
   { label: "📸", text: "摄影与影像(拍照 / 剪片)", key: "photo" },
   { label: "🎮", text: "游戏与二次元", key: "gaming" },
@@ -267,12 +280,31 @@ export const INTEREST_TAGS: InterestTag[] = [
   { label: "🍳", text: "美食(烹饪 / 探店)", key: "food" },
   { label: "🎨", text: "设计(UI / 平面 / 产品)", key: "design" },
   { label: "📊", text: "数据 & AI", key: "data_ai" },
+  // v3 新增 9 个
+  { label: "📚", text: "阅读(小说 / 非虚构 / 专业书)", key: "reading" },
+  { label: "🏃", text: "运动健身(球类 / 跑步 / 撸铁)", key: "sports" },
+  { label: "✈️", text: "旅行户外(citywalk / 徒步 / 露营)", key: "travel" },
+  { label: "🎬", text: "影视追剧(电影 / 美剧 / 综艺)", key: "film" },
+  { label: "🌱", text: "自然环保(动植物 / 环境 / 可持续)", key: "nature" },
+  { label: "💼", text: "商业财经(创业 / 股市 / 行业动态)", key: "business" },
+  { label: "🧠", text: "心理哲学(人性 / 思辨 / 自我)", key: "psychology" },
+  { label: "🤝", text: "公益志愿(支教 / 社区 / 弱势群体)", key: "volunteer" },
+  { label: "🛠️", text: "手工 DIY(木工 / 电子 / 改装)", key: "diy" },
 ];
 
 export const INTEREST_QUESTION = {
   no: 19,
-  text: "你对哪些有强烈兴趣?(可多选,沾边都算)",
+  text: "你对哪些有强烈兴趣?(可多选,选完会让你打喜欢程度)",
   helper: "选越多越能精准推荐 · 仅可多选,不可自填(保持零打字)",
+};
+
+/**
+ * v3 兴趣强度类型 — { key: strength 1-5 } map
+ * 例:{ "music": 5, "data_ai": 4 } 表示"音乐非常喜欢,数据 AI 喜欢"
+ */
+export type InterestWithStrength = {
+  key: string;
+  strength: number; // 1-5
 };
 
 /**
@@ -287,7 +319,7 @@ export const INTEREST_QUESTION = {
  * 返回:[R, I, A, S, E, C] 数组,每维 0-15
  */
 export function computeRIASEC(
-  answers: Record<number, number | string[]>
+  answers: Record<number, number | string[] | Record<string, number>>
 ): [number, number, number, number, number, number] {
   const sums: Record<Dimension, number> = {
     R: 0,
@@ -375,7 +407,7 @@ export const DIMENSION_LEVEL_LABELS: Record<DimensionLevel, string> = {
  *   none — 已答 < 5 题(不展示推荐)
  */
 export function computeConfidence(
-  answers: Record<number, number | string[]>,
+  answers: Record<number, number | string[] | Record<string, number>>,
   scores: [number, number, number, number, number, number]
 ): Confidence {
   const answered = RIASEC_QUESTIONS.filter(
@@ -392,14 +424,53 @@ export function computeConfidence(
 }
 
 /**
- * 从 localStorage answers 中读 InterestTag keys 选中列表
+ * 从 answers 中读兴趣 + 强度
+ *
+ * v3 schema 变化:
+ *   - v2: answers[19] = ["🎵", "✍️"]  (label[] 数组)
+ *   - v3: answers[19] = { "🎵": 5, "✍️": 3 }  (label → strength map)
+ *
+ * 向后兼容:仍支持 v2 数组格式(strength 默认 4)
  */
 export function getSelectedInterests(
-  answers: Record<number, number | string[]>
-): string[] {
+  answers: Record<number, number | string[] | Record<string, number>>
+): InterestWithStrength[] {
   const ans = answers[INTEREST_QUESTION.no];
-  if (!Array.isArray(ans)) return [];
-  return ans
-    .map((label) => INTEREST_TAGS.find((t) => t.label === label)?.key)
-    .filter((k): k is string => !!k);
+  if (!ans) return [];
+
+  // v3 map 格式: { "🎵": 5, "✍️": 3 }
+  if (typeof ans === "object" && !Array.isArray(ans)) {
+    return Object.entries(ans)
+      .map(([label, strength]) => {
+        const tag = INTEREST_TAGS.find((t) => t.label === label);
+        if (!tag) return null;
+        const s = typeof strength === "number" ? strength : 4;
+        return {
+          key: tag.key,
+          strength: Math.max(1, Math.min(5, s)),
+        };
+      })
+      .filter((x): x is InterestWithStrength => x !== null);
+  }
+
+  // v2 数组格式(向后兼容):strength 默认 4
+  if (Array.isArray(ans)) {
+    return ans
+      .map((label) => {
+        const tag = INTEREST_TAGS.find((t) => t.label === label);
+        return tag ? { key: tag.key, strength: 4 } : null;
+      })
+      .filter((x): x is InterestWithStrength => x !== null);
+  }
+
+  return [];
+}
+
+/**
+ * 兴趣 keys 简化版(给候选池打分,不带强度)— v2 向后兼容
+ */
+export function getSelectedInterestKeys(
+  answers: Record<number, number | string[] | Record<string, number>>
+): string[] {
+  return getSelectedInterests(answers).map((i) => i.key);
 }
