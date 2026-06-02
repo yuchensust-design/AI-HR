@@ -108,7 +108,12 @@ function buildUserPrompt(
   scores: [number, number, number, number, number, number],
   code: string,
   interests: InterestWithStrength[],
-  pool: Array<{ industry: string; role_type: string }>
+  pool: Array<{
+    industry_cn: string;
+    title_cn: string;
+    title_en: string;
+    riasec: Record<string, number>;
+  }>
 ): string {
   const [r, i, a, s, e, c] = scores;
   const interestStr =
@@ -122,10 +127,19 @@ RIASEC 编码: ${code}
 6 维分数(3-15): R${r} I${i} A${a} S${s} E${e} C${c}
 分数解读:≥12 高 / 9-11 中 / ≤8 低
 选中兴趣 tag(带喜欢程度): ${interestStr}
-兴趣强度说明:5 = 超爱(强信号) / 3 = 中等 / 1 = 一般。强度高的 tag 优先权重。
 
-候选池(${pool.length} 项,只能从这里选):
-${pool.map((p, idx) => `${idx + 1}. ${p.industry} / ${p.role_type}`).join("\n")}
+候选池(${pool.length} 项,来自 O*NET 30.3 美国劳工部 923 职业库筛选,每项带真实 RIASEC 1.0-7.0 数值):
+${pool
+  .map(
+    (p, idx) =>
+      `${idx + 1}. [${p.industry_cn}] ${p.title_cn}(${p.title_en}) | R${p.riasec.R} I${p.riasec.I} A${p.riasec.A} S${p.riasec.S} E${p.riasec.E} C${p.riasec.C}`
+  )
+  .join("\n")}
+
+【输出要求】
+- positive 5 项:industry 填中文行业大类(如"计算机与数学")/ role_type 填中文职业名(从候选池抄)
+- negative 3 项:从候选池里挑跟用户 Top 3 维度反向的(eg 用户 R 低 → 推 R 高的"机械维修"作反向)
+- 推荐时**严格匹配候选池 RIASEC 数值跟用户 Top 3 维度**,百分比要反映真实契合度
 
 请返 JSON。`;
 }

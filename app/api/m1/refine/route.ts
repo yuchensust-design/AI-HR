@@ -95,7 +95,12 @@ function buildUserPrompt(
   scores: [number, number, number, number, number, number],
   code: string,
   interests: InterestWithStrength[],
-  pool: Array<{ industry: string; role_type: string }>,
+  pool: Array<{
+    industry_cn: string;
+    title_cn: string;
+    title_en: string;
+    riasec: Record<string, number>;
+  }>,
   previous: unknown,
   chip: string
 ): string {
@@ -109,8 +114,13 @@ RIASEC 编码: ${code}
 6 维分数: R${r} I${i} A${a} S${s} E${e} C${c}
 选中兴趣 tag(带喜欢程度): ${interestStr}
 
-候选池(${pool.length} 项):
-${pool.map((p, idx) => `${idx + 1}. ${p.industry} / ${p.role_type}`).join("\n")}
+候选池(${pool.length} 项,来自 O*NET 30.3,带真实 RIASEC 1.0-7.0 数值):
+${pool
+  .map(
+    (p, idx) =>
+      `${idx + 1}. [${p.industry_cn}] ${p.title_cn} | R${p.riasec.R} I${p.riasec.I} A${p.riasec.A} S${p.riasec.S} E${p.riasec.E} C${p.riasec.C}`
+  )
+  .join("\n")}
 
 【上次推荐】
 ${JSON.stringify(previous, null, 2)}
