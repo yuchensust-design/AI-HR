@@ -1,332 +1,184 @@
 /**
- * 候选职业池 — 模块 1 推荐 Step 2(规则层候选筛选)
+ * 候选职业池 — v4 基于 O*NET 30.3 官方数据(923 职业 + RIASEC 6 维数值)
  *
- * 设计:
- *   - 涵盖 8 大行业方向(多元,不局限互联网+AI)
- *   - 每条 entry: industry + role_type + RIASEC 维度权重 + 兴趣 tag 信号
- *   - generateCandidates(scores, tags) 按用户测评 + 兴趣给每条打分,返回 top 30
+ * 数据来源:O*NET 30.3 Database, U.S. Department of Labor / Employment and
+ *           Training Administration (DOL/ETA). Licensed under CC BY 4.0.
+ *           https://www.onetcenter.org/database.html
+ *           https://creativecommons.org/licenses/by/4.0/
  *
- * 重要约束(plan §B lock):
- *   - 永远不含公司名(只到"行业 + 职位类型")
- *   - 候选池只进 LLM prompt context,绝不出现在 UI
+ * 数据加工:
+ *   1. 从 Career Interest Types.xlsx 提取 923 职业的 RIASEC 6 维数值(1.0-7.0)
+ *   2. 从 Occupation Data.xlsx 加 title + description
+ *   3. 从 Job Zones.xlsx 加 job zone(1-5,教育/经验要求)
+ *   4. SOC code 前 2 位 → 22 个中文行业大类(我们做的映射)
+ *   5. DeepSeek 翻译 923 职业标题为简洁中文
+ *
+ * 改动:O*NET 商标声明 + 翻译标注
+ * O*NET® is a trademark of USDOL/ETA. We translated the occupation titles to
+ * Simplified Chinese and grouped by SOC 22-major categories for our project.
  */
 
-import type { Dimension } from "./quiz-data";
+import type { Dimension, InterestWithStrength } from "./quiz-data";
+import careersData from "./data/onet-careers.json";
 
 export type CareerEntry = {
-  industry: string;
-  role_type: string;
-  riasec_weights: Partial<Record<Dimension, number>>;
-  tag_signals: Partial<Record<string, number>>;
+  /** O*NET-SOC code(eg "15-1211.00") */
+  code: string;
+  /** 英文标题(原 O*NET) */
+  title_en: string;
+  /** 中文标题(我们翻译) */
+  title_cn: string;
+  /** 英文描述(O*NET 简介,前 200 字) */
+  desc_en: string;
+  /** SOC 大类 code 前 2 位 */
+  soc_major: string;
+  /** SOC 大类中文名(我们映射) */
+  industry_cn: string;
+  /** RIASEC 6 维数值(O*NET 真实值,范围 1.0-7.0) */
+  riasec: Record<Dimension, number>;
+  /** Job Zone 1-5,教育/经验要求等级 */
+  job_zone: number;
 };
 
-export const CAREER_POOL: CareerEntry[] = [
-  // === 互联网 / 科技 ===
-  {
-    industry: "互联网",
-    role_type: "产品经理(用户向)",
-    riasec_weights: { E: 3, I: 2, A: 1, S: 1 },
-    tag_signals: { data_ai: 2, content: 1, design: 1 },
-  },
-  {
-    industry: "互联网",
-    role_type: "用户研究员",
-    riasec_weights: { I: 3, S: 2, A: 1 },
-    tag_signals: { content: 1, data_ai: 1 },
-  },
-  {
-    industry: "互联网",
-    role_type: "内容运营",
-    riasec_weights: { A: 3, S: 2, E: 1 },
-    tag_signals: { content: 3, music: 1, photo: 1, food: 1, gaming: 1 },
-  },
-  {
-    industry: "互联网",
-    role_type: "数据分析师",
-    riasec_weights: { I: 3, C: 2, R: 1 },
-    tag_signals: { data_ai: 3 },
-  },
-  {
-    industry: "互联网",
-    role_type: "UI / 交互设计师",
-    riasec_weights: { A: 3, I: 1, R: 1 },
-    tag_signals: { design: 3, photo: 1 },
-  },
-  {
-    industry: "互联网",
-    role_type: "推荐 / 算法工程师",
-    riasec_weights: { I: 3, R: 2, C: 1 },
-    tag_signals: { data_ai: 3 },
-  },
-  {
-    industry: "互联网",
-    role_type: "用户增长 / 投放",
-    riasec_weights: { E: 3, I: 2, A: 1 },
-    tag_signals: { data_ai: 2, content: 1 },
-  },
-  {
-    industry: "互联网",
-    role_type: "前后端开发工程师",
-    riasec_weights: { I: 2, R: 3, C: 1 },
-    tag_signals: { data_ai: 1 },
-  },
+export const CAREER_POOL: CareerEntry[] = careersData as CareerEntry[];
 
-  // === 金融 ===
-  {
-    industry: "金融",
-    role_type: "量化研究员",
-    riasec_weights: { I: 3, C: 2, R: 1 },
-    tag_signals: { data_ai: 3 },
-  },
-  {
-    industry: "金融",
-    role_type: "投行 / 行业分析师",
-    riasec_weights: { E: 3, C: 2, I: 1 },
-    tag_signals: { data_ai: 1 },
-  },
-  {
-    industry: "金融",
-    role_type: "商业银行客户经理",
-    riasec_weights: { E: 3, S: 2, C: 1 },
-    tag_signals: {},
-  },
-  {
-    industry: "金融",
-    role_type: "风险控制 / 风控",
-    riasec_weights: { C: 3, I: 2 },
-    tag_signals: { data_ai: 1 },
-  },
-  {
-    industry: "金融",
-    role_type: "财富管理顾问",
-    riasec_weights: { E: 2, S: 3, C: 1 },
-    tag_signals: {},
-  },
-
-  // === 制造 / 工业 ===
-  {
-    industry: "制造业",
-    role_type: "工业设计师",
-    riasec_weights: { A: 3, R: 2, I: 1 },
-    tag_signals: { design: 3 },
-  },
-  {
-    industry: "制造业",
-    role_type: "质量管理 / 品控",
-    riasec_weights: { C: 3, R: 2, I: 1 },
-    tag_signals: {},
-  },
-  {
-    industry: "制造业",
-    role_type: "供应链 / 物流管理",
-    riasec_weights: { E: 2, C: 3, I: 1 },
-    tag_signals: {},
-  },
-  {
-    industry: "制造业",
-    role_type: "工艺 / 生产工程师",
-    riasec_weights: { R: 3, I: 2, C: 1 },
-    tag_signals: {},
-  },
-
-  // === 文创 / 媒体 ===
-  {
-    industry: "文创媒体",
-    role_type: "平面设计 / 插画",
-    riasec_weights: { A: 3, I: 1 },
-    tag_signals: { design: 3, photo: 1 },
-  },
-  {
-    industry: "文创媒体",
-    role_type: "影视后期 / 剪辑",
-    riasec_weights: { A: 3, R: 1, I: 1 },
-    tag_signals: { content: 2, photo: 2 },
-  },
-  {
-    industry: "文创媒体",
-    role_type: "内容编辑 / 文案",
-    riasec_weights: { A: 3, S: 1, I: 1 },
-    tag_signals: { content: 3 },
-  },
-  {
-    industry: "文创媒体",
-    role_type: "摄影师 / 影像创作",
-    riasec_weights: { A: 3, R: 1 },
-    tag_signals: { photo: 3, content: 1 },
-  },
-  {
-    industry: "文创媒体",
-    role_type: "视频博主 / 内容创作者",
-    riasec_weights: { A: 3, E: 2, S: 1 },
-    tag_signals: { content: 3, music: 1, food: 1, gaming: 1 },
-  },
-  {
-    industry: "文创媒体",
-    role_type: "游戏策划 / 关卡设计",
-    riasec_weights: { A: 3, E: 1, I: 1 },
-    tag_signals: { gaming: 3, content: 1 },
-  },
-  {
-    industry: "文创媒体",
-    role_type: "音乐 / 音频制作",
-    riasec_weights: { A: 3, R: 1, I: 1 },
-    tag_signals: { music: 3 },
-  },
-
-  // === 教育 ===
-  {
-    industry: "教育",
-    role_type: "K12 / 学科教师",
-    riasec_weights: { S: 3, A: 1, I: 1 },
-    tag_signals: {},
-  },
-  {
-    industry: "教育",
-    role_type: "课程研发 / 教研",
-    riasec_weights: { I: 3, A: 2, S: 1 },
-    tag_signals: { content: 1 },
-  },
-  {
-    industry: "教育",
-    role_type: "心理咨询师",
-    riasec_weights: { S: 3, I: 2 },
-    tag_signals: {},
-  },
-  {
-    industry: "教育",
-    role_type: "留学 / 升学顾问",
-    riasec_weights: { S: 3, E: 1, A: 1 },
-    tag_signals: {},
-  },
-
-  // === 公共 / 社会服务 ===
-  {
-    industry: "公共服务",
-    role_type: "公务员 / 事业单位",
-    riasec_weights: { S: 2, C: 3 },
-    tag_signals: {},
-  },
-  {
-    industry: "公共服务",
-    role_type: "NGO / 公益项目",
-    riasec_weights: { S: 3, E: 1, A: 1 },
-    tag_signals: { content: 1 },
-  },
-  {
-    industry: "公共服务",
-    role_type: "城市 / 公共政策研究",
-    riasec_weights: { I: 2, C: 2, S: 1 },
-    tag_signals: { data_ai: 1 },
-  },
-  {
-    industry: "公共服务",
-    role_type: "法律顾问 / 律师",
-    riasec_weights: { C: 2, I: 3, E: 1 },
-    tag_signals: {},
-  },
-
-  // === 学术 / 研究 ===
-  {
-    industry: "学术研究",
-    role_type: "基础学科研究(博士路径)",
-    riasec_weights: { I: 3, C: 1 },
-    tag_signals: { data_ai: 1 },
-  },
-  {
-    industry: "学术研究",
-    role_type: "应用研究 / 实验室科研",
-    riasec_weights: { I: 3, R: 2, C: 1 },
-    tag_signals: { data_ai: 1 },
-  },
-  {
-    industry: "学术研究",
-    role_type: "实验室技术员 / 仪器操作",
-    riasec_weights: { R: 3, I: 1, C: 1 },
-    tag_signals: {},
-  },
-
-  // === 创业 / 自由职业 ===
-  {
-    industry: "创业 / 自由职业",
-    role_type: "独立内容创作者(自媒体)",
-    riasec_weights: { A: 3, E: 2 },
-    tag_signals: { content: 3, music: 2, photo: 2, design: 2, food: 2, gaming: 2 },
-  },
-  {
-    industry: "创业 / 自由职业",
-    role_type: "0-1 产品创始人 / 联创",
-    riasec_weights: { E: 3, I: 2, A: 1 },
-    tag_signals: { data_ai: 1, design: 1 },
-  },
-  {
-    industry: "创业 / 自由职业",
-    role_type: "自由设计师 / 插画师",
-    riasec_weights: { A: 3, R: 1 },
-    tag_signals: { design: 3 },
-  },
-  {
-    industry: "创业 / 自由职业",
-    role_type: "自由咨询顾问",
-    riasec_weights: { E: 3, I: 2, S: 1 },
-    tag_signals: {},
-  },
-
-  // === 销售 / 商业(让"消耗"反向推荐有候选) ===
-  {
-    industry: "销售商务",
-    role_type: "电话销售 / 地推",
-    riasec_weights: { E: 2, S: 1 },
-    tag_signals: {},
-  },
-  {
-    industry: "传统行政",
-    role_type: "档案管理 / 资料录入",
-    riasec_weights: { C: 3 },
-    tag_signals: {},
-  },
-  {
-    industry: "传统行政",
-    role_type: "纯内勤支持岗",
-    riasec_weights: { C: 2, S: 1 },
-    tag_signals: {},
-  },
-];
+/**
+ * SOC 22 大类(英文 → 中文)
+ * 用于结果页按行业分组展示
+ */
+export const SOC_MAJOR_LABELS: Record<string, string> = {
+  "11": "管理岗位",
+  "13": "商业与金融",
+  "15": "计算机与数学",
+  "17": "建筑与工程",
+  "19": "生命/物理/社会科学",
+  "21": "社区与社会服务",
+  "23": "法律",
+  "25": "教育与图书",
+  "27": "艺术/设计/娱乐/体育/媒体",
+  "29": "医疗专业",
+  "31": "医疗支持",
+  "33": "保护服务",
+  "35": "餐饮服务",
+  "37": "建筑保洁与维护",
+  "39": "个人护理与服务",
+  "41": "销售",
+  "43": "办公与行政支持",
+  "45": "农林渔",
+  "47": "建造与开采",
+  "49": "安装、维护与维修",
+  "51": "生产制造",
+  "53": "运输与物流",
+  "55": "军事专业",
+};
 
 /**
  * 候选池打分 + 取 top N
  *
- * score = Σ(riasec_weights[d] × scores[d] / 10) + Σ(tag_signals[t] × 0.5)
+ * v4 公式(基于 O*NET 真实数值):
+ *   score = Σ(career.riasec[d] × user_scores[d] / 15)
+ *         + Σ(interest tag boost,cap ≤ 2)
+ *
+ * 数值范围:
+ *   - career.riasec[d]:1.0-7.0(O*NET 真实评分)
+ *   - user_scores[d] / 15:0-1(用户 18REST-2 归一化)
+ *   - 单维 max ≈ 7,6 维总 max ≈ 25-30
+ *
+ * 兴趣 tag boost:目前无 mapping(O*NET 没有这个维度),保留 cap 2 的算术
+ *                让 LLM Step 3 综合考虑兴趣
  *
  * 返回:按 score 排序的 top N(默认 30),供 LLM Step 3 综合
  */
 export function generateCandidates(
   scores: [number, number, number, number, number, number],
-  selectedTagKeys: string[],
+  interests: InterestWithStrength[] | string[],
   topN = 30
 ): CareerEntry[] {
   const dimOrder: Dimension[] = ["R", "I", "A", "S", "E", "C"];
 
-  const ranked = CAREER_POOL.map((entry) => {
-    let score = 0;
+  // v3 兼容:string[] → 默认 strength 4
+  const interestList: InterestWithStrength[] =
+    interests.length === 0
+      ? []
+      : typeof interests[0] === "string"
+      ? (interests as string[]).map((key) => ({ key, strength: 4 }))
+      : (interests as InterestWithStrength[]);
 
-    // RIASEC 维度匹配分
-    for (const [dim, weight] of Object.entries(entry.riasec_weights)) {
-      const dimIdx = dimOrder.indexOf(dim as Dimension);
-      if (dimIdx >= 0) {
-        score += (weight || 0) * (scores[dimIdx] / 10);
+  const scored = CAREER_POOL.map((entry) => {
+    let riasecScore = 0;
+
+    // RIASEC 维度匹配 — O*NET 1-7 × 用户 / 15
+    for (const dim of dimOrder) {
+      const dimIdx = dimOrder.indexOf(dim);
+      const careerVal = entry.riasec[dim] || 0;
+      const userScore = scores[dimIdx] || 0;
+      riasecScore += careerVal * (userScore / 15);
+    }
+
+    // 兴趣 tag boost — 启发式 industry 关键词匹配
+    let tagScore = 0;
+    for (const { key, strength } of interestList) {
+      const industryMatch =
+        (key === "design" && entry.industry_cn.includes("艺术")) ||
+        (key === "data_ai" && entry.industry_cn.includes("计算机")) ||
+        (key === "business" && entry.industry_cn.includes("商业")) ||
+        (key === "psychology" && entry.industry_cn.includes("社会服务")) ||
+        (key === "volunteer" && entry.industry_cn.includes("社会服务")) ||
+        (key === "content" && entry.industry_cn.includes("艺术")) ||
+        (key === "music" && entry.industry_cn.includes("艺术")) ||
+        (key === "photo" && entry.industry_cn.includes("艺术")) ||
+        (key === "film" && entry.industry_cn.includes("艺术")) ||
+        (key === "reading" && entry.industry_cn.includes("教育")) ||
+        (key === "diy" && entry.industry_cn.includes("生产")) ||
+        (key === "sports" && entry.industry_cn.includes("个人护理")) ||
+        (key === "nature" && entry.industry_cn.includes("农林"));
+      if (industryMatch) {
+        tagScore += (strength / 5) * 1.5;
       }
     }
+    tagScore = Math.min(tagScore, 2);
 
-    // 兴趣 tag boost
-    for (const tag of selectedTagKeys) {
-      score += (entry.tag_signals[tag] || 0) * 0.5;
+    return { entry, score: riasecScore + tagScore };
+  }).sort((a, b) => b.score - a.score);
+
+  // ★ Industry Diversification(v6):
+  // 用户要"每大类 5 个职位",所以候选池要更宽
+  //   - 粗筛 top 100
+  //   - 每个 industry 最多 8 个(让 LLM 在每大类里有 5 个职业的选择空间)
+  //   - 最终取前 topN(默认 30,recommend route 改为 50)
+  const PER_INDUSTRY_CAP = 8;
+  const ROUGH_POOL = 100;
+
+  const rough = scored.slice(0, ROUGH_POOL);
+  const perIndustryCount: Record<string, number> = {};
+  const diversified: typeof rough = [];
+
+  for (const item of rough) {
+    const cnt = perIndustryCount[item.entry.industry_cn] || 0;
+    if (cnt < PER_INDUSTRY_CAP) {
+      diversified.push(item);
+      perIndustryCount[item.entry.industry_cn] = cnt + 1;
     }
+    if (diversified.length >= topN) break;
+  }
 
-    return { entry, score };
-  })
-    .sort((a, b) => b.score - a.score)
-    .slice(0, topN)
-    .map((x) => x.entry);
+  return diversified.map((x) => x.entry);
+}
 
-  return ranked;
+/**
+ * 按行业大类分组(用于 result 页层级展示)
+ * 输入 top N 推荐(已排序)→ 按 industry_cn 分组,保留原顺序
+ */
+export function groupCareersByIndustry(
+  careers: CareerEntry[]
+): Array<{ industry: string; careers: CareerEntry[] }> {
+  const groups: Record<string, CareerEntry[]> = {};
+  for (const c of careers) {
+    if (!groups[c.industry_cn]) groups[c.industry_cn] = [];
+    groups[c.industry_cn].push(c);
+  }
+  return Object.entries(groups).map(([industry, careers]) => ({
+    industry,
+    careers,
+  }));
 }
