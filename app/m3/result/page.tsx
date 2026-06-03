@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Card } from "@/components/ui/card";
@@ -10,6 +10,13 @@ import { BuerFloatingButton } from "@/components/BuerFloatingButton";
 import { useLocalState, STORAGE_KEYS } from "@/lib/use-local-state";
 import { EditSuggestionCard, type EditSuggestion, type Decision, type GapAlertDecision } from "@/components/EditSuggestionCard";
 import { GapAlertCard } from "@/components/GapAlertCard";
+import { DiffMetricsTable, type LlmMetrics } from "@/components/DiffMetricsTable";
+import {
+  computeRuleMetrics,
+  extractV1Bullets,
+  extractV2Bullets,
+  type RuleMetrics,
+} from "@/lib/diff-metrics";
 
 /**
  * 模块 3 / Phase 5 Interactive Review-Confirm(2026-06-02 redesigned per user feedback)
@@ -60,6 +67,11 @@ export default function ResultPage() {
   const [gapFillBusyId, setGapFillBusyId] = useState<string | null>(null);
   const [regenBusyId, setRegenBusyId] = useState<string | null>(null);
   const [downloading, setDownloading] = useState(false);
+
+  // Live Diff 6 维表 state(2026-06-04)
+  const [llmMetrics, setLlmMetrics] = useState<LlmMetrics | null>(null);
+  const [llmJdKeywords, setLlmJdKeywords] = useState<string[]>([]);
+  const [llmMetricsRefreshing, setLlmMetricsRefreshing] = useState(false);
 
   const loadSuggestions = useCallback(async () => {
     if (!parsedResume) return;
@@ -113,6 +125,79 @@ export default function ResultPage() {
   function handleReject(id: string) {
     setDecisions((d) => ({ ...d, [id]: "reject" }));
   }
+  // === Live Diff 6 维表 computation(纯前端 4 维规则实时)===
+
+  // 收集所有 accepted edits(含 rewritten 文本)
+  const acceptedEditsForDiff = useMemo(() => {
+    if (!data) return [];
+    return data.edits
+      .filter((e) => decisions[e.id] === "accept" && e.category !== "gap-alert")
+      .map((e) => ({
+        target: e.target,
+        original_text: e.original_text,
+        suggested_text: rewritten[e.id] ?? e.suggested_text,
+      }));
+  }, [data, decisions, rewritten]);
+
+  const v1Bullets = useMemo(() => extractV1Bullets(parsedResume), [parsedResume]);
+  const v2Bullets = useMemo(
+    () => extractV2Bullets(parsedResume, acceptedEditsForDiff),
+    [parsedResume, acceptedEditsForDiff]
+  );
+
+  const ruleV1: RuleMetrics = useMemo(
+    () => computeRuleMetrics(v1Bullets, llmJdKeywords),
+    [v1Bullets, llmJdKeywords]
+  );
+  const ruleV2: RuleMetrics = useMemo(
+    () => computeRuleMetrics(v2Bullets, llmJdKeywords),
+    [v2Bullets, llmJdKeywords]
+  );
+
+  // 调 diff-metrics API(LLM 评估 STAR + 硬门槛 + jd_keywords 扩展)
+  const loadLlmMetrics = useCallback(async () => {
+    if (v1Bullets.length === 0 && v2Bullets.length === 0) return;
+    setLlmMetricsRefreshing(true);
+    try {
+      const res = await fetch("/api/m3/diff-metrics", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          v1Bullets,
+          v2Bullets,
+          jdContext: jdContext ?? null,
+          parsedResumeBasic: parsedResume?.basic ?? null,
+        }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const parsed = (await res.json()) as LlmMetrics & { jd_keywords?: string[] };
+      setLlmMetrics({
+        star_complete_v1: parsed.star_complete_v1,
+        star_complete_v2: parsed.star_complete_v2,
+        hard_req_total: parsed.hard_req_total,
+        hard_req_v1_aligned: parsed.hard_req_v1_aligned,
+        hard_req_v2_aligned: parsed.hard_req_v2_aligned,
+        hard_req_items: parsed.hard_req_items ?? [],
+        llm_explain: parsed.llm_explain ?? "",
+      });
+      if (parsed.jd_keywords && parsed.jd_keywords.length > 0) {
+        setLlmJdKeywords(parsed.jd_keywords);
+      }
+    } catch (err) {
+      console.error("[loadLlmMetrics] failed:", err);
+    } finally {
+      setLlmMetricsRefreshing(false);
+    }
+  }, [v1Bullets, v2Bullets, jdContext, parsedResume]);
+
+  // 进 ready 状态后自动跑 1 次 LLM diff-metrics
+  useEffect(() => {
+    if (status === "ready" && data && !llmMetrics && !llmMetricsRefreshing) {
+      loadLlmMetrics();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status, data]);
+
   // === gap-alert handlers (2026-06-02 v2) ===
   async function handleGapFill(edit: EditSuggestion, userInput: string) {
     setGapFillBusyId(edit.id);
@@ -374,7 +459,7 @@ export default function ResultPage() {
               </Card>
             </div>
 
-            {/* 右:改动建议卡片列表 */}
+            {/* 右:Live Diff 6 维表 + 改动建议卡片列表 */}
             <div className="space-y-4">
               <Card className="p-4 border-2 border-esther-blue/30 bg-esther-blue/5">
                 <p className="text-sm text-ink-soft leading-relaxed">
@@ -384,6 +469,16 @@ export default function ResultPage() {
                   used skills: <span className="font-mono">{data.used_supplements.join(", ")}</span>
                 </p>
               </Card>
+
+              {/* 6 维客观差异表(2026-06-04 用户需求)*/}
+              <DiffMetricsTable
+                ruleV1={ruleV1}
+                ruleV2={ruleV2}
+                llm={llmMetrics}
+                onRefreshLlm={loadLlmMetrics}
+                refreshing={llmMetricsRefreshing}
+              />
+
 
               {(() => {
                 const gapAlerts = data.edits.filter((e) => e.category === "gap-alert");
