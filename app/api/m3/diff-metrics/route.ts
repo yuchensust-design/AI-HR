@@ -5,8 +5,11 @@
  *
  * Body: { v1Bullets: string[], v2Bullets: string[], jdContext, parsedResumeBasic? }
  *
- * 输出:
+ * 输出(06 §3.4 升级:加 matched_keywords + gap_breakdown):
  *   {
+ *     jd_keywords: string[],
+ *     matched_keywords: string[],          // v2 命中的 jd_keywords 子集(LLM 语义判断)
+ *     gap_breakdown: { easy, mid, hard },  // 按 jdContext.gaps[].fixable 计数(纯规则)
  *     star_complete_v1: { complete: N, total: N },
  *     star_complete_v2: { complete: N, total: N },
  *     hard_req_aligned_v1: { aligned: N, total: N, items: [...] },
@@ -22,6 +25,7 @@ type JdContext = {
   jd_summary?: string;
   must_have?: string[];
   jd_requirements_parsed?: { type: string; text: string }[];
+  gaps?: { jd_requirement?: string; why_gap?: string; fixable?: string }[];
 } | null;
 
 function buildPrompt(
@@ -66,9 +70,16 @@ function buildPrompt(
 
 **注意**:软技能("沟通能力强")不算硬门槛(无法二元判定)。
 
+【任务 3:matched_keywords(v2 命中的 jd_keywords)】
+从你产的 jd_keywords 里挑出 v2 bullets **实际命中**的关键词:
+  - 命中 = v2 bullets 文本里直接出现该 token,或语义近似(eg "Pandas" 命中"数据分析")
+  - 严格判定 — v1 命中但 v2 没命中的不算
+  - 不能凭空加,只从 jd_keywords 子集里选
+
 【输出严格 JSON】
 {
   "jd_keywords": ["数据分析", "SQL", "用户访谈", ...],  // 30-50 个
+  "matched_keywords": ["数据分析", "SQL", ...],         // v2 命中的 jd_keywords 子集
   "star_complete_v1": { "complete": N, "total": ${v1Bullets.length} },
   "star_complete_v2": { "complete": N, "total": ${v2Bullets.length} },
   "hard_req_total": N,
@@ -134,10 +145,41 @@ export async function POST(request: NextRequest) {
     const starV1 = (parsed.star_complete_v1 ?? {}) as StarLike;
     const starV2 = (parsed.star_complete_v2 ?? {}) as StarLike;
 
+    const jdKeywords = Array.isArray(parsed.jd_keywords)
+      ? parsed.jd_keywords.map(String).filter(Boolean)
+      : [];
+
+    // matched_keywords: LLM 输出 + 兜底字符串匹配
+    let matchedKeywords = Array.isArray(parsed.matched_keywords)
+      ? parsed.matched_keywords.map(String).filter(Boolean)
+      : [];
+    // 约束在 jdKeywords 子集内,去重
+    matchedKeywords = Array.from(new Set(matchedKeywords)).filter((k) => jdKeywords.includes(k));
+    // 兜底:LLM 漏的关键词做字符串子串匹配补回
+    if (jdKeywords.length > 0) {
+      const v2Joined = v2Bullets.join(" ").toLowerCase();
+      for (const k of jdKeywords) {
+        if (matchedKeywords.includes(k)) continue;
+        if (k.length >= 2 && v2Joined.includes(k.toLowerCase())) {
+          matchedKeywords.push(k);
+        }
+      }
+    }
+
+    // gap_breakdown: 纯规则,按 jdContext.gaps[].fixable 计数
+    const gaps = Array.isArray(jdContext?.gaps) ? jdContext.gaps : [];
+    const gapBreakdown = { easy: 0, mid: 0, hard: 0 };
+    for (const g of gaps) {
+      const f = String(g?.fixable ?? "");
+      if (f.includes("易补")) gapBreakdown.easy++;
+      else if (f.includes("中等")) gapBreakdown.mid++;
+      else if (f.includes("难补")) gapBreakdown.hard++;
+    }
+
     return NextResponse.json({
-      jd_keywords: Array.isArray(parsed.jd_keywords)
-        ? parsed.jd_keywords.map(String).filter(Boolean)
-        : [],
+      jd_keywords: jdKeywords,
+      matched_keywords: matchedKeywords,
+      gap_breakdown: gapBreakdown,
       star_complete_v1: {
         complete: Number(starV1.complete ?? 0),
         total: Number(starV1.total ?? v1Bullets.length),

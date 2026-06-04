@@ -420,6 +420,15 @@ export default function JdPage() {
                   </p>
                 </div>
 
+                {/* Anti-fabrication 文案 — PM 06 §3.4 #5 */}
+                <div className="flex items-center gap-2 px-3 py-2 rounded-md border border-border bg-card mb-4">
+                  <span className="text-base">🛡️</span>
+                  <p className="text-[11px] text-ink-soft leading-snug">
+                    <span className="text-ink font-medium">Offer 捕手</span>
+                    只会重组和追问你提供过的信息,不会替你发明经历。下面的 match / gap 都来自 LLM 对 JD + 你简历的对比。
+                  </p>
+                </div>
+
                 {/* must_have chips */}
                 {result.must_have && result.must_have.length > 0 && (
                   <div className="mb-4">

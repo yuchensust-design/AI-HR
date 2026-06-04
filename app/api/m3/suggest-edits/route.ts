@@ -13,10 +13,15 @@
  *   2. 主框架 prompt + 路由后的 segments → LLM → JSON edits[]
  *   3. Normalize + 兜底 narrative_tag heuristic
  *
- * 输出 schema(plan §Phase 5 redesigned):
+ * 输出 schema(plan §Phase 5 redesigned + 06 §3.4 升级):
  *   {
  *     edits: [
- *       { id, target, original_text, suggested_text, reason, category, priority }
+ *       { id, target, original_text, suggested_text, reason, category, priority,
+ *         source,            // "jd" | "resume" | "experience" | "interview" — PM §3.4 必填
+ *         confidence,        // 0-1 — PM §3.4 必填,< 0.7 只追问不直接写
+ *         linked_jd_keyword, // string | null — 对应 diff_metrics.jd_keywords[] 哪个
+ *         evidence_source,   // 自由文本(向后兼容)
+ *         fab_warning, jd_requirement_text, fixable }
  *     ],
  *     default_accept_count: 3,
  *     optimization_summary: "本次找了 N 处可改",
@@ -65,6 +70,22 @@ const PROMPT_MAIN = `你是「Offer 捕手」模块 3 简历整理 Phase 5 改�
 
 6. **文案温和**,不绝对化;每条建议 suggested_text 长度 30-80 字
 
+7. **(2026-06-04 v3 新增)每条 edit 必填 3 个 PM §3.4 字段**(给前端做"AI-HR 视角看得见的能力证明"):
+   - **source**(枚举 4 选 1):
+     · "jd" = 来源是 JD 分析(只允许 category=gap-alert)
+     · "resume" = 来源是用户简历原文(parsed_resume 各 section)
+     · "experience" = 来源是 Phase 3 挖掘的隐藏经验(hidden_experiences[*])
+     · "interview" = 来源是模块 5 面试回写(localStorage from_debrief_highlight)
+   - **confidence**(0-1 浮点):
+     · 0.95-1.0 = 简历原文直接证据 / 结构性建议(section-reorder)
+     · 0.80-0.94 = 隐藏经验明确,改写有把握
+     · 0.70-0.79 = 隐藏经验可推但需用户确认
+     · < 0.70 = ⚠️ 信号弱,**只追问不直接写**(fab_warning 必填 + priority=low)
+   - **linked_jd_keyword**(string | null):
+     · 这条 edit 命中 JD 哪个关键词(选 1 个最相关的;无关 = null)
+     · 关键词从你自己识别的 JD 关键词里挑(jd_summary / must_have / jd_requirements_parsed)
+     · 不能编造 — 只挑 JD 文本里真有的
+
 【category 分类(枚举)】
 - "narrative-tools": 责任→成就重写(必须改原文 bullet)
 - "ats-keyword": 加 JD must_have 关键词(只能在原文 bullet 里加,不新建)
@@ -105,6 +126,9 @@ const PROMPT_MAIN = `你是「Offer 捕手」模块 3 简历整理 Phase 5 改�
       "original_text": "用户简历里的原文(target = new: / alert: 时 = '(新增)' / '(JD 缺口)')",
       "suggested_text": "改后的文本 / gap 简短描述",
       "evidence_source": "parsed_resume.experience[0].bullets[0]" 或 "hidden_experiences[2]" 或 "parsed_resume.skills.tools" 或 "jd_context.gaps[0]" (仅 gap-alert),
+      "source": "jd" | "resume" | "experience" | "interview",
+      "confidence": 0.85,
+      "linked_jd_keyword": "数据分析" 或 null,
       "reason": "1-2 句为什么 — 引用 narrative_tag / JD 关键词 / 隐藏经验 / Phase 3 你说没",
       "category": "narrative-tools" | "ats-keyword" | "gap-alert" | ...,
       "priority": "high" | "medium" | "low",
@@ -124,13 +148,16 @@ const PROMPT_MAIN = `你是「Offer 捕手」模块 3 简历整理 Phase 5 改�
 □ suggested_text 里没有用户原始素材没的数字 / 工具 / 经验
 □ ats-keyword 类别没新建 bullet,只改写原文
 □ 公司名脱敏
+□ source / confidence / linked_jd_keyword 三字段都填,confidence ∈ [0, 1]
+□ gap-alert 的 source 必须 = "jd";hidden-experience-add 的 source 必须 = "experience"
+□ confidence < 0.7 的 edit 必须 fab_warning != null 且 priority = "low"
 
 数量:**8-15 条建议**。high priority 占 30-50%。`;
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { parsedResume, jdContext, hiddenExperiences } = body;
+    const { parsedResume, jdContext, hiddenExperiences, fromDebriefHighlight } = body;
 
     if (!parsedResume) {
       return NextResponse.json({ error: "parsedResume required" }, { status: 400 });
@@ -176,6 +203,9 @@ ${JSON.stringify(jdContext ?? null, null, 2)}
 hidden_experience_candidates(Phase 3 挖到的):
 ${JSON.stringify(hiddenExperiences ?? [], null, 2)}
 
+from_debrief_highlight(模块 5 模拟面试复盘里识别的高价值答案,有的话产 source="interview" 的 edit):
+${JSON.stringify(fromDebriefHighlight ?? null, null, 2)}
+
 请按 schema 产出 edits[]。返 JSON。`;
 
     const raw = await chat(
@@ -204,6 +234,35 @@ ${JSON.stringify(hiddenExperiences ?? [], null, 2)}
     ];
     const VALID_PRIORITY = ["high", "medium", "low"];
     const VALID_FIXABLE = ["易补<2周", "中等1-2月", "难补≥3月"];
+    const VALID_SOURCE = ["jd", "resume", "experience", "interview"] as const;
+    type SourceTag = (typeof VALID_SOURCE)[number];
+
+    // 兜底:从 category + evidence_source 推断 source
+    function inferSource(cat: string, evidenceSource: string, raw: unknown): SourceTag {
+      if (typeof raw === "string" && (VALID_SOURCE as readonly string[]).includes(raw)) {
+        return raw as SourceTag;
+      }
+      if (cat === "gap-alert") return "jd";
+      if (cat === "hidden-experience-add") return "experience";
+      const es = evidenceSource.toLowerCase();
+      if (es.includes("hidden_experience")) return "experience";
+      if (es.includes("from_debrief") || es.includes("interview")) return "interview";
+      return "resume";
+    }
+
+    // 兜底:从 category + priority 推断 confidence
+    function inferConfidence(cat: string, priority: string, fabWarning: string | null, raw: unknown): number {
+      const n = typeof raw === "number" ? raw : typeof raw === "string" ? parseFloat(raw) : NaN;
+      if (Number.isFinite(n) && n >= 0 && n <= 1) return Math.round(n * 100) / 100;
+      // fallback heuristic
+      if (fabWarning) return 0.55;
+      if (cat === "section-reorder") return 0.95;
+      if (cat === "gap-alert") return 0.5;
+      if (cat === "hidden-experience-add") return priority === "high" ? 0.82 : 0.72;
+      if (priority === "high") return 0.88;
+      if (priority === "low") return 0.65;
+      return 0.78;
+    }
 
     const editsRaw = Array.isArray(parsed.edits) ? parsed.edits : [];
     let filteredOutCount = 0;
@@ -220,6 +279,12 @@ ${JSON.stringify(hiddenExperiences ?? [], null, 2)}
         const fabWarning = el.fab_warning ? String(el.fab_warning) : null;
         const jdReqText = el.jd_requirement_text ? String(el.jd_requirement_text) : null;
         const fixable = VALID_FIXABLE.includes(el.fixable as string) ? String(el.fixable) : null;
+        const source = inferSource(cat, evidenceSource, el.source);
+        const confidence = inferConfidence(cat, pri, fabWarning, el.confidence);
+        const linkedKeyword =
+          typeof el.linked_jd_keyword === "string" && el.linked_jd_keyword.trim()
+            ? el.linked_jd_keyword.trim()
+            : null;
 
         return {
           id: String(el.id ?? `edit-${String(i + 1).padStart(3, "0")}`),
@@ -227,6 +292,9 @@ ${JSON.stringify(hiddenExperiences ?? [], null, 2)}
           original_text: String(el.original_text ?? ""),
           suggested_text: suggestedText,
           evidence_source: evidenceSource,
+          source,
+          confidence,
+          linked_jd_keyword: linkedKeyword,
           reason: String(el.reason ?? ""),
           category: cat,
           priority: pri,
