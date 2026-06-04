@@ -66,6 +66,8 @@ export default function Module5DebriefPage() {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [adopted, setAdopted] = useState<Set<string>>(new Set());
+  /** 复制 bullet 反馈 — key = excerpt */
+  const [copied, setCopied] = useState<string | null>(null);
 
   useEffect(() => {
     // hydration 后从 localStorage 读 session + 异步调 debrief endpoint,setState 必要
@@ -160,6 +162,23 @@ export default function Module5DebriefPage() {
     }
   }
 
+  /**
+   * 双轨之二:复制 bullet 文本到剪贴板。
+   * 审计建议保守做法 — 不强依赖 M3 接口,demo 时手动粘贴也能演示能力链。
+   */
+  async function handleCopyBullet(h: DebriefHighlight) {
+    try {
+      await navigator.clipboard.writeText(h.suggestedBullet);
+      setCopied(h.excerpt);
+      window.setTimeout(() => {
+        setCopied((cur) => (cur === h.excerpt ? null : cur));
+      }, 2000);
+    } catch (e) {
+      console.warn("[m5/debrief] clipboard write failed", e);
+      alert("浏览器剪贴板不可用,请手动复制下面 bullet 文本");
+    }
+  }
+
   if (loading) {
     return (
       <>
@@ -209,6 +228,19 @@ export default function Module5DebriefPage() {
     if (!Number.isFinite(t1) || !Number.isFinite(t2)) return null;
     return Math.max(1, Math.round((t2 - t1) / 60000));
   })();
+  // 旧数据 evaluable 缺失 → 按 true 处理(向后兼容);scores 非空才算可评估
+  const isEvaluable =
+    debrief.evaluable !== false && debrief.scores.length > 0;
+  const answeredCount = debrief.answeredCount;
+  const totalCount = debrief.totalCount ?? session.questions.length;
+  const partialAnswered =
+    isEvaluable &&
+    typeof answeredCount === "number" &&
+    answeredCount > 0 &&
+    answeredCount < totalCount;
+  /** 审计 §3.5 优先字段名 resumeBackfillCandidates,旧数据走 highlights */
+  const backfillCandidates =
+    debrief.resumeBackfillCandidates ?? debrief.highlights;
 
   return (
     <>
@@ -241,74 +273,134 @@ export default function Module5DebriefPage() {
           </div>
         </section>
 
-        <section className="border-b border-border bg-warm-bg-deep/30">
-          <div className="max-w-[1100px] mx-auto px-6 py-10">
-            <div className="flex items-baseline justify-between flex-wrap gap-4 mb-6">
-              <div>
-                <p className="font-display italic text-xs text-esther-blue mb-1">
-                  4-dim assessment
-                </p>
-                <h2 className="text-xl md:text-2xl font-bold text-ink">
-                  4 维评分(含 transcript 证据)
-                </h2>
-              </div>
-              <div className="text-right">
-                <p className="text-[11px] text-ink-muted font-display italic">
-                  Average
-                </p>
-                <p className="text-3xl font-display italic font-bold text-esther-blue">
-                  {debrief.avg}
-                  <span className="text-base text-ink-muted">/5</span>
-                </p>
-              </div>
+        {!isEvaluable ? (
+          // T3:全跳过 / 全未答 — 专属 N/A 页,不渲染评分卡
+          <section className="border-b border-border bg-warm-bg-deep/30">
+            <div className="max-w-[1100px] mx-auto px-6 py-16 text-center">
+              <div className="text-5xl mb-4">📭</div>
+              <h2 className="text-xl md:text-2xl font-bold text-ink mb-3">
+                本次未完成任何回答,无评估内容
+              </h2>
+              <p className="text-sm text-ink-soft max-w-[520px] mx-auto leading-relaxed mb-6">
+                {debrief.summary ??
+                  "因为没有 transcript,4 维评分(逻辑/具体/清晰/口水话)无法成立。建议重新开始,认真答完至少 3 题,我才能给你有意义的复盘。"}
+              </p>
+              <Link
+                href="/m5"
+                className="inline-block rounded-full bg-esther-blue text-white px-6 py-3 text-sm font-medium hover:bg-esther-blue-dark transition-colors"
+              >
+                重新开始一场 →
+              </Link>
+              <p className="text-[11px] text-ink-muted mt-6">
+                模拟面试仅供练习参考,不作为真实面试预测或录用依据
+              </p>
             </div>
+          </section>
+        ) : (
+          <section className="border-b border-border bg-warm-bg-deep/30">
+            <div className="max-w-[1100px] mx-auto px-6 py-10">
+              <div className="flex items-baseline justify-between flex-wrap gap-4 mb-6">
+                <div>
+                  <p className="font-display italic text-xs text-esther-blue mb-1">
+                    4-dim assessment
+                  </p>
+                  <h2 className="text-xl md:text-2xl font-bold text-ink">
+                    4 维评分(含 transcript 证据)
+                  </h2>
+                  {partialAnswered && (
+                    <p className="text-xs text-ink-soft mt-2">
+                      基于 <span className="font-bold text-esther-blue">{answeredCount}</span> /{" "}
+                      {totalCount} 题计算 — 跳过和未答的题已标 N/A 不参与维度统计
+                    </p>
+                  )}
+                </div>
+                <div className="text-right">
+                  <p className="text-[11px] text-ink-muted font-display italic">
+                    Average
+                  </p>
+                  <p className="text-3xl font-display italic font-bold text-esther-blue">
+                    {debrief.avg}
+                    <span className="text-base text-ink-muted">/5</span>
+                  </p>
+                </div>
+              </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {debrief.scores.map((s) => (
-                <Card key={s.dim} className="p-5 border-2 border-border">
-                  <div className="flex items-center justify-between mb-3">
-                    <h3 className="text-base font-semibold text-ink">
-                      {s.dim}
-                    </h3>
-                    <ScoreBar score={s.score} />
-                  </div>
-                  <div className="bg-warm-bg-deep/50 rounded-lg p-3">
-                    <p className="text-[10px] uppercase tracking-wider text-ink-muted font-display italic mb-1.5">
-                      Evidence
-                    </p>
-                    <p className="text-xs text-ink leading-relaxed">
-                      {s.evidence || "(本场未触发该维度)"}
-                    </p>
-                  </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {debrief.scores.map((s) => (
+                  <Card key={s.dim} className="p-5 border-2 border-border">
+                    <div className="flex items-center justify-between mb-3">
+                      <h3 className="text-base font-semibold text-ink">
+                        {s.dim}
+                      </h3>
+                      <ScoreBar score={s.score} />
+                    </div>
+                    <div className="bg-warm-bg-deep/50 rounded-lg p-3">
+                      <p className="text-[10px] uppercase tracking-wider text-ink-muted font-display italic mb-1.5">
+                        Evidence
+                      </p>
+                      <p className="text-xs text-ink leading-relaxed">
+                        {s.evidence || "(本场未触发该维度)"}
+                      </p>
+                    </div>
+                  </Card>
+                ))}
+              </div>
+
+              {debrief.missedSignals && debrief.missedSignals.length > 0 && (
+                <Card className="mt-5 p-5 border-2 border-esther-yellow/40 bg-esther-yellow/10">
+                  <p className="text-[10px] uppercase tracking-wider text-ink-muted font-display italic mb-2">
+                    JD 在意但 transcript 没出现的信号
+                  </p>
+                  <ul className="space-y-1.5">
+                    {debrief.missedSignals.map((s, i) => (
+                      <li
+                        key={i}
+                        className="text-xs text-ink leading-relaxed flex gap-2"
+                      >
+                        <span className="text-esther-blue">·</span>
+                        <span>{s}</span>
+                      </li>
+                    ))}
+                  </ul>
                 </Card>
-              ))}
+              )}
+
+              {debrief.nextPractice && (
+                <p className="text-sm text-ink-soft mt-5 leading-relaxed">
+                  <span className="font-display italic text-esther-blue">
+                    Next:{" "}
+                  </span>
+                  {debrief.nextPractice}
+                </p>
+              )}
+
+              <p className="text-[11px] text-ink-muted mt-5 leading-relaxed">
+                评分依赖 STT 转写,允许 ±20% 误差;STT 误识别不算用户失误。模拟面试仅供练习参考,看趋势不看单次绝对分。
+              </p>
             </div>
+          </section>
+        )}
 
-            <p className="text-[11px] text-ink-muted mt-5 leading-relaxed">
-              评分依赖 STT 转写,允许 ±20% 误差;STT 误识别不算用户失误。
-            </p>
-          </div>
-        </section>
-
-        {/* 双向闭环 highlights */}
-        {debrief.highlights.length > 0 && (
+        {/* 双向闭环 — 简历回写候选(双轨:跳转 + 复制) */}
+        {backfillCandidates.length > 0 && (
           <section className="border-b border-border">
             <div className="max-w-[1100px] mx-auto px-6 py-12">
               <div className="mb-8">
                 <p className="font-display italic text-xs text-esther-blue mb-1">
-                  Cross-module loop ★
+                  Resume backfill ★
                 </p>
                 <h2 className="text-xl md:text-2xl font-bold text-ink mb-2">
-                  💡 这 {debrief.highlights.length} 段你答得特别好 — 要不要加到简历?
+                  💡 这 {backfillCandidates.length} 段你答得特别好 — 要不要写进简历?
                 </h2>
                 <p className="text-sm text-ink-soft">
-                  AI 从你的 transcript 里识别出可以反哺简历的高价值答案 — 一键采纳就跳简历优化
+                  AI 从 transcript 里识别出可以反哺简历的答案 · 两种用法:一键跳简历优化 / 复制 bullet 文本手动粘贴
                 </p>
               </div>
 
               <div className="space-y-5">
-                {debrief.highlights.map((h) => {
+                {backfillCandidates.map((h) => {
                   const isAdopted = adopted.has(h.excerpt);
+                  const isCopied = copied === h.excerpt;
                   return (
                     <Card
                       key={h.excerpt}
@@ -353,20 +445,27 @@ export default function Module5DebriefPage() {
                           className="inline-flex items-center justify-center rounded-full bg-esther-blue text-white px-5 py-2 text-sm font-medium hover:bg-esther-blue-dark transition-colors disabled:bg-ink-muted disabled:cursor-not-allowed"
                         >
                           {isAdopted
-                            ? "✓ 已采纳,正在跳 /m3"
+                            ? "✓ 已采纳 → 跳简历优化"
                             : "✓ 采纳 → 跳简历优化"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleCopyBullet(h)}
+                          className="inline-flex items-center justify-center rounded-full border border-esther-blue/40 bg-card text-esther-blue px-5 py-2 text-sm hover:bg-esther-blue/10 transition-colors"
+                        >
+                          {isCopied ? "✓ 已复制" : "📋 复制 bullet 文本"}
                         </button>
                         <button
                           type="button"
                           onClick={() =>
                             setAdopted((s) => new Set(s).add(h.excerpt))
                           }
-                          className="inline-flex items-center justify-center rounded-full border border-border bg-card text-ink-soft px-5 py-2 text-sm hover:border-esther-blue transition-colors"
+                          className="inline-flex items-center justify-center rounded-full border border-border bg-card text-ink-soft px-5 py-2 text-sm hover:border-ink-soft transition-colors"
                         >
                           ✗ 不采纳
                         </button>
                         <p className="text-[11px] text-ink-muted ml-auto">
-                          简历优化页顶部有「← 返回复盘」按钮
+                          采纳跳转后,简历优化页顶部有「← 返回复盘」按钮
                         </p>
                       </div>
                     </Card>
@@ -408,9 +507,15 @@ export default function Module5DebriefPage() {
                               💡 反哺
                             </span>
                           )}
-                          <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-bold bg-esther-blue/15 text-esther-blue">
-                            {t.score}/5
-                          </span>
+                          {t.score > 0 ? (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-bold bg-esther-blue/15 text-esther-blue">
+                              {t.score}/5
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-bold bg-ink-muted/15 text-ink-muted">
+                              N/A
+                            </span>
+                          )}
                         </div>
                       </div>
                       <p className="text-xs text-ink-soft leading-relaxed">

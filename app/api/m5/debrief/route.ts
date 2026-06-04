@@ -24,6 +24,7 @@ import {
   type DebriefHighlight,
   type DebriefResult,
   type DebriefScore,
+  type DimEvidence,
   type InterviewSession,
   type TranscriptSummaryItem,
 } from "@/lib/interview-types";
@@ -44,8 +45,11 @@ const SYSTEM_PROMPT = `你是「Offer 捕手」的面试复盘评分师。整场
 2. **STT 误识别允许 ±20% 误差** — 明显错别字不扣分(eg "Claude" 识别成"克劳德" 按 Claude 算)
 3. **不显示总分排名** — avg 给出但不说"超过 X% 的人"
 4. **evidence 必须引 transcript 原句**(写"Q3 你说过『...』")
-5. **跳过题不计分**(skipped 非 null 的题略过维度统计)
+5. **跳过题不计分**(skipped 非 null 或 transcript 为空的题略过 logic/specific/clarity/filler 任一维度的统计;**不能用 0 或 1 分填充**,否则会拉低平均分误伤用户)
 6. **空洞夸赞禁止**(no "great", "amazing", "perfect", "good job")
+7. **不羞辱候选人**:即便严厉风格,evidence / nextPractice 措辞为"下次试试..."而非"你太差"
+8. **单场练习免责**:summary 末尾用 1 句承认"本评估基于单场练习 transcript,不预测真实录用,建议看趋势不看单次绝对分"
+9. **N/A 短路**:如果传给你的 transcript 里 N 题全部标 (用户标"不会答" / "会但跳过" / 未答) → 你必须返 evaluable:false + scores:[] + summary 含"本次未完成任何回答,无法评估" + highlights:[] + transcript_summary 照常出但 score=0,**不要为没答的内容编造评分**
 
 【Highlight 识别规则 — plan §决议 Y 双向闭环】
 某维 ≥ 5 分(单题视角)→ 该题进 highlight 候选池:
@@ -65,11 +69,22 @@ const SYSTEM_PROMPT = `你是「Offer 捕手」的面试复盘评分师。整场
 
 【输出格式 — 严格 JSON,无 markdown 包裹】
 {
+  "evaluable": true,
   "scores": [
     { "dim": "逻辑性", "score": 4, "evidence": "Q3 你说过『...』,STAR 4 要素完整,但缺 trade-off 解释" },
     { "dim": "具体性", "score": 3, "evidence": "..." },
     { "dim": "应答清晰度", "score": 4, "evidence": "..." },
     { "dim": "口水话频次", "score": 3, "evidence": "..." }
+  ],
+  "evidence": {
+    "logic": "(同 scores[0].evidence,1 句话不重复总分维度信息)",
+    "specific": "...",
+    "clarity": "...",
+    "filler": "..."
+  },
+  "missedSignals": [
+    "JD 在意 X 能力但 transcript 没出现",
+    "..."
   ],
   "highlights": [
     {
@@ -79,12 +94,30 @@ const SYSTEM_PROMPT = `你是「Offer 捕手」的面试复盘评分师。整场
       "suggestedBullet": "..."
     }
   ],
+  "resumeBackfillCandidates": [
+    "(与 highlights 等价,字段名按审计 §3.5 要求 — 至少其中 1 个必填,另一个写空数组也行)"
+  ],
   "transcript_summary": [
     { "no": 1, "q": "...", "summary": "...", "score": 4, "hasHighlight": false }
-  ]
+  ],
+  "nextPractice": "1 句话:下次重点改 1-2 条 + 推荐再练一场什么类型/性格",
+  "summary": "1-2 句整体观感(N/A 场景写「本次未完成任何回答,无法评估」)+ 单场练习免责语"
 }
 
-scores 正好 4 条(按上面顺序),highlights 0-3 条,transcript_summary 跟题目数一致。请返 JSON。`;
+N/A 短路时(全部题跳过)输出:
+{
+  "evaluable": false,
+  "scores": [],
+  "evidence": null,
+  "missedSignals": [],
+  "highlights": [],
+  "resumeBackfillCandidates": [],
+  "transcript_summary": [/* 仍按题目顺序列出,score 全 0,summary 写「未作答」 */],
+  "nextPractice": "建议重新开始一场,认真答完至少 3 题再看复盘",
+  "summary": "本次未完成任何回答,无法评估。模拟面试仅供练习参考,不预测真实录用。"
+}
+
+scores 正好 4 条(按上面顺序),highlights / resumeBackfillCandidates 0-3 条,transcript_summary 跟题目数一致。请返 JSON。`;
 
 function clamp1to5(n: unknown): number {
   const x = Number(n);
@@ -151,21 +184,70 @@ function normalizeHighlights(raw: unknown): DebriefHighlight[] {
     .slice(0, 3);
 }
 
+function normalizeEvidence(raw: unknown): DimEvidence | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const o = raw as Record<string, unknown>;
+  const out: DimEvidence = {
+    logic: scrubCompanyNames(
+      ((o.logic as string) ?? (o["逻辑性"] as string) ?? "").toString().trim()
+    ),
+    specific: scrubCompanyNames(
+      ((o.specific as string) ?? (o["具体性"] as string) ?? "")
+        .toString()
+        .trim()
+    ),
+    clarity: scrubCompanyNames(
+      ((o.clarity as string) ?? (o["应答清晰度"] as string) ?? "")
+        .toString()
+        .trim()
+    ),
+    filler: scrubCompanyNames(
+      ((o.filler as string) ?? (o["口水话频次"] as string) ?? "")
+        .toString()
+        .trim()
+    ),
+  };
+  if (!out.logic && !out.specific && !out.clarity && !out.filler)
+    return undefined;
+  return out;
+}
+
+function normalizeStringArray(raw: unknown, max = 5): string[] {
+  if (!Array.isArray(raw)) return [];
+  return (raw as unknown[])
+    .filter((s): s is string => typeof s === "string" && s.trim().length > 0)
+    .map((s) => scrubCompanyNames(s.trim()))
+    .slice(0, max);
+}
+
+/**
+ * 跳过/未答题在 transcript_summary 里的 score 必须为 0,UI 渲染成 N/A 而不是 1/5。
+ * server 二次过滤防 LLM 用 1 分填充(违反 prompt 5 号约束)。
+ */
 function normalizeTranscriptSummary(
-  raw: unknown
+  raw: unknown,
+  answeredFlags: boolean[]
 ): TranscriptSummaryItem[] {
   if (!Array.isArray(raw)) return [];
-  return (raw as Array<Record<string, unknown>>).map((t, i) => ({
-    no: Number(t.no ?? i + 1),
-    q: scrubCompanyNames(
-      ((t.q as string) ?? (t.question as string) ?? "").trim()
-    ),
-    summary: scrubCompanyNames(
-      ((t.summary as string) ?? (t.brief as string) ?? "").trim()
-    ),
-    score: clamp1to5(t.score ?? t.rating ?? 3),
-    hasHighlight: Boolean(t.hasHighlight ?? t.has_highlight ?? false),
-  }));
+  return (raw as Array<Record<string, unknown>>).map((t, i) => {
+    const isAnswered = answeredFlags[i] ?? false;
+    const rawScore = isAnswered
+      ? clamp1to5(t.score ?? t.rating ?? 3)
+      : 0; // skipped / unanswered → 0 = N/A
+    return {
+      no: Number(t.no ?? i + 1),
+      q: scrubCompanyNames(
+        ((t.q as string) ?? (t.question as string) ?? "").trim()
+      ),
+      summary: scrubCompanyNames(
+        ((t.summary as string) ?? (t.brief as string) ?? "").trim()
+      ),
+      score: rawScore,
+      hasHighlight: isAnswered
+        ? Boolean(t.hasHighlight ?? t.has_highlight ?? false)
+        : false,
+    };
+  });
 }
 
 function buildUserPrompt(session: InterviewSession): string {
@@ -210,6 +292,20 @@ async function callDebriefLLM(
   );
 }
 
+/**
+ * 一题是否参与维度评分:有 transcript 且未被跳过。
+ * server 二次过滤,避免 LLM 漏 N/A 处理时仍给 4 维评分误伤用户。
+ */
+function isAnsweredTurn(session: InterviewSession): boolean[] {
+  return session.questions.map((q) => {
+    const a = session.answers.find((x) => x.question_id === q.id);
+    if (!a) return false;
+    if (a.skipped === "dont_know" || a.skipped === "know_but_skip")
+      return false;
+    return (a.transcript ?? "").trim().length > 0;
+  });
+}
+
 export async function POST(request: NextRequest) {
   try {
     const body = (await request.json()) as { session?: InterviewSession };
@@ -220,6 +316,38 @@ export async function POST(request: NextRequest) {
         { error: "session 不完整" },
         { status: 400 }
       );
+    }
+
+    const answeredFlags = isAnsweredTurn(session);
+    const answeredCount = answeredFlags.filter(Boolean).length;
+    const totalCount = session.questions.length;
+
+    // 全部未答 → 短路,不调 LLM(节约 quota,且 LLM 即便照规则做也可能出错)
+    if (answeredCount === 0) {
+      const empty_transcript_summary: TranscriptSummaryItem[] =
+        session.questions.map((q, i) => ({
+          no: i + 1,
+          q: scrubCompanyNames(q.text),
+          summary: "未作答",
+          score: 0,
+          hasHighlight: false,
+        }));
+      const debrief: DebriefResult = {
+        evaluable: false,
+        scores: [],
+        answeredCount: 0,
+        totalCount,
+        avg: 0,
+        highlights: [],
+        resumeBackfillCandidates: [],
+        transcript_summary: empty_transcript_summary,
+        nextPractice:
+          "建议重新开始一场,认真答完至少 3 题后再看复盘 — 这样我才能给你有意义的评分。",
+        summary:
+          "本次未完成任何回答,无法评估。模拟面试仅供练习参考,不预测真实录用。",
+        finished_at: new Date().toISOString(),
+      };
+      return NextResponse.json({ debrief });
     }
 
     const userPrompt = buildUserPrompt(session);
@@ -239,7 +367,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const scores = normalizeScores(parsed.scores);
+    const evaluable =
+      typeof parsed.evaluable === "boolean" ? parsed.evaluable : true;
+    const scores = evaluable ? normalizeScores(parsed.scores) : [];
     const validScored = scores.filter((s) => s.score > 0);
     const avg =
       validScored.length > 0
@@ -250,15 +380,36 @@ export async function POST(request: NextRequest) {
             ).toFixed(1)
           )
         : 0;
-    const highlights = normalizeHighlights(parsed.highlights);
+    const highlights = normalizeHighlights(
+      parsed.highlights ?? parsed.resumeBackfillCandidates
+    );
     const transcript_summary = normalizeTranscriptSummary(
-      parsed.transcript_summary
+      parsed.transcript_summary,
+      answeredFlags
+    );
+    const evidence = normalizeEvidence(parsed.evidence);
+    const missedSignals = normalizeStringArray(parsed.missedSignals, 5);
+    const nextPractice = scrubCompanyNames(
+      ((parsed.nextPractice as string) ??
+        (parsed.next_practice as string) ??
+        "").trim()
+    );
+    const summary = scrubCompanyNames(
+      ((parsed.summary as string) ?? (parsed.overall as string) ?? "").trim()
     );
 
     const debrief: DebriefResult = {
+      evaluable,
       scores,
+      answeredCount,
+      totalCount,
       avg,
       highlights,
+      resumeBackfillCandidates: highlights,
+      evidence,
+      missedSignals: missedSignals.length > 0 ? missedSignals : undefined,
+      nextPractice: nextPractice || undefined,
+      summary: summary || undefined,
       transcript_summary,
       finished_at: new Date().toISOString(),
     };

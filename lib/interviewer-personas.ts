@@ -10,7 +10,7 @@
  *   - 所有性格 → 反 rationalization(不让"great question!"过)
  */
 
-import type { PersonaKey } from "./interview-types";
+import type { InterviewerStyle, PersonaKey } from "./interview-types";
 
 export type PersonaSpec = {
   key: PersonaKey;
@@ -20,6 +20,15 @@ export type PersonaSpec = {
   follow_up_depth: string;
   opening_template: string;
   forbidden_phrases: string[];
+  /** 审计 §3.5 字段:对应 schema interviewerStyle 枚举值,prep-questions 直接 echo 进每题 */
+  interviewer_style: InterviewerStyle;
+  /** 一句话风格 tagline,UI live header 显示,demo 时让 evaluator 1 秒看懂 */
+  short_tagline: string;
+  /** sample 开场 + sample 追问 用于配置页 3 张对比卡 */
+  sample_opener: string;
+  sample_follow_up: string;
+  /** 适用场景标签 */
+  use_case: string;
 };
 
 export const PERSONA_SPECS: Record<PersonaKey, PersonaSpec> = {
@@ -40,6 +49,12 @@ export const PERSONA_SPECS: Record<PersonaKey, PersonaSpec> = {
     opening_template:
       "Hi 你好~ 别紧张,今天我们就聊聊你的经历和你想找的方向。如果哪个问题没听懂或答不上,直接跟我说,我们换一个,好吗?",
     forbidden_phrases: ["great question", "amazing", "perfect"],
+    interviewer_style: "warm",
+    short_tagline: "温和铺垫 + 软追问,卡住会给你一个角度",
+    sample_opener:
+      "Hi~ 别紧张,先做个简短自我介绍?重点讲你最想聊的那段经历就行",
+    sample_follow_up: "嗯,我懂的。能再举一个例子吗?",
+    use_case: "第一次练手 · 找回信心",
   },
   strict: {
     key: "strict",
@@ -65,6 +80,12 @@ export const PERSONA_SPECS: Record<PersonaKey, PersonaSpec> = {
       "good job",
       "你说得很好",
     ],
+    interviewer_style: "tough",
+    short_tagline: "直接追细节 + 不轻易点头,追问是为让你讲清价值",
+    sample_opener:
+      "好,直接开始。你简历里这个项目,核心问题是什么?15 秒,go。",
+    sample_follow_up: "这个数字怎么算出来的?具体到天。",
+    use_case: "投递前查漏洞 · 练抗压",
   },
   rigor: {
     key: "rigor",
@@ -84,6 +105,12 @@ export const PERSONA_SPECS: Record<PersonaKey, PersonaSpec> = {
     opening_template:
       "你简历里提到用 [X 技术] 做 [Y 任务]。先讲讲 [X] 在这个场景里的 inductive bias?为什么选它不选 [Z]?",
     forbidden_phrases: ["great question", "amazing", "perfect", "good job"],
+    interviewer_style: "rigor",
+    short_tagline: "抠原理 + 抠 trade-off,关心你为什么选 A 不选 B",
+    sample_opener:
+      "你简历提到用 X 做 Y。先讲讲在这个场景里,为什么选 X 不选 Z?",
+    sample_follow_up: "trade-off 是什么?有 benchmark 数据吗?",
+    use_case: "技术深面 · 校验技术叙事",
   },
 };
 
