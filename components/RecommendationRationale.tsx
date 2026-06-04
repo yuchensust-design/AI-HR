@@ -24,11 +24,20 @@ type Rationale = {
   whyNotOther?: string | null;
 };
 
+export type EvidenceInfo = {
+  source: "resume" | "chat" | "skip";
+  summary?: string;
+  tags?: string[];
+  userNotes?: string;
+  quality?: "high" | "mid" | "low";
+} | null;
+
 type Props = {
   scores: [number, number, number, number, number, number];
   confidence: Confidence;
   answers?: Record<number, number | string[] | Record<string, number>>;
   rationale?: Rationale | null;
+  evidence?: EvidenceInfo;
   isSample?: boolean;
   className?: string;
 };
@@ -69,17 +78,16 @@ function getStrongInterests(
     .slice(0, 5);
 }
 
-function getDefaultExperienceGuide() {
+function getSkipGuide() {
   return (
     <span>
-      这次没填经历信号 — 下一步可以做{" "}
+      你跳过了「补充信息」 — 想让推荐更准,可以
       <Link
-        href="/m2"
-        className="text-esther-blue underline hover:text-esther-blue-dark"
+        href="/m1/evidence"
+        className="text-esther-blue underline hover:text-esther-blue-dark mx-1"
       >
-        经历挖掘 →
-      </Link>{" "}
-      把课程 / 实习 / 项目结构化补上来,推荐会更准。
+        补一份简历或简单聊两句 →
+      </Link>
     </span>
   );
 }
@@ -118,12 +126,17 @@ export function RecommendationRationale({
   confidence,
   answers,
   rationale,
+  evidence,
   isSample,
   className,
 }: Props) {
   const top3 = getTop3Code(scores);
   const strongInterests = getStrongInterests(answers);
   const r = rationale || {};
+
+  const evidenceSource = evidence?.source ?? "skip";
+  const evidenceTags = (evidence?.tags ?? []).slice(0, 6);
+  const evidenceUserNotes = evidence?.userNotes?.trim() || null;
 
   const interestEvidence = r.interestEvidence?.trim() || null;
   const experienceEvidence = r.experienceEvidence?.trim() || null;
@@ -177,15 +190,60 @@ export function RecommendationRationale({
             )}
           </article>
 
-          {/* 块 2:经历证据 */}
+          {/* 块 2:经历证据 — 三状态(resume / chat / skip) */}
           <article className="p-5 rounded-2xl border-2 border-border bg-warm-bg-deep/30">
             <div className="flex items-center gap-2 mb-3">
-              <span className="text-xl">💼</span>
+              <span className="text-xl">
+                {evidenceSource === "resume"
+                  ? "📄"
+                  : evidenceSource === "chat"
+                  ? "💬"
+                  : "💼"}
+              </span>
               <h3 className="text-base font-semibold text-ink">经历证据</h3>
+              {evidenceSource !== "skip" && (
+                <span className="ml-auto inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium bg-esther-blue/10 text-esther-blue border border-esther-blue/30">
+                  {evidenceSource === "resume" ? "基于简历" : "基于补充对话"}
+                </span>
+              )}
             </div>
-            <p className="text-sm text-ink-soft leading-relaxed">
-              {experienceEvidence ?? getDefaultExperienceGuide()}
-            </p>
+            {evidenceSource === "skip" ? (
+              <p className="text-sm text-ink-soft leading-relaxed">
+                {experienceEvidence ?? getSkipGuide()}
+              </p>
+            ) : (
+              <>
+                <p className="text-sm text-ink leading-relaxed mb-2">
+                  {experienceEvidence ||
+                    "我们结合了你提供的补充信息做推荐(LLM 摘要中)。"}
+                </p>
+                {evidenceTags.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 mb-2">
+                    {evidenceTags.map((t) => (
+                      <span
+                        key={t}
+                        className="inline-flex items-center px-2 py-0.5 rounded-md bg-esther-blue/10 text-esther-blue text-[11px] font-medium"
+                      >
+                        #{t}
+                      </span>
+                    ))}
+                  </div>
+                )}
+                {evidenceSource === "chat" && evidenceUserNotes && (
+                  <p className="text-xs text-ink-muted italic leading-relaxed mt-2 pt-2 border-t border-border">
+                    「{evidenceUserNotes}」(你的原话)
+                  </p>
+                )}
+                <p className="text-xs text-ink-muted mt-3">
+                  <Link
+                    href="/m1/evidence"
+                    className="text-esther-blue hover:text-esther-blue-dark underline"
+                  >
+                    🔄 重新补充 / 换个方式 →
+                  </Link>
+                </p>
+              </>
+            )}
           </article>
 
           {/* 块 3:偏好信号 */}
