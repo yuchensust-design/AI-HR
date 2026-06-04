@@ -1,10 +1,10 @@
-import { Fragment } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Nav } from "@/components/Nav";
 import { PersonaSelector } from "@/components/PersonaSelector";
+import { SixCapabilities } from "@/components/SixCapabilities";
+import { StepsSection } from "@/components/StepsSection";
 import { BuerFloatingButton } from "@/components/BuerFloatingButton";
 
 /**
@@ -16,105 +16,30 @@ import { BuerFloatingButton } from "@/components/BuerFloatingButton";
  *   ④ 加顶部 sticky 导航栏
  */
 
-// 5 模块对应的简笔 SVG icon(esther 蓝,手绘风,Lucide 风格)
-const MODULE_ICONS = {
-  compass: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="12" cy="12" r="10" />
-      <polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88" />
-    </svg>
-  ),
-  notebook: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20" />
-      <line x1="9" y1="7" x2="15" y2="7" />
-      <line x1="9" y1="11" x2="15" y2="11" />
-    </svg>
-  ),
-  file: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" />
-      <polyline points="14 2 14 8 20 8" />
-      <line x1="8" y1="13" x2="16" y2="13" />
-      <line x1="8" y1="17" x2="13" y2="17" />
-    </svg>
-  ),
-  bulb: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M9 18h6" />
-      <path d="M10 22h4" />
-      <path d="M12 2a7 7 0 0 0-4 12.7c.8.7 1.3 1.7 1.3 2.8V18h5.4v-.5c0-1.1.5-2.1 1.3-2.8A7 7 0 0 0 12 2Z" />
-    </svg>
-  ),
-  mic: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="9" y="2" width="6" height="11" rx="3" />
-      <path d="M19 10a7 7 0 0 1-14 0" />
-      <line x1="12" y1="17" x2="12" y2="22" />
-      <line x1="8" y1="22" x2="16" y2="22" />
-    </svg>
-  ),
-};
-
-const MODULES = [
+const PRIVACY_PILLARS = [
   {
-    no: "01",
-    icon: "compass" as const,
-    title: "先找到适合你的方向",
-    helper: "测一测 + 聊聊经历,推 3-5 个方向",
-    chip: "霍兰德 RIASEC",
-    href: "/m1",
+    glyph: "隐",
+    label: "隐私优先",
+    title: "少收集,多保护",
+    desc: "我们仅收集提供功能所需的最少数据。我们从不出售您的数据,也不会与第三方分享,除非为提供服务所必需。",
+    badgeBg: "bg-esther-red",
+    badgeText: "text-white",
   },
   {
-    no: "02",
-    icon: "notebook" as const,
-    title: "把零散经历讲明白",
-    helper: "课程 / 实习 / 项目 整理成完整 STAR 故事",
-    chip: "Skeptical Recruiter",
-    href: "/m2",
+    glyph: "控",
+    label: "自主可控",
+    title: "随时导出与删除",
+    desc: "你拥有完全控制权。可随时导出简历和账户数据,或在账户设置中删除。非必要数据可按请求移除。",
+    badgeBg: "bg-esther-blue",
+    badgeText: "text-white",
   },
   {
-    no: "03",
-    icon: "file" as const,
-    title: "把简历改成能过筛的版本",
-    helper: "基于目标 JD 调整,产出 Word 直接投递",
-    chip: "WebSearch 实时 JD",
-    href: "/m3",
-  },
-  {
-    no: "04",
-    icon: "bulb" as const,
-    title: "补一段能写进简历的项目",
-    helper: "2-4 周 ship · 每日 task 卡组陪你做完",
-    chip: "每日 task 卡组",
-    href: "/m4",
-  },
-  {
-    no: "05",
-    icon: "mic" as const,
-    title: "练一场,再拿到具体反馈",
-    helper: "4 维评分 + 复盘亮点反哺简历",
-    chip: "3 性格 · 反哺简历",
-    href: "/m5",
-  },
-];
-
-const PROMISES = [
-  {
-    title: "帮你提前发现 HR 会追问的漏洞",
-    helper: "关键节点 AI 扮演怀疑型 HR,把简历水分挑出来",
-  },
-  {
-    title: "不会替你编故事",
-    helper: "没做过的项目永远标 PROPOSED,不进你的真简历",
-  },
-  {
-    title: "发现短板后直接给补强路径",
-    helper: "缺什么就推什么项目 + 每日 task,不只是诊断",
-  },
-  {
-    title: "不让 AI 用漂亮话掩盖真问题",
-    helper: "AI 想偷懒、想哄你时的常见借口,提前堵了",
+    glyph: "安",
+    label: "安全",
+    title: "传输加密与最小权限访问",
+    desc: "你的数据在传输中使用现代 TLS 加密。对生产系统的访问严格受限并记录,遵循最小权限原则。",
+    badgeBg: "bg-esther-yellow",
+    badgeText: "text-ink",
   },
 ];
 
@@ -149,7 +74,7 @@ const CASES = [
     background: "大四,投了 30 份简历没回应",
     moduleNo: "05",
     moduleLabel: "模拟面试 + 反哺",
-    outcome: "4 维评分发现「具体性」3 分 → 反哺简历 3 条新 bullet",
+    outcome: "4 维评分发现「具体性」3 分 → 反哺简历 2 条新 bullet",
   },
   {
     color: "yellow" as const,
@@ -225,40 +150,51 @@ export default function Home() {
               <Badge className="bg-esther-yellow text-ink hover:bg-esther-yellow/90 mb-6 px-3 py-1 text-xs font-medium">
                 给正在准备求职的你
               </Badge>
-              <h1 className="text-[clamp(2.8rem,6vw,5rem)] font-bold leading-[1.15] text-ink mb-6">
-                这条路,
+              <h1 className="text-[clamp(2rem,4vw,3.5rem)] font-bold leading-[1.15] text-ink mb-6">
+                从校园到职场,
                 <br />
-                <span className="text-esther-blue">有人陪你走</span>
+                <span className="text-esther-blue">少一点迷茫,多一点底气</span>
               </h1>
-              <p className="text-lg md:text-xl text-ink-soft leading-relaxed mb-10 max-w-xl">
-                先帮你看清
+              {/* Subtitle — 产品定位长句 */}
+              <p className="text-base text-ink-soft leading-relaxed mb-6 max-w-xl">
+                从岗位定位、经历挖掘、简历优化到模拟面试,陪你把学生时代的积累,变成{" "}
                 <span
-                  className="bg-esther-yellow/40"
+                  className="bg-esther-yellow/40 font-medium text-ink"
                   style={{ padding: "0 0.15em" }}
                 >
-                  适合什么方向
+                  真正能投、能讲、能过筛的求职竞争力
                 </span>
-                ,再
-                <span
-                  className="bg-esther-yellow/40"
-                  style={{ padding: "0 0.15em" }}
-                >
-                  诚实指出简历和面试里的真问题
-                </span>
-                。不是空泛鼓励,而是陪你一步步准备到能投、能答。
+                。
               </p>
+
+              {/* 数据条 — 3 个核心卖点,每个对应一个真实模块 */}
+              <div className="flex flex-wrap items-center gap-2 mb-8">
+                <div className="inline-flex items-center gap-1.5 rounded-full bg-card border border-border px-3 py-1.5">
+                  <span className="text-esther-blue text-sm leading-none">🧭</span>
+                  <span className="text-xs text-ink-soft">18 道专业测评,锁定 3-5 个适合方向</span>
+                </div>
+                <div className="inline-flex items-center gap-1.5 rounded-full bg-card border border-border px-3 py-1.5">
+                  <span className="text-esther-blue text-sm leading-none">📝</span>
+                  <span className="text-xs text-ink-soft">3 分钟挖出隐藏经历,提炼可投递的简历亮点</span>
+                </div>
+                <div className="inline-flex items-center gap-1.5 rounded-full bg-card border border-border px-3 py-1.5">
+                  <span className="text-esther-blue text-sm leading-none">🎤</span>
+                  <span className="text-xs text-ink-soft">模拟真实面试追问,反哺更能过筛的简历表达</span>
+                </div>
+              </div>
+
               <div className="flex flex-wrap items-center gap-4">
                 <Link
-                  href="#persona"
+                  href="/m1"
                   className="inline-flex items-center justify-center rounded-full bg-esther-blue text-white px-7 py-3.5 text-base font-medium hover:bg-esther-blue-dark transition-colors shadow-md"
                 >
-                  找适合我的第一步 →
+                  开始我的求职闭环 →
                 </Link>
                 <Link
                   href="#modules"
                   className="inline-flex items-center justify-center rounded-full border-2 border-ink/10 bg-card text-ink px-7 py-3.5 text-base font-medium hover:border-esther-blue transition-colors"
                 >
-                  先看看能陪你做什么
+                  先看看它怎么帮我 →
                 </Link>
               </div>
               <p className="text-xs text-ink-muted mt-6">
@@ -288,198 +224,77 @@ export default function Home() {
         </section>
 
         {/* ============================================================
-            Pull Quote — 紧凑节奏(修 bug + 减 py)
+            Pain Points — 学生求职 3 大痛点
             ============================================================ */}
         <section className="bg-warm-bg-deep border-y border-border">
-          <div className="max-w-[900px] mx-auto px-6 py-14 text-center">
-            <p className="font-display italic text-6xl text-esther-blue/40 leading-none mb-5">
-              &ldquo;
-            </p>
-            <p className="text-2xl md:text-3xl font-bold text-ink leading-relaxed">
-              投了一摞简历没回应,
-              <br className="md:hidden" />
-              面试卡在哪自己也说不清,
-              <br />
-              连
-              <span
-                className="bg-esther-yellow/50"
-                style={{ padding: "0 0.15em" }}
-              >
-                找的方向是不是错的
-              </span>
-              都不确定。
-            </p>
-            <p className="text-base text-ink-soft mt-5">
-              — 这是我们听过最多的 3 句话
-            </p>
+          <div className="max-w-[1100px] mx-auto px-6 py-16">
+            <div className="text-center mb-10">
+              <p className="font-display italic text-sm text-esther-blue mb-2">
+                Where students get stuck
+              </p>
+              <h2 className="text-3xl md:text-4xl font-bold text-ink mb-3">
+                你是不是也感觉“越准备越没底”?
+              </h2>
+              <p className="text-ink-soft text-base">
+                不是你不够努力,很多同学第一次找工作时,都会不断怀疑自己。方向拿不准、简历改不明白、面试完也说不清问题出在哪。</p>
+              <p className="text-ink-soft text-base">
+                如果你也有过那种很想做好、却怎么都找不到节奏的无力感,先别急着否定自己。
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+              {[
+                {
+                  no: "01",
+                  title: "投递很多,却始终没有回应",
+                  desc: "不知道是岗位方向不合适、简历匹配度不够,还是经历表达不够清晰。问题没有被解决,投递就很难持续优化。",
+                },
+                {
+                  no: "02",
+                  title: "面试没过,却复盘不出问题",
+                  desc: "感觉自己答得一般,却说不清是哪一题失分、哪段经历没讲透、哪种表达不够有说服力,下一次也就很难真正改进。",
+                },
+                {
+                  no: "03",
+                  title: "想补短板,却不知道该补哪一块",
+                  desc: "要不要换方向、补项目,或重新整理已有经历,这些选择都影响后面的投递效率。没有清晰判断时,准备越多,越容易分散。",
+                },
+              ].map((p) => (
+                <div
+                  key={p.no}
+                  className="bg-card border-2 border-border rounded-2xl p-6 hover:border-esther-red/50 transition-colors"
+                >
+                  <p className="font-display italic text-2xl font-bold text-esther-red mb-3 leading-none">
+                    {p.no}
+                  </p>
+                  <h3 className="text-base font-semibold text-ink mb-2 leading-snug">
+                    {p.title}
+                  </h3>
+                  <p className="text-sm text-ink-soft leading-relaxed">
+                    {p.desc}
+                  </p>
+                </div>
+              ))}
+            </div>
           </div>
         </section>
 
         {/* ============================================================
-            Persona 自选
+            六大核心能力(回答「为什么我们能解决」)
+            ============================================================ */}
+        <SixCapabilities />
+
+        {/* ============================================================
+            Persona 自选(6 种困境,共情入口)
             ============================================================ */}
         <div id="persona" className="bg-warm-bg">
           <PersonaSelector />
         </div>
 
         {/* ============================================================
-            Modules — 横向 step flow(5 卡 + 4 箭头 + 闭环标注)
+            5 阶段切换式 step(顶部 nav + 主体大卡片 + 量化 metric bar)
             ============================================================ */}
-        <section
-          id="modules"
-          className="bg-warm-bg-deep border-t border-border"
-        >
-          <div className="max-w-[1300px] mx-auto px-6 py-20">
-            <p className="font-display italic text-sm text-esther-blue mb-2">
-              5 things we do together
-            </p>
-            <h2 className="text-3xl md:text-4xl font-bold text-ink mb-3">
-              能陪你做的 5 件事
-            </h2>
-            <p className="text-ink-soft mb-12 max-w-2xl">
-              从「找方向」到「拿到反馈再改简历」 — 不是 5 个孤立功能,而是一条
-              <span className="text-esther-blue font-medium">闭环求职路径</span>。
-            </p>
-
-            {/* Desktop: 圆形节点 + 连接线 + SVG 反哺弧线 */}
-            <div className="hidden lg:block relative pt-24">
-              {/* 反哺虚线弧 SVG overlay(从 05 弯回到 03) */}
-              <svg
-                viewBox="0 0 1000 120"
-                preserveAspectRatio="none"
-                className="absolute inset-x-0 top-0 w-full h-24 pointer-events-none"
-                aria-hidden="true"
-              >
-                <defs>
-                  <marker
-                    id="arrow-yellow"
-                    viewBox="0 0 10 10"
-                    refX="8"
-                    refY="5"
-                    markerWidth="6"
-                    markerHeight="6"
-                    orient="auto-start-reverse"
-                  >
-                    <path d="M 0 0 L 10 5 L 0 10 z" fill="#F4D758" />
-                  </marker>
-                </defs>
-                {/* 弧线:从 05 节点中心(x=900)上方 → 弯到 03 节点中心(x=500)上方 */}
-                <path
-                  d="M 900 105 C 900 0, 500 0, 500 105"
-                  stroke="#F4D758"
-                  strokeWidth="2.5"
-                  strokeDasharray="7 5"
-                  fill="none"
-                  markerEnd="url(#arrow-yellow)"
-                  vectorEffect="non-scaling-stroke"
-                />
-              </svg>
-              {/* 弧线中央标注 */}
-              <div className="absolute top-2 left-1/2 -translate-x-1/2 z-10">
-                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-esther-yellow text-ink text-xs font-medium shadow-sm">
-                  <span className="text-base leading-none">↺</span>
-                  模拟面试反哺简历优化
-                </span>
-              </div>
-
-              {/* 节点 row + 连接横线 */}
-              <div className="relative">
-                {/* 横向连接线(在节点中心高度,从 01 到 05 贯穿) */}
-                <div
-                  className="absolute top-7 h-0.5 bg-gradient-to-r from-esther-blue/40 via-esther-blue/70 to-esther-blue/40 z-0"
-                  style={{ left: "10%", right: "10%" }}
-                  aria-hidden="true"
-                />
-
-                {/* 5 节点 */}
-                <div className="grid grid-cols-5 gap-3 relative z-10">
-                  {MODULES.map((m) => (
-                    <Link
-                      key={m.no}
-                      href={m.href}
-                      className="group flex flex-col items-center"
-                    >
-                      {/* 圆形节点 */}
-                      <div className="w-14 h-14 rounded-full bg-card border-[3px] border-esther-blue flex items-center justify-center shadow-md group-hover:scale-110 group-hover:shadow-lg transition-all">
-                        <span className="font-display italic text-xl font-bold text-esther-blue leading-none">
-                          {m.no}
-                        </span>
-                      </div>
-
-                      {/* 节点下方卡片 */}
-                      <Card className="mt-5 p-5 w-full bg-card border-2 border-border group-hover:border-esther-blue group-hover:shadow-md transition-all">
-                        {/* SVG icon */}
-                        <div className="w-9 h-9 mb-3 text-esther-blue group-hover:scale-110 transition-transform">
-                          {MODULE_ICONS[m.icon]}
-                        </div>
-                        <h3 className="text-base font-semibold text-ink mb-2 leading-snug">
-                          {m.title}
-                        </h3>
-                        <p className="text-xs text-ink-soft leading-relaxed mb-4 min-h-[3em]">
-                          {m.helper}
-                        </p>
-                        <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-esther-yellow/30 text-ink text-[11px] font-medium border border-esther-yellow/60">
-                          {m.chip}
-                        </span>
-                      </Card>
-                    </Link>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            {/* Mobile: 纵向 timeline 风(左侧竖线 + 右侧卡片) */}
-            <div className="lg:hidden relative">
-              {/* 竖线 */}
-              <div className="absolute left-7 top-7 bottom-7 w-0.5 bg-esther-blue/30" />
-
-              <div className="flex flex-col gap-5">
-                {MODULES.map((m) => (
-                  <Link
-                    key={m.no}
-                    href={m.href}
-                    className="group flex items-start gap-4 relative"
-                  >
-                    {/* 圆节点 */}
-                    <div className="w-14 h-14 rounded-full bg-card border-[3px] border-esther-blue flex items-center justify-center shadow-sm flex-shrink-0 z-10">
-                      <span className="font-display italic text-xl font-bold text-esther-blue leading-none">
-                        {m.no}
-                      </span>
-                    </div>
-                    {/* 卡片 */}
-                    <Card className="flex-1 p-5 bg-card border-2 border-border group-hover:border-esther-blue transition-all">
-                      <div className="flex items-start gap-3 mb-2">
-                        <div className="w-7 h-7 text-esther-blue flex-shrink-0 mt-0.5">
-                          {MODULE_ICONS[m.icon]}
-                        </div>
-                        <h3 className="text-base font-semibold text-ink leading-snug">
-                          {m.title}
-                        </h3>
-                      </div>
-                      <p className="text-xs text-ink-soft leading-relaxed mb-3">
-                        {m.helper}
-                      </p>
-                      <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-esther-yellow/30 text-ink text-[11px] font-medium border border-esther-yellow/60">
-                        {m.chip}
-                      </span>
-                    </Card>
-                  </Link>
-                ))}
-              </div>
-
-              {/* 移动端反哺标注 */}
-              <div className="mt-6 flex justify-center">
-                <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-esther-yellow/40 border border-esther-yellow text-sm text-ink">
-                  <span className="text-esther-blue text-lg leading-none">↺</span>
-                  <span>
-                    <span className="font-medium">05 模拟面试</span> 还会反哺
-                    <span className="font-medium"> 03 简历</span>
-                  </span>
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
+        <StepsSection />
 
         {/* ============================================================
             Case 案例区 — 多学生 (5 personas) 横向 carousel
@@ -596,44 +411,42 @@ export default function Home() {
         </section>
 
         {/* ============================================================
-            差异化区 — 2×2 紧凑(我们不只是哄你)
+            安全与数据保护 — 信任背书段
             ============================================================ */}
-        <section
-          id="buer-section"
-          className="bg-esther-blue text-white"
-        >
+        <section id="privacy" className="bg-esther-blue text-white">
           <div className="max-w-[1300px] mx-auto px-6 py-20">
-            <p className="font-display italic text-sm text-esther-yellow mb-3">
-              Why we&apos;re not just nice
-            </p>
-            <h2 className="text-3xl md:text-4xl font-bold mb-3">
-              我们不只是哄你
-            </h2>
-            <p className="text-white/80 mb-12 max-w-2xl text-base leading-relaxed">
-              行业里的 AI 求职工具基本都是
-              <span className="text-esther-yellow font-semibold">
-                「你答得不错」
-              </span>
-              的鼓励 — 我们做了 4 件不一样的。
-            </p>
+            <div className="text-center mb-12">
+              <p className="font-display italic text-sm text-esther-yellow mb-3">
+                Privacy & data protection
+              </p>
+              <h2 className="text-3xl md:text-4xl font-bold mb-3">
+                安全与数据保护
+              </h2>
+              <p className="text-white/80 text-base">
+                为你提供充分的数据控制与安全保障
+              </p>
+            </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {PROMISES.map((p, idx) => (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+              {PRIVACY_PILLARS.map((p) => (
                 <div
-                  key={idx}
-                  className="flex items-start gap-4 p-6 bg-white/5 backdrop-blur-sm border border-white/10 rounded-2xl"
+                  key={p.label}
+                  className="bg-card text-ink rounded-2xl p-6 border border-white/10 shadow-sm"
                 >
-                  <span className="font-display italic text-2xl text-esther-yellow font-bold flex-shrink-0 leading-none mt-1">
-                    {String(idx + 1).padStart(2, "0")}
-                  </span>
-                  <div>
-                    <h3 className="text-base font-semibold mb-1.5 leading-snug">
-                      {p.title}
-                    </h3>
-                    <p className="text-white/70 leading-relaxed text-sm">
-                      {p.helper}
-                    </p>
+                  <div className="flex items-center gap-3 mb-4">
+                    <span
+                      className={`flex h-8 w-8 items-center justify-center rounded-md text-sm font-semibold ${p.badgeBg} ${p.badgeText}`}
+                    >
+                      {p.glyph}
+                    </span>
+                    <p className="text-xs text-ink-soft">{p.label}</p>
                   </div>
+                  <h3 className="text-base font-semibold mb-2 leading-snug">
+                    {p.title}
+                  </h3>
+                  <p className="text-sm text-ink-soft leading-relaxed">
+                    {p.desc}
+                  </p>
                 </div>
               ))}
             </div>

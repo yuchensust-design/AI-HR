@@ -10,9 +10,12 @@ import { useEffect, useState } from "react";
  */
 
 const NAV_ITEMS = [
-  { label: "能陪你做的事", href: "#modules" },
+  { label: "求职定位", href: "/m1" },
+  { label: "经历挖掘", href: "/m2" },
+  { label: "简历优化", href: "/m3" },
+  { label: "项目陪练", href: "/m4" },
+  { label: "模拟面试", href: "/m5" },
   { label: "真实案例", href: "#case" },
-  { label: "关于不二", href: "#buer-section" },
 ];
 
 export function Nav() {
@@ -51,21 +54,31 @@ export function Nav() {
         </Link>
 
         {/* Center nav */}
-        <div className="hidden md:flex items-center gap-10 text-base text-ink-soft">
-          {NAV_ITEMS.map((n) => (
-            <a
-              key={n.href}
-              href={n.href}
-              className="hover:text-esther-blue transition-colors"
-            >
-              {n.label}
-            </a>
-          ))}
+        <div className="hidden md:flex items-center gap-5 lg:gap-6 text-sm lg:text-base text-ink-soft">
+          {NAV_ITEMS.map((n) =>
+            n.href.startsWith("#") ? (
+              <a
+                key={n.href}
+                href={n.href}
+                className="hover:text-esther-blue transition-colors whitespace-nowrap"
+              >
+                {n.label}
+              </a>
+            ) : (
+              <Link
+                key={n.href}
+                href={n.href}
+                className="hover:text-esther-blue transition-colors whitespace-nowrap"
+              >
+                {n.label}
+              </Link>
+            )
+          )}
         </div>
 
         {/* CTA */}
         <Link
-          href="#persona"
+          href="/m1"
           className="inline-flex items-center justify-center rounded-full bg-esther-blue text-white px-6 py-2.5 text-sm font-medium hover:bg-esther-blue-dark transition-colors flex-shrink-0 shadow-sm"
         >
           开始使用 →
