@@ -3,7 +3,7 @@
  *
  * 双 provider:
  * - DeepSeek(默认,text-only)— deepseek-chat (V3.1) / deepseek-reasoner (R1)
- * - 阿里通义千问(多模态)— qwen-vl-plus(读图 + 文本)
+ * - 腾讯混元(多模态)— hunyuan-turbo-vision(读图 + 文本)
  *
  * 切换 LLM 提供商时只需改 baseURL + apiKey(模型名按需调整)
  *
@@ -12,12 +12,17 @@
  *   - /api/buer/summarize-diary 整理日记 → vision(整理时读对话图)
  *   - /api/m3/mine-from-diary 简历素材挖掘 → vision(挖日记图里的素材)
  *   - 其他模块(m1/m2/m3 其他/m5)仍用 DeepSeek text(无需多模态)
+ *
+ * 混元注意:
+ *   - 这里用的是混元 OpenAI 兼容 endpoint,需要"混元 API Key"(以 sk- 开头)
+ *   - 不是 CAM 的 SecretId/SecretKey(那对是签名鉴权,不兼容)
+ *   - 创建路径:https://console.cloud.tencent.com/hunyuan/api-key
  */
 
 import OpenAI from "openai";
 
 const apiKey = process.env.DEEPSEEK_API_KEY;
-const qwenKey = process.env.QWEN_VL_API_KEY;
+const hunyuanKey = process.env.HUNYUAN_API_KEY;
 
 if (!apiKey && process.env.NODE_ENV === "production") {
   console.warn(
@@ -25,9 +30,9 @@ if (!apiKey && process.env.NODE_ENV === "production") {
   );
 }
 
-if (!qwenKey && process.env.NODE_ENV === "production") {
+if (!hunyuanKey && process.env.NODE_ENV === "production") {
   console.warn(
-    "⚠️ QWEN_VL_API_KEY not set in production. Vision LLM calls will fail."
+    "⚠️ HUNYUAN_API_KEY not set in production. Vision LLM calls will fail."
   );
 }
 
@@ -36,10 +41,10 @@ export const llm = new OpenAI({
   baseURL: "https://api.deepseek.com/v1",
 });
 
-/** 阿里通义千问 vision client(多模态)— DashScope OpenAI 兼容模式 */
+/** 腾讯混元 vision client(多模态)— OpenAI 兼容 endpoint */
 export const llmVision = new OpenAI({
-  apiKey: qwenKey || "missing-qwen-key",
-  baseURL: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+  apiKey: hunyuanKey || "missing-hunyuan-key",
+  baseURL: "https://api.hunyuan.cloud.tencent.com/v1",
 });
 
 export const MODELS = {
@@ -47,8 +52,8 @@ export const MODELS = {
   chat: "deepseek-chat",
   /** R1 思考模式 — 复盘评分 / Skeptical Recruiter 等深推理 */
   reasoner: "deepseek-reasoner",
-  /** 阿里 qwen-vl-plus — 多模态(读图 + 文本),DiaryChatPanel 用 */
-  vision: "qwen-vl-plus",
+  /** 腾讯 hunyuan-turbo-vision — 多模态(读图 + 文本),DiaryChatPanel 用 */
+  vision: "hunyuan-turbo-vision",
 } as const;
 
 export type ChatMessage = {
@@ -127,12 +132,12 @@ export async function chatStream(
 }
 
 /* ============================================================
- * 多模态 vision API(qwen-vl-plus)— plan §8.22 lock
+ * 多模态 vision API(hunyuan-turbo-vision)— plan §8.22 lock
  * ============================================================ */
 
 /**
  * 多模态 message 格式 — content 可以是 string(纯文本)或数组(text + image)
- * qwen-vl-plus 跟 OpenAI vision 格式一致
+ * hunyuan-turbo-vision 跟 OpenAI vision 格式一致
  */
 export type VisionContentPart =
   | { type: "text"; text: string }
