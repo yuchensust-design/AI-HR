@@ -410,6 +410,9 @@ export default function ResultPage() {
             <p className="text-ink-soft text-sm">
               AI 给了几条建议,你逐条决定要不要改 · 任何时候可以下载
             </p>
+            <p className="text-xs text-ink-muted mt-3 leading-relaxed bg-warm-bg-deep/40 border border-border rounded-md px-3 py-2">
+              ℹ️ Offer 捕手只重组你提供过的素材,不会替你发明经历。每条建议都标注来源(JD / 简历 / 经历挖掘 / 面试),你可以逐条拒绝、修改或覆盖。
+            </p>
           </div>
         </section>
 

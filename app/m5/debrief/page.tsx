@@ -235,6 +235,9 @@ export default function Module5DebriefPage() {
               题{elapsedMin ? ` · 实际用时 ${elapsedMin} 分钟` : ""}
               {startedAt ? ` · ${startedAt}` : ""}
             </p>
+            <p className="text-xs text-ink-muted mt-4 leading-relaxed bg-warm-bg-deep/40 border border-border rounded-md px-3 py-2">
+              ℹ️ 评分仅用于练习诊断,<strong>不代表真实录用结果</strong>。AI 评估有不确定性,建议你结合自己的判断使用;每项评分都附 transcript 证据,你可以自己核对。
+            </p>
           </div>
         </section>
 
