@@ -1,0 +1,177 @@
+/**
+ * DATA 模块 — 投递追踪 + 求职诊断
+ *
+ * 数据流:
+ *   sample(默认) -> 用户首次新增/编辑 -> localStorage 持久化
+ *   指标计算: lib/tracker-metrics.ts(纯函数)
+ *   AI 诊断: app/api/tracker/diagnose POST
+ *
+ * 不进 lib/use-local-state.ts STORAGE_KEYS(共享文件 lock),
+ * 模块内自己用 TRACKER_STORAGE_KEYS 常量。
+ */
+
+export type ApplicationStatus =
+  | "to_apply"
+  | "applied"
+  | "written_test"
+  | "interview"
+  | "offer"
+  | "rejected"
+  | "ghosted";
+
+export const STATUS_LABELS: Record<ApplicationStatus, string> = {
+  to_apply: "待投递",
+  applied: "已投递",
+  written_test: "笔试",
+  interview: "面试",
+  offer: "Offer",
+  rejected: "拒绝",
+  ghosted: "已挂",
+};
+
+export const STATUS_COLORS: Record<ApplicationStatus, string> = {
+  to_apply: "bg-slate-100 text-slate-700 ring-slate-300",
+  applied: "bg-sky-100 text-sky-800 ring-sky-300",
+  written_test: "bg-violet-100 text-violet-800 ring-violet-300",
+  interview: "bg-amber-100 text-amber-800 ring-amber-300",
+  offer: "bg-emerald-100 text-emerald-800 ring-emerald-300",
+  rejected: "bg-rose-100 text-rose-800 ring-rose-300",
+  ghosted: "bg-zinc-200 text-zinc-700 ring-zinc-400",
+};
+
+/** 状态在漏斗里的阶段顺序;rejected / ghosted 是终态分支 */
+export const FUNNEL_ORDER: ApplicationStatus[] = [
+  "to_apply",
+  "applied",
+  "written_test",
+  "interview",
+  "offer",
+];
+
+export type RoleDirection =
+  | "ai_pm"
+  | "data_analysis"
+  | "ai_research"
+  | "psych_counseling"
+  | "user_research"
+  | "frontend"
+  | "backend"
+  | "other";
+
+export const DIRECTION_LABELS: Record<RoleDirection, string> = {
+  ai_pm: "AI 产品 / 互联网 PM",
+  data_analysis: "数据分析 / 增长",
+  ai_research: "AI 研究 / 算法",
+  psych_counseling: "心理咨询 / EAP / 用户体验心理",
+  user_research: "用户研究 / UX 研究",
+  frontend: "前端 / Web",
+  backend: "后端 / 服务端",
+  other: "其它",
+};
+
+export type Application = {
+  id: string;
+  /** 行业 + 职位类型;严格不写公司名(plan 硬约束) */
+  industry: string;
+  role: string;
+  direction: RoleDirection;
+  /** ISO date YYYY-MM-DD */
+  appliedAt: string;
+  /** 当时投递使用的简历版本标签(自由文本,可空) */
+  resumeVersion: string;
+  status: ApplicationStatus;
+  /** 状态最近一次变化的 ISO date */
+  statusUpdatedAt: string;
+  /** 备注;自由文本 */
+  notes: string;
+  /** 是否 sample;sample 数据在指标卡和诊断里都会标记来源 */
+  isSample?: boolean;
+};
+
+export type Metrics = {
+  total: number;
+  applied: number;
+  responded: number;
+  interviewed: number;
+  offered: number;
+  rejected: number;
+  ghosted: number;
+  /** 已投递(applied+) 中收到任意推进的占比 */
+  responseRate: number;
+  /** 已投递 -> 面试 转化率 */
+  interviewRate: number;
+  /** 已投递 -> offer 转化率 */
+  offerRate: number;
+  /** 已投递 -> 已挂 占比 */
+  ghostedRate: number;
+  /** 投递到状态最近一次变化的平均天数(已投递的样本) */
+  avgWaitDays: number;
+  /** 按方向汇总 */
+  byDirection: DirectionMetric[];
+  /** 数据中 sample 数 */
+  sampleCount: number;
+  /** 数据中真实(非 sample)数 */
+  realCount: number;
+};
+
+export type DirectionMetric = {
+  direction: RoleDirection;
+  label: string;
+  total: number;
+  responseRate: number;
+  interviewRate: number;
+  offerRate: number;
+};
+
+/** /api/tracker/diagnose 返回 JSON schema(prompt 强约束) */
+export type Diagnosis = {
+  summary: string;
+  /** 引用的关键指标快照(对照 evidence) */
+  metrics: {
+    total: number;
+    responseRate: number;
+    interviewRate: number;
+    offerRate: number;
+    ghostedRate: number;
+    avgWaitDays: number;
+  };
+  /** 最可能的卡点 */
+  likelyBottleneck:
+    | "direction_mismatch"
+    | "resume_match"
+    | "application_pace"
+    | "interview_expression"
+    | "insufficient_data";
+  /** evidence 必须落到具体指标,不允许空话 */
+  evidence: string[];
+  recommendedActions: RecommendedAction[];
+  /** 0-1,基于样本量 + 数据完整度,样本 < 5 时强制 ≤ 0.4 */
+  confidence: number;
+  caution: string;
+  /** 是否包含 sample,前端会展示提示 */
+  containsSample: boolean;
+  /** 生成时间(ISO) */
+  generatedAt: string;
+  /** 若 LLM 服务不可用,标记为 rule_fallback 让前端展示 */
+  source: "ai" | "rule_fallback";
+};
+
+export type RecommendedAction = {
+  /** 短文案;一句话 */
+  title: string;
+  /** 详细说明;两三句话内 */
+  detail: string;
+  /** 跳哪个模块(纯导航提示,不强改 Nav) */
+  link?: "m1" | "m3" | "m5" | null;
+  /** 行动来源;sample/ai/user_input 让用户辨识 */
+  basedOn: "metrics" | "sample" | "user_input";
+};
+
+export const TRACKER_STORAGE_KEYS = {
+  /** Application[] — 用户的投递列表 */
+  APPLICATIONS: "tracker_applications_v1",
+  /** Diagnosis | null — 上次诊断结果缓存(避免每次进页面都掉 LLM) */
+  DIAGNOSIS_CACHE: "tracker_diagnosis_cache_v1",
+  /** boolean — 用户是否已经选择"用我的数据"(true 后不再回填 sample) */
+  USING_REAL_DATA: "tracker_using_real_data_v1",
+} as const;
