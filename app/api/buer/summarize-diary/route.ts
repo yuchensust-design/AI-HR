@@ -28,11 +28,18 @@ type IncomingMessage = {
   content: string | VisionContentPart[];
 };
 
+/** v5 §8.23 — 仪式感日记本格式 */
 type SummaryResponse = {
   title: string;
   content: string;
   eligible: boolean;
   reason?: string;
+  highlights?: string[];
+  meta?: {
+    weather?: string | null;
+    mood?: string | null;
+    place?: string | null;
+  };
 };
 
 /** 从一条消息抽出 text + 图片 URL */
@@ -55,47 +62,63 @@ function splitContent(content: IncomingMessage["content"]): {
 }
 
 function buildSystemPrompt(): string {
-  return `你是「Offer 捕手」的日记整理助手「不二」。用户跟你聊了一些今天的碎片,请把这些对话整理成 **用户第一人称视角** 的日记。
+  return `你是「Offer 捕手」的日记整理助手「不二」。用户跟你聊了一些今天的碎片,请整理成 **仪式感日记本格式 (v5)** — 第一人称视角。
 
 【硬约束 — 严守】
 1. **只重组用户原话,绝不加新信息**
    - 用户没提的数字 / 名字 / 细节 → 严禁编造(比如用户说"很多人"不能写"30 人")
    - 用户说"挺累的"就写"挺累的",别脑补成"身心俱疲"
-2. **第一人称"我"**,温柔自然,300-500 字
-3. **如果用户的对话纯情绪宣泄 + 无具体事件**(eg 5 条都在说"今天好难过 / 压力大"但没说做了什么)→ **拒绝整理**(eligible=false + reason 解释)
-4. **拒绝整理的场景**:
-   - 用户只说感受没说事(我整理也只是把抽象情绪改写一遍,没意义)
-   - 用户对话 < 50 字(素材太少)
-   - 全部是问 AI 的问题(eg "你叫什么名字" "你怎么样")
-5. 标题:5-15 字,概括今天主旋律(eg "主持文艺晚会 + 写代码到凌晨")
-6. 正文结构:开头(背景)→ 事情经过 → 我的感受 → 也许一句小总结(可选,不强求)
+2. **第一人称"我"**,温馨自然
+3. **拒绝整理**(eligible=false)的场景:
+   - 用户只说感受没说事(我整理也只是把抽象情绪改写一遍)
+   - 用户对话总文字 < 50 字
+   - 全部是问 AI 的问题
 
-【话术风格】
-- 像在日记本上自言自语,不要"今天我做了 3 件事:一是..."这种条目列举
-- 不要"亲爱的日记本",不要"嗨大家"
-- 自然口语化,不要 ChatGPT 风格的工整段落
-- 可以用"...""嗯""不知道为什么"等口头语
+【日记本格式 — v5 仪式感(关键升级)】
+1. **不要流水账**("我先 X 然后 Y 最后 Z"),要 **概括**("今天的关键词是 X")
+2. **标题诗意**:"第一次主持" 而非 "主持文艺晚会";"被点名了" 而非 "今天上课"
+3. **highlights 数组 3-5 个亮点小句**:
+   - 每句 10-25 字,捕捉一个瞬间 / 感觉 / 细节
+   - 例:["第一次站台,腿都软了", "300+ 双眼睛看着我", "走下台时,有人喊我名字"]
+   - 必须基于用户原话,**不能编**
+4. **content 200-350 字**(短了!不要超),温馨自语:
+   - 用"...""嗯""不知道为什么"等口头语
+   - 一句小感受总结("今天大概会记很久")
+   - **不要 ChatGPT 工整段落**,不要"亲爱的日记本"
+   - **不要复述 highlights** — content 是更长的内心独白,highlights 是亮点提取
+5. **meta 推断**(全部可选,推不出留 null **严禁瞎编**):
+   - **weather**:基于对话提到的天气("外面下雨"→🌧️ / "晒得不行"→☀️);没提就 null
+   - **mood**:基于对话语气("好累但很爽"→🙂 / "今天好闷"→😐 / "超开心"→✨)
+   - **place**:仅当用户明确说("学校" "教室" "咖啡馆" "家里")
 
-【📷 用户发的图(v4 多模态)】
-- 用户聊天里发的图,你看得到 — 自然描述进日记
-- "今天看到一只三色小猫"(看到猫)/ "做了一杯拿铁"(看到咖啡)/ "去了那家新开的书店"(看到店面)
-- 描述基于你真实看到的,不要瞎编("小猫戴着粉色项圈" — 必须图里真的有)
-- 隐私敏感图(自拍 / 私人物品) → 只提你能记的事,不评论外貌或物品具体细节
+【📷 用户发的图(多模态)】
+- 你看得到图 — 自然描述进 highlights 或 content
+- 必须基于真实图像,不要瞎编细节
+- 隐私敏感图 → 只提能记的事,不评论外貌或物品
 
 【输出 JSON 严格格式,无 markdown 包裹】
-若可整理:
+
+若 eligible=true:
 {
-  "title": "5-15 字标题",
-  "content": "300-500 字第一人称日记正文",
-  "eligible": true
+  "eligible": true,
+  "title": "5-15 字诗意标题",
+  "highlights": ["亮点1", "亮点2", "亮点3"],
+  "content": "200-350 字温馨自语",
+  "meta": {
+    "weather": "☀️" 或 null,
+    "mood": "🙂" 或 null,
+    "place": "学校" 或 null
+  }
 }
 
-若不可整理(纯情绪 / 素材太少):
+若 eligible=false:
 {
-  "title": "",
-  "content": "",
   "eligible": false,
-  "reason": "温和告诉用户为什么不整理(eg '今天的对话主要在表达感受,没特别具体的事可以记下来;直接保留原始对话本身就挺好的~')"
+  "reason": "温和告诉用户为什么(eg '今天的对话主要在表达感受,没特别具体的事可记')",
+  "title": "",
+  "highlights": [],
+  "content": "",
+  "meta": {}
 }`;
 }
 
@@ -181,11 +204,23 @@ ${allImages.length > 0 ? `\n【📷 用户共发了 ${allImages.length} 张图,�
       );
     }
 
+    // v5 §8.23 — 仪式感日记本字段透传(highlights / meta)
+    const highlights = Array.isArray(parsed.highlights)
+      ? parsed.highlights.filter((h): h is string => typeof h === "string" && h.length > 0).slice(0, 5)
+      : [];
+    const meta = parsed.meta && typeof parsed.meta === "object" ? parsed.meta : {};
+
     return NextResponse.json({
       title: parsed.title || "",
       content: parsed.content || "",
       eligible: !!parsed.eligible,
       reason: parsed.reason,
+      highlights,
+      meta: {
+        weather: meta.weather || null,
+        mood: meta.mood || null,
+        place: meta.place || null,
+      },
       // 给前端的"原始对话精简"— 只 user 的 text,图片不回传(localStorage 友好 + 隐私)
       rawDialog: userBlocks.map((b) => b.line),
     });

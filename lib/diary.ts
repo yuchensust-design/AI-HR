@@ -48,6 +48,21 @@ export type DiaryEntry = {
    * 仅 source = "diary-page" 时使用,ai-summary 不会填(LLM 不感知)
    */
   metadata?: DiaryEntryMetadata;
+  /**
+   * v5 §8.23 — 仪式感日记本 highlights(3-5 个亮点短句)
+   * 仅 source = "ai-summary" 时填,LLM 从对话抽
+   */
+  highlights?: string[];
+  /**
+   * v5 §8.23 — LLM 从对话推断的 meta(weather/mood/place)
+   * 仅 source = "ai-summary" 时填,跟用户手动的 metadata 分开(避免冲突)
+   * 推不出留空,**严禁瞎编**
+   */
+  summary_meta?: {
+    weather?: WeatherEmoji;
+    mood?: MoodEmoji;
+    place?: string;
+  };
 };
 
 /** v3 §8.21 §C.3 — 自己写日记的元数据(chip 选择,零打字承诺只放宽地点) */

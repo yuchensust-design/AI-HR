@@ -31,12 +31,19 @@ type Role = "user" | "assistant";
 type Message = { role: Role; content: string; imageBase64?: string };
 
 type SummaryPhase = "idle" | "loading" | "preview" | "saved" | "error";
+/** v5 §8.23 — 仪式感日记本格式 */
 type DiarySummary = {
   title: string;
   content: string;
   eligible: boolean;
   reason?: string;
   rawDialog: string[];
+  highlights?: string[];
+  meta?: {
+    weather?: string | null;
+    mood?: string | null;
+    place?: string | null;
+  };
 };
 
 const WELCOME: Message = {
@@ -44,6 +51,16 @@ const WELCOME: Message = {
   content:
     "嗨~ 今天有什么想跟我聊的吗?学校的事 / 心里话 / 小确幸 / 烦恼 都可以,你先说我听着 🌱",
 };
+
+/** v5 §8.23 — 今天日期 + 星期(仪式感 modal 顶栏用)*/
+function todayDisplayDate(): string {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  const wd = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"][d.getDay()];
+  return `${y}-${m}-${day} ${wd}`;
+}
 
 export function DiaryChatPanel({
   onClose,
@@ -64,6 +81,10 @@ export function DiaryChatPanel({
   const [imageBusy, setImageBusy] = useState(false);
   const [imageError, setImageError] = useState<string | null>(null);
 
+  // v5 §8.23 — 多条短消息队列(LLM 用 <|next|> 分隔,前端逐条延迟显示)
+  const [pendingQueue, setPendingQueue] = useState<string[]>([]);
+  const [betweenMessages, setBetweenMessages] = useState(false);
+
   const [summaryPhase, setSummaryPhase] = useState<SummaryPhase>("idle");
   const [summary, setSummary] = useState<DiarySummary | null>(null);
   const [summaryError, setSummaryError] = useState<string | null>(null);
@@ -71,7 +92,26 @@ export function DiaryChatPanel({
   useEffect(() => {
     const el = scrollRef.current;
     if (el) el.scrollTop = el.scrollHeight;
-  }, [messages, streaming, loading]);
+  }, [messages, streaming, loading, betweenMessages]);
+
+  // v5 §8.23 — 多条消息队列逐条延迟渲染
+  // pendingQueue 非空 → 显示 typing dots → 600-1200ms 后 pop 第 1 条 add 到 messages
+  useEffect(() => {
+    if (pendingQueue.length === 0) {
+      setBetweenMessages(false);
+      return;
+    }
+    setBetweenMessages(true);
+    // 模拟真人打字间隔:600-1200ms typing + 立即 add
+    const typingMs = 600 + Math.random() * 600;
+    const t = setTimeout(() => {
+      const [head, ...rest] = pendingQueue;
+      setMessages((prev) => [...prev, { role: "assistant", content: head }]);
+      setPendingQueue(rest);
+      setBetweenMessages(false);
+    }, typingMs);
+    return () => clearTimeout(t);
+  }, [pendingQueue]);
 
   const sendMessage = useCallback(
     async (text: string) => {
@@ -119,13 +159,37 @@ export function DiaryChatPanel({
           const { done, value } = await reader.read();
           if (done) break;
           acc += decoder.decode(value, { stream: true });
-          setStreaming(acc);
+          // v5 §8.23 — streaming 预览时隐藏 <|next|> marker(替换成空格,不让用户看到原始 token)
+          setStreaming(acc.replace(/<\|next\|>/g, "  "));
         }
         const tail = decoder.decode();
         if (tail) acc += tail;
 
-        setMessages([...next, { role: "assistant", content: acc }]);
+        // v5 §8.23 — 按 <|next|> 切分多条短消息
+        const segments = acc
+          .split(/<\|next\|>/g)
+          .map((s) => s.trim())
+          .filter((s) => s.length > 0);
+
         setStreaming("");
+
+        if (segments.length === 0) {
+          // LLM 返空 — 兜底
+          setMessages((prev) => [
+            ...prev,
+            { role: "assistant", content: "..." },
+          ]);
+        } else {
+          // 第 1 条立刻显示
+          setMessages((prev) => [
+            ...prev,
+            { role: "assistant", content: segments[0] },
+          ]);
+          // 剩下的 enqueue,useEffect 逐条延迟渲染 + typing dots
+          if (segments.length > 1) {
+            setPendingQueue(segments.slice(1));
+          }
+        }
       } catch (err) {
         console.warn("diary chat error:", err);
         setMessages([
@@ -199,11 +263,21 @@ export function DiaryChatPanel({
 
   const handleSaveSummary = useCallback(() => {
     if (!summary || !summary.eligible) return;
+    // v5 §8.23 — 把 highlights / summary_meta 一并存进 entry
+    const meta = summary.meta;
     addDiaryEntry({
       title: summary.title,
       content: summary.content,
       source: "ai-summary",
       rawDialog: summary.rawDialog,
+      highlights: summary.highlights && summary.highlights.length > 0 ? summary.highlights : undefined,
+      summary_meta: meta
+        ? {
+            weather: (meta.weather as never) || undefined,
+            mood: (meta.mood as never) || undefined,
+            place: meta.place || undefined,
+          }
+        : undefined,
     });
     setSummaryPhase("saved");
     if (onSaved) onSaved();
@@ -311,6 +385,73 @@ export function DiaryChatPanel({
             <div className="space-y-3">
               {summary.eligible ? (
                 <>
+                  {/* v5 §8.23 — 仪式感日记本格式 */}
+                  <div className="p-5 rounded-2xl bg-gradient-to-b from-warm-bg-deep/30 to-warm-bg border-2 border-esther-yellow/40 max-h-96 overflow-y-auto">
+                    {/* 顶部 metadata 行 */}
+                    <div className="flex items-center justify-between gap-2 pb-3 mb-3 border-b border-esther-blue/20">
+                      <p className="text-xs font-display italic text-esther-blue">
+                        {todayDisplayDate()}
+                      </p>
+                      <div className="flex items-center gap-2 text-base">
+                        {summary.meta?.weather && (
+                          <span title="天气">{summary.meta.weather}</span>
+                        )}
+                        {summary.meta?.mood && (
+                          <span title="心情">{summary.meta.mood}</span>
+                        )}
+                        {summary.meta?.place && (
+                          <span className="text-xs text-ink-muted">
+                            📍 {summary.meta.place}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* 诗意标题 */}
+                    {summary.title && (
+                      <h3 className="font-display italic text-2xl font-bold text-ink text-center leading-snug mb-1">
+                        {summary.title}
+                      </h3>
+                    )}
+                    <p className="text-center text-xs text-esther-blue/60 mb-4 font-display italic tracking-widest">
+                      · · ·
+                    </p>
+
+                    {/* highlights 亮点 list */}
+                    {summary.highlights && summary.highlights.length > 0 && (
+                      <ul className="space-y-1.5 mb-4 pl-2">
+                        {summary.highlights.map((h, idx) => (
+                          <li
+                            key={idx}
+                            className="text-sm text-ink leading-relaxed flex items-start gap-2"
+                          >
+                            <span className="text-esther-yellow mt-1 text-xs flex-shrink-0">
+                              ●
+                            </span>
+                            <span>{h}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+
+                    {summary.highlights && summary.highlights.length > 0 && summary.content && (
+                      <p className="text-center text-xs text-esther-blue/60 mb-3 font-display italic tracking-widest">
+                        · · ·
+                      </p>
+                    )}
+
+                    {/* content 自语 */}
+                    {summary.content && (
+                      <p
+                        className="text-sm text-ink-soft leading-loose whitespace-pre-wrap break-words italic"
+                        style={{ fontFamily: "var(--font-display, serif)" }}
+                      >
+                        {summary.content}
+                      </p>
+                    )}
+                  </div>
+
+                  {/* 底部 来源 chip + anti-fab 说明 */}
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="inline-flex items-center px-2.5 py-1 rounded text-[11px] font-bold bg-esther-blue text-white">
                       💬 不二记录
@@ -319,19 +460,11 @@ export function DiaryChatPanel({
                       基于你 {summary.rawDialog.length} 条对话
                     </span>
                   </div>
-                  {summary.title && (
-                    <h3 className="text-base font-bold text-ink leading-snug">
-                      {summary.title}
-                    </h3>
-                  )}
-                  <div className="p-4 rounded-xl bg-card border border-border max-h-80 overflow-y-auto">
-                    <p className="text-sm text-ink leading-relaxed whitespace-pre-wrap break-words">
-                      {summary.content}
-                    </p>
-                  </div>
+
                   <p className="text-[11px] text-ink-muted italic leading-relaxed">
-                    💡 这是用你原话重写的,没有编造细节;保存后 timeline 里可对照原始对话
+                    💡 用你原话重写,没编新信息;保存后 timeline 里可对照
                   </p>
+
                   <div className="flex gap-2 pt-1">
                     <button
                       onClick={handleSaveSummary}
@@ -379,6 +512,8 @@ export function DiaryChatPanel({
           <ChatBubble message={{ role: "assistant", content: streaming }} streaming />
         )}
         {loading && !streaming && <TypingDots />}
+        {/* v5 §8.23 — 多条消息之间的 typing dots(模拟真人连续打字)*/}
+        {betweenMessages && <TypingDots />}
 
         {/* 提示 */}
         {messages.length === 1 && !loading && (
