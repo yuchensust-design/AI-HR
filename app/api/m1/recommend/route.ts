@@ -49,7 +49,10 @@ function buildSystemPrompt(): string {
 - 例:用户 A=7(低)+ 兴趣 = 音乐摄影 → 应推 R/S/E 方向的职业(测评主),其中**优先选有音乐/摄影 tag 信号的**(兴趣微调),**不能**因为兴趣多就推 A 类职业
 
 【硬约束 — 永远不许违反】
-1. 永远不输出任何公司名(只输出"行业 + 职位类型",eg "互联网 / 内容运营")
+1. 永远不输出任何**公司名 / 产品名 / 学校名**(★ 极严格),只能用行业 + 类型层级:
+   - 即使 USER 段里的 [补充信息] 出现具体名字(eg "字节" / "TikTok" / "清华"),你的输出里**0 次出现**这些具体名字
+   - 替换示范:字节/阿里/腾讯/百度/美团/京东 → "互联网大厂";华为/中移动 → "央国企/大型科技公司";GPT/Claude → "大语言模型";清华/北大 → "顶尖高校"
+   - why_fit、why_consuming、rationale 所有字段都按此规则脱敏
 2. 文案温和,不绝对化,不偏激,不当 black box
 3. 反向推荐用"消耗 + 天花板"框架 — 不评判,只描述错配
 4. positive 和 negative 都只能从下方"候选池"里选 — 绝不创造新项
@@ -82,16 +85,33 @@ c) 工作模式与用户 RIASEC 类型反向(E 型坐冷板凳 / I 型纯销售 
 - 用于让用户"修推荐"(eg "去掉销售岗" / "想要更稳定" / "加技术深度")
 - 不要重复用户已表达的兴趣,要给"调整方向"的选项
 
+【★ 补充信息 — 第三路独立信号(仅当本次请求带 evidence 时启用)】
+
+如果 USER 消息里出现 [补充信息] 段(简历摘要 / 对话摘要),代表用户主动提供了「他做过什么 / 想去什么方向 / 不想做什么」的真实信息。这是独立第三路信号,**不冲击 RIASEC 70% / 兴趣 30% 的主辅权重**,只在以下方面起作用:
+
+1. **why_fit 引用具体经历**:
+   - 有简历 → "你做过 X(简历提到),跟这个方向的 Y 直接对齐"
+   - 有 chat → "你提到倾向 X,这个方向能让你..."
+2. **match_percentage 微调**:经历强相关方向可在原本的 RIASEC 契合度上 +3 到 +8%(绝不超 95%,绝不低于 50%)
+3. **rationale.experienceEvidence 必须真填**(基于 evidence.summary 内容),不再为 null
+4. **尊重用户明确意愿**:
+   - 用户说"倾向 X" / "想做 X" → positive 优先推 X 类
+   - 用户说"不想 X" / "忌讳 X" → 强推 X 是错的,如果 RIASEC 主信号确实指向 X,要在 cautions 加温和提醒解释两路冲突,**不强推**
+   - 用户说"不想做 X 类" → negative 列表可以体现(eg 用户说"不想做销售" → negative 可放销售类)
+5. **whyNotOther 可基于补充信息反推**:"你说不喜欢 X,所以没推 X 方向"
+6. **冲突处理**:如果 evidence 跟 RIASEC 强冲突(eg 测评 E 高但用户说"我就想做研究") → cautions 加一条温和提醒"测评偏 E,你说想做研究偏 I,可以试 PM/创业(E+I 都用),或纯研究方向(只用 I)"。**不强压主信号**,也**不忽略用户表达**。
+
+如果 USER 消息**没有** [补充信息] 段(用户跳过了补充步骤) → experienceEvidence 仍填 null,disclaimer 保留"没看你的真实经历"原文案。
+
 【★ rationale 字段 — 可解释推荐 ★】
-- 必须输出顶层 rationale 对象,7 个子字段(experienceEvidence 唯一例外可为 null)
+- 必须输出顶层 rationale 对象,7 个子字段(experienceEvidence 在跳过补充时为 null,有补充时必填)
 - 每个字段都用口语化中文,温和不绝对化(用"可能 / 看起来 / 值得探索",避免"一定 / 必然 / 你不适合")
 - cautions 1-3 条,每条 ≤ 30 字,是温和提醒不是判决
   - 例 ✅: "投递前结合具体 JD 再核对"
   - 例 ❌: "你不适合销售"(评判)/"你能上岸"(夸大)
-- whyNotOther 必须基于上面 negative 列表,做"为什么没推这些方向"的对比解释,只描述维度错配,不评判用户
-- experienceEvidence 当前 v1 没接简历输入 → 必须填 null
+- whyNotOther 必须基于上面 negative 列表,做"为什么没推这些方向"的对比解释,只描述维度错配 / 用户意愿,不评判用户
 - 永远不输出公司名(再强调)
-- 推荐和 rationale 严格基于真实分数,不张冠李戴
+- 推荐和 rationale 严格基于真实分数 + 用户原话,不张冠李戴
 
 【输出格式 — 严格 JSON,无任何 markdown 包裹】
 {
@@ -133,6 +153,14 @@ c) 工作模式与用户 RIASEC 类型反向(E 型坐冷板凳 / I 型纯销售 
 positive 共 15-25 个(3-5 大类 × 每大类 3-5),negative 正好 3 个,refine_chips 正好 4-6 个。`;
 }
 
+type EvidenceForPrompt = {
+  source: "resume" | "chat";
+  summary: string;
+  tags: string[];
+  rawSnippet?: string;
+  userNotes?: string;
+} | null;
+
 function buildUserPrompt(
   scores: [number, number, number, number, number, number],
   code: string,
@@ -142,7 +170,8 @@ function buildUserPrompt(
     title_cn: string;
     title_en: string;
     riasec: Record<string, number>;
-  }>
+  }>,
+  evidence: EvidenceForPrompt
 ): string {
   const [r, i, a, s, e, c] = scores;
   const interestStr =
@@ -151,11 +180,26 @@ function buildUserPrompt(
           .map((t) => `${t.key}(强度 ${t.strength}/5)`)
           .join(", ")
       : "(无)";
+
+  const evidenceBlock = evidence
+    ? `
+
+[补充信息 — 第三路独立信号(${evidence.source === "resume" ? "来自用户上传的简历" : "来自用户跟你聊补充信息时说的话"})]
+摘要:${evidence.summary}
+关键字:${evidence.tags.slice(0, 15).join("、") || "(无)"}${
+        evidence.rawSnippet
+          ? `\n简历原文片段(why_fit 引用具体经历时用):\n"""${evidence.rawSnippet.slice(0, 1500)}"""`
+          : ""
+      }${evidence.userNotes ? `\n用户原话(必须尊重):${evidence.userNotes}` : ""}
+
+记住:补充信息进 why_fit + match% 微调 + experienceEvidence + cautions + whyNotOther,不冲击 RIASEC + 兴趣的主辅权重。`
+    : "";
+
   return `用户测评结果(RIASEC 测评,6 维 × 3 题,5 点 Likert,每维 3-15 分):
 RIASEC 编码: ${code}
 6 维分数(3-15): R${r} I${i} A${a} S${s} E${e} C${c}
 分数解读:≥12 高 / 9-11 中 / ≤8 低
-选中兴趣 tag(带喜欢程度): ${interestStr}
+选中兴趣 tag(带喜欢程度): ${interestStr}${evidenceBlock}
 
 候选池(${pool.length} 项,来自 O*NET 30.3 美国劳工部 923 职业库筛选,每项带真实 RIASEC 1.0-7.0 数值):
 ${pool
@@ -172,9 +216,10 @@ ${pool
   - 给用户横向对比的空间,不是只 5 个挤一类
 - **industry 字段填中文行业大类**(如"计算机与数学"),role_type 填中文职业名(从候选池抄)
 - **每大类内按 match_percentage 降序排**(让用户看到该大类下最匹配的优先)
-- negative 3 项:从候选池里挑跟用户 Top 3 维度反向的(eg 用户 R 低 → 推 R 高的"机械维修"作反向)
+- negative 3 项:从候选池里挑跟用户 Top 3 维度反向的(eg 用户 R 低 → 推 R 高的"机械维修"作反向);**如果有补充信息**,negative 也可以体现用户明确说不想做的方向
 - 推荐**严格匹配候选池 RIASEC 数值跟用户 Top 3 维度**,百分比反映真实契合度
-- why_fit **≤ 30 字简短**(因为 20+ 个推荐,太长读不完)
+- why_fit **≤ 30 字简短**(因为 20+ 个推荐,太长读不完);**有补充信息时优先引用具体经历或用户原话**
+${evidence ? "- ⚠️ 本次请求带补充信息 → rationale.experienceEvidence 必填(不填则违规);why_fit 至少 1/3 要引用补充信息内容" : "- ⚠️ 本次请求没有补充信息 → rationale.experienceEvidence 必须填 null"}
 
 请返 JSON。`;
 }
@@ -197,7 +242,8 @@ function normString(v: unknown): string {
 function normalizeRationale(
   raw: LlmRationale | null | undefined,
   confidence: Confidence,
-  scores: [number, number, number, number, number, number]
+  scores: [number, number, number, number, number, number],
+  evidence: EvidenceForPrompt
 ) {
   const r = raw || {};
   const top1 = Math.max(...scores);
@@ -219,8 +265,18 @@ function normalizeRationale(
       "我们主要看了你 Top 3 维度跟职业偏好的契合度,以及你强烈喜欢的兴趣 tag。",
     experienceEvidence:
       r.experienceEvidence === null
-        ? null
-        : normString(r.experienceEvidence) || null,
+        ? evidence
+          ? // 有补充信息但 LLM 漏填 → 兜底用 summary 前 200 字
+            `基于你${
+              evidence.source === "resume" ? "上传的简历" : "聊补充信息时说的"
+            },${evidence.summary.slice(0, 200)}`
+          : null
+        : normString(r.experienceEvidence) ||
+          (evidence
+            ? `基于你${
+                evidence.source === "resume" ? "上传的简历" : "说的内容"
+              },${evidence.summary.slice(0, 200)}`
+            : null),
     preferenceSignals:
       normString(r.preferenceSignals) ||
       "结合 RIASEC 6 维 + 兴趣 tag 综合判断。",
@@ -244,6 +300,28 @@ function normalizeRationale(
   };
 }
 
+function sanitizeEvidence(rawEvidence: unknown): EvidenceForPrompt {
+  if (!rawEvidence || typeof rawEvidence !== "object") return null;
+  const e = rawEvidence as Record<string, unknown>;
+  if (e.source !== "resume" && e.source !== "chat") return null;
+  const summary = typeof e.summary === "string" ? e.summary.trim() : "";
+  if (summary.length === 0) return null;
+  const tagsRaw = Array.isArray(e.tags) ? e.tags : [];
+  const tags = tagsRaw
+    .map((t) => (typeof t === "string" ? t.trim() : ""))
+    .filter((t) => t.length > 0 && t.length <= 20)
+    .slice(0, 15);
+  return {
+    source: e.source,
+    summary: summary.slice(0, 2000),
+    tags,
+    rawSnippet:
+      typeof e.rawSnippet === "string" ? e.rawSnippet.slice(0, 1800) : undefined,
+    userNotes:
+      typeof e.userNotes === "string" ? e.userNotes.slice(0, 400) : undefined,
+  };
+}
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
@@ -258,6 +336,9 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
+
+    // 第三路:补充信息(可选,向后兼容上一轮 client 不带这个字段)
+    const evidence = sanitizeEvidence(body?.evidence);
 
     // Step 1 计分(规则)
     const scores = computeRIASEC(answers);
@@ -289,7 +370,7 @@ export async function POST(request: NextRequest) {
         { role: "system", content: buildSystemPrompt() },
         {
           role: "user",
-          content: buildUserPrompt(scores, code, interests, candidates),
+          content: buildUserPrompt(scores, code, interests, candidates, evidence),
         },
       ],
       {
@@ -329,6 +410,13 @@ export async function POST(request: NextRequest) {
       ? parsed.refine_chips.filter((c): c is string => typeof c === "string")
       : [];
 
+    // 有补充信息时,disclaimer 不再说"没看你的真实经历"
+    const disclaimer = evidence
+      ? `本次推荐基于测评 + 兴趣 + 你${
+          evidence.source === "resume" ? "上传的简历" : "聊补充信息时说的话"
+        }做三段融合。投递前请用『简历整理』模块结合具体 JD 再核对。`
+      : DISCLAIMER;
+
     return NextResponse.json({
       scores,
       code,
@@ -336,8 +424,14 @@ export async function POST(request: NextRequest) {
       positive: parsed.positive ?? [],
       negative: normalizedNegative,
       refine_chips: normalizedChips,
-      rationale: normalizeRationale(parsed.rationale ?? null, confidence, scores),
-      disclaimer: DISCLAIMER,
+      rationale: normalizeRationale(
+        parsed.rationale ?? null,
+        confidence,
+        scores,
+        evidence
+      ),
+      evidence: evidence ?? null,
+      disclaimer,
       completedAt: new Date().toISOString(),
     });
   } catch (err) {

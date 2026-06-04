@@ -54,6 +54,16 @@ type Rationale = {
   whyNotOther?: string | null;
 };
 
+type EvidenceInfo = {
+  source: "resume" | "chat" | "skip";
+  summary?: string;
+  tags?: string[];
+  userNotes?: string;
+  quality?: "high" | "mid" | "low";
+  rawSnippet?: string;
+  createdAt?: string;
+} | null;
+
 type RecommendResult = {
   scores: Scores;
   code: string;
@@ -66,6 +76,7 @@ type RecommendResult = {
   refineCount?: number;
   answers?: Record<number, number | string[] | Record<string, number>>;
   rationale?: Rationale | null;
+  evidence?: EvidenceInfo;
   fallback?: "api-error" | "sample" | null;
   isSample?: boolean;
   sampleMeta?: {
@@ -125,6 +136,17 @@ export default function Module1ResultPage() {
           // 防御:外部塞进来的 answers 也走一次 schema 迁移
           if (parsed.answers) {
             parsed.answers = migrateAnswersSchema(parsed.answers) as RecommendResult["answers"];
+          }
+          // 合并独立 key m1_evidence(三路径 utility 会同时写两处)
+          if (!parsed.evidence) {
+            try {
+              const evRaw = window.localStorage.getItem("m1_evidence");
+              if (evRaw) {
+                parsed.evidence = JSON.parse(evRaw) as EvidenceInfo;
+              }
+            } catch {
+              // ignore
+            }
           }
           setResult(parsed);
           setIsSample(Boolean(parsed.isSample) || isApiFallback);
@@ -450,6 +472,7 @@ export default function Module1ResultPage() {
           confidence={result.confidence}
           answers={result.answers}
           rationale={result.rationale}
+          evidence={result.evidence}
           isSample={isSample}
         />
 

@@ -236,49 +236,33 @@ export default function Module1QuizPage() {
     }
   };
 
-  const submitToBackend = async (finalAnswers: AnswersMap) => {
+  // 答完跳 /m1/evidence(三选一:简历 / 简单聊 / 跳过)
+  // 实际调 /api/m1/recommend 在 evidence 页或 evidence/* 子页完成,
+  // recommend 时把可选的 evidence 一起喂给 LLM。
+  const goToEvidenceStep = (finalAnswers: AnswersMap) => {
     setLoading(true);
     setError(null);
     try {
       const sanitized = migrateAnswersSchema(finalAnswers);
-      const res = await fetch("/api/m1/recommend", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ answers: sanitized }),
-      });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body.error || `请求失败: ${res.status}`);
-      }
-      const data = await res.json();
-      try {
-        window.localStorage.setItem(
-          "riasec_result",
-          JSON.stringify({
-            ...data,
-            answers: sanitized,
-            refineCount: 0,
-          })
-        );
-        window.localStorage.removeItem(DRAFT_KEY);
-      } catch {
-        // ignore quota
-      }
-      router.push("/m1/result");
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : "未知错误";
-      // API 失败兜底:写 sample 进 localStorage,result 页会 banner 提示
-      writeSampleFallback();
-      setError(
-        `分析失败:${msg}。已临时切到 sample 结果让你先往下看,可点 retry 重试。`
+      window.localStorage.setItem(
+        "m1_quiz_answers",
+        JSON.stringify(sanitized)
       );
+      window.localStorage.removeItem(DRAFT_KEY);
+      router.push("/m1/evidence");
+    } catch (e) {
+      // localStorage 异常极少见,兜底直接写 sample 让用户能看到结果
+      const msg = e instanceof Error ? e.message : "未知错误";
+      console.warn("[m1/quiz] save answers failed:", e);
+      writeSampleFallback();
+      setError(`保存测评结果失败:${msg}。已临时切到 sample 结果。`);
       setLoading(false);
     }
   };
 
   const handleNext = () => {
     if (isLast) {
-      submitToBackend(answers);
+      goToEvidenceStep(answers);
     } else {
       setCurrent(clampIndex(safeIndex + 1, ALL_QUESTIONS.length - 1));
     }
@@ -294,7 +278,7 @@ export default function Module1QuizPage() {
 
   const handleRetryFromFallback = () => {
     setError(null);
-    submitToBackend(answers);
+    goToEvidenceStep(answers);
   };
 
   const handleViewFallback = () => {
@@ -311,15 +295,12 @@ export default function Module1QuizPage() {
           <div className="text-center max-w-md">
             <div className="inline-block animate-spin w-12 h-12 border-4 border-esther-blue border-t-transparent rounded-full mb-6" />
             <h2 className="text-xl font-bold text-ink mb-3">
-              不二正在帮你分析…
+              测评完成,准备下一步…
             </h2>
             <p className="text-sm text-ink-soft leading-relaxed">
-              基于 RIASEC 6 维 + 你的兴趣 tag,
+              下一步会问你要不要补一份简历 / 跟我们简单聊几句,
               <br />
-              从 40+ 职业方向里挑出最契合的 5 个
-            </p>
-            <p className="text-xs text-ink-muted mt-6 font-display italic">
-              通常 5-10 秒
+              让推荐更贴你 — 也可以直接跳过看结果。
             </p>
           </div>
         </main>
@@ -566,7 +547,7 @@ export default function Module1QuizPage() {
                 disabled={!hasAnswer && !isLast}
                 className="inline-flex items-center justify-center rounded-full bg-esther-blue text-white px-6 py-2.5 text-sm font-medium hover:bg-esther-blue-dark transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {isLast ? "完成 → 看推荐" : "下一题 →"}
+                {isLast ? "完成 → 下一步" : "下一题 →"}
               </button>
             </div>
           </div>
