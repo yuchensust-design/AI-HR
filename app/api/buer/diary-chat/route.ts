@@ -1,20 +1,25 @@
 /**
- * POST /api/buer/diary-chat — 「不二」日记小窝引导对话(streaming)
+ * POST /api/buer/diary-chat — 「不二」日记小窝引导对话(streaming + 多模态)
  *
  * 跟 /api/buer/chat 的区别:
- *   - /api/buer/chat = 右下角悬浮 → 心理疏导员(emo 支持)
+ *   - /api/buer/chat = 右下角悬浮 → 心理疏导员(emo 支持,纯文本)
  *   - /api/buer/diary-chat = /diary 温馨小窝内嵌 → 日记引导师(温柔引导记录今天的事)
+ *
+ * v4 §8.22 多模态升级:
+ *   - 改用阿里 qwen-vl-plus,支持读用户发的图(单图)
+ *   - 消息 content 可以是 string 或 [{type: text}, {type: image_url}]
  *
  * 自伤 / 自杀关键词命中仍 short-circuit 给真实热线(沿用 §8.10 lock)
  * 不输出公司名(沿用 plan §1.5)
  *
- * Body: { messages: [{ role, content }] }
+ * Body:
+ *   { messages: [{ role: "user"|"assistant", content: string | [{type, text|image_url}] }] }
  * 返回:text/plain chunked stream
  *
- * plan §8.21 §C.5 lock
+ * plan §8.21 §C.5 + §8.22 lock
  */
 import { NextRequest, NextResponse } from "next/server";
-import { chatStream, type ChatMessage } from "@/lib/llm";
+import { chatVisionStream, type VisionMessage } from "@/lib/llm";
 
 const SYSTEM_PROMPT = `你是「不二」,现在用户在「温馨小窝」/diary 页里跟你聊今天的事。
 
@@ -55,6 +60,14 @@ const SYSTEM_PROMPT = `你是「不二」,现在用户在「温馨小窝」/diar
 【自伤念头检测】
 - 触发关键词 → 立即给真实热线(后端会自动 short-circuit 处理,你的 prompt 不用管)
 - 真实热线: 全国心理援助 12356(24h,卫健委)/ 北京心理危机研究与干预 010-82951332(WHO 合作中心)
+
+【📷 用户发图(v4 多模态)】
+- 你能看到用户发的图片(可能是拍的照片 / 截图 / 自拍)
+- 自然回应你看到的:"哎这只小奶猫好可爱!" "诶这个咖啡看起来不错"
+- 不要"我看到一张图片显示了 X" 这种 AI 描述式语气
+- 跟看到照片的朋友一样自然反应,可以追问"在哪里遇见的?""自己做的吗?"
+- 看不清的不强行猜测,可以问"这是 X 吗?"
+- 隐私敏感图(eg 用户自拍 + 看起来情绪不好)→ 关心情绪("看起来今天有点累?")不评论外貌
 
 【开场示例 — 仅参考】
 用户第一次进 → 用户先发消息触发,你的回应不是开场而是对用户话的反应
@@ -99,23 +112,59 @@ function streamHeaders() {
   } as const;
 }
 
+/**
+ * 提取一条 message 的纯文本部分(给 self-harm 检测用)
+ * content 是 string → 直接返;是 array → 拼 text type 的 .text 字段
+ */
+function extractText(content: VisionMessage["content"]): string {
+  if (typeof content === "string") return content;
+  return content
+    .filter((p): p is { type: "text"; text: string } => p.type === "text")
+    .map((p) => p.text)
+    .join(" ");
+}
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const raw = Array.isArray(body?.messages) ? body.messages : [];
 
-    const messages: ChatMessage[] = raw
+    // v4 §8.22 — content 可以是 string 或 [{type, text|image_url}]
+    const messages: VisionMessage[] = raw
       .filter(
-        (m: unknown): m is { role: string; content: string } =>
+        (m: unknown): m is { role: string; content: unknown } =>
           typeof m === "object" &&
           m !== null &&
           typeof (m as { role: unknown }).role === "string" &&
-          typeof (m as { content: unknown }).content === "string"
+          (m as { content: unknown }).content !== undefined
       )
-      .map((m: { role: string; content: string }) => ({
-        role: m.role === "assistant" ? "assistant" : "user",
-        content: m.content,
-      }));
+      .map((m: { role: string; content: unknown }): VisionMessage => {
+        const role = m.role === "assistant" ? "assistant" : "user";
+        // content 可以是 string 或 数组(多模态)
+        if (typeof m.content === "string") {
+          return { role, content: m.content };
+        }
+        if (Array.isArray(m.content)) {
+          // 过滤合法 part(text or image_url)
+          const parts = m.content
+            .filter(
+              (p): p is { type: string; text?: string; image_url?: { url: string } } =>
+                typeof p === "object" && p !== null && typeof (p as { type: unknown }).type === "string"
+            )
+            .map((p) => {
+              if (p.type === "text" && typeof p.text === "string") {
+                return { type: "text" as const, text: p.text };
+              }
+              if (p.type === "image_url" && p.image_url && typeof p.image_url.url === "string") {
+                return { type: "image_url" as const, image_url: { url: p.image_url.url } };
+              }
+              return null;
+            })
+            .filter((p): p is NonNullable<typeof p> => p !== null);
+          return { role, content: parts.length > 0 ? parts : "" };
+        }
+        return { role, content: "" };
+      });
 
     if (messages.length === 0) {
       return NextResponse.json({ error: "messages required" }, { status: 400 });
@@ -129,15 +178,17 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (detectSelfHarm(last.content)) {
+    // self-harm 检测只看文本部分(图片不检测)
+    if (detectSelfHarm(extractText(last.content))) {
       return new Response(makeOneShotStream(HOTLINE_RESPONSE), {
         headers: streamHeaders(),
       });
     }
 
-    const stream = await chatStream(
+    // v4 §8.22 — 改用 vision 流式 endpoint
+    const stream = await chatVisionStream(
       [{ role: "system", content: SYSTEM_PROMPT }, ...messages],
-      { model: "chat", temperature: 0.7 }
+      { temperature: 0.7 }
     );
 
     return new Response(stream, { headers: streamHeaders() });
@@ -153,6 +204,7 @@ export async function GET() {
     status: "ok",
     endpoint: "/api/buer/diary-chat",
     method: "POST",
-    keyConfigured: !!process.env.DEEPSEEK_API_KEY,
+    keyConfigured: !!process.env.QWEN_VL_API_KEY,
+    model: "qwen-vl-plus",
   });
 }
