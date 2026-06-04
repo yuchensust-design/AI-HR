@@ -66,6 +66,11 @@ function buildPrompt(
 ✗ 流水账没动作动词("今天吃了火锅")
 ✗ 求职无关爱好闲聊("追番了 3 集")
 
+【AI 整理版日记的特殊处理】
+- 看到日记标注 [AI 整理版] = 这是 LLM 把用户聊天重写成第一人称日记的
+- 仍然可以挖素材,**但 source_excerpt 前必须加 "(AI 整理自对话)" 前缀**,让用户知道源头是聊天不是手写日记
+- 例:source_excerpt 写 "(AI 整理自对话)主持文艺晚会 300+ 同学到场"
+
 【输出 JSON 严格格式,无 markdown 包裹】
 {
   "candidates": [
@@ -86,12 +91,19 @@ candidates 数量:**0-5 个**(没合适素材就给 0 个空数组,不强凑)`;
     : "\n目标岗位:用户没指定,挖通用素材";
   const jdCtx = jdSummary ? `\n目标 JD 摘要:${jdSummary}` : "";
 
+  // v2 §8.20 §C.4 anti-fab 第 4 层 — ai-summary entry 透传来源给 LLM,挖出来的 candidate 标注
   const entriesBlock = entries
     .map((e, idx) => {
       const dateOnly = e.createdAt.slice(0, 10);
+      const sourceMark =
+        e.source === "ai-summary"
+          ? " [AI 整理版]"
+          : e.source === "buer-chat"
+          ? " [来自不二聊天]"
+          : "";
       return `${idx + 1}. [id=${e.id}] ${dateOnly}${
         e.title ? ` · ${e.title}` : ""
-      }\n   ${e.content}`;
+      }${sourceMark}\n   ${e.content}`;
     })
     .join("\n\n");
 

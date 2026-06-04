@@ -105,6 +105,17 @@ function previewDuringStreaming(acc: string): string {
   return s;
 }
 
+/** v2 §8.20 §C.3 — summarize-diary 预览数据 */
+type DiarySummary = {
+  title: string;
+  content: string;
+  eligible: boolean;
+  reason?: string;
+  rawDialog: string[];
+};
+
+type SummaryPhase = "idle" | "loading" | "preview" | "saved" | "error";
+
 export function BuerFloatingButton() {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -114,6 +125,11 @@ export function BuerFloatingButton() {
   const [streaming, setStreaming] = useState("");
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+
+  // v2 §8.20 §C.3 — chat → AI 整理日记
+  const [summaryPhase, setSummaryPhase] = useState<SummaryPhase>("idle");
+  const [summary, setSummary] = useState<DiarySummary | null>(null);
+  const [summaryError, setSummaryError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -144,6 +160,56 @@ export function BuerFloatingButton() {
       return next;
     });
   }, []);
+
+  // v2 §8.20 §C.3 — chat 多轮 → LLM 整理成第一人称日记
+  const handleSummarize = useCallback(async () => {
+    setSummaryPhase("loading");
+    setSummaryError(null);
+    setSummary(null);
+    try {
+      const res = await fetch("/api/buer/summarize-diary", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messages }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || `请求失败 ${res.status}`);
+      }
+      const data = (await res.json()) as DiarySummary;
+      setSummary(data);
+      setSummaryPhase("preview");
+    } catch (e) {
+      setSummaryError(e instanceof Error ? e.message : "整理失败");
+      setSummaryPhase("error");
+    }
+  }, [messages]);
+
+  const handleSaveSummary = useCallback(() => {
+    if (!summary || !summary.eligible) return;
+    addDiaryEntry({
+      title: summary.title,
+      content: summary.content,
+      source: "ai-summary",
+      rawDialog: summary.rawDialog,
+    });
+    setSummaryPhase("saved");
+    // 2 秒后回到 chat
+    setTimeout(() => {
+      setSummaryPhase("idle");
+      setSummary(null);
+    }, 2000);
+  }, [summary]);
+
+  const handleDiscardSummary = useCallback(() => {
+    setSummaryPhase("idle");
+    setSummary(null);
+    setSummaryError(null);
+  }, []);
+
+  // 计算 user 消息数(用于显示"整理今天"按钮)
+  const userMessageCount = messages.filter((m) => m.role === "user").length;
+  const showSummarizeBtn = userMessageCount >= 3 && summaryPhase === "idle";
 
   const sendMessage = useCallback(
     async (text: string) => {
@@ -259,6 +325,16 @@ export function BuerFloatingButton() {
                 你的情绪小窝
               </p>
             </div>
+            {/* v2 §8.20 §C.3 — 整理今天对话成日记(>= 3 条 user 消息才显示) */}
+            {showSummarizeBtn && (
+              <button
+                onClick={handleSummarize}
+                className="text-xs text-ink hover:text-white bg-esther-yellow/40 hover:bg-esther-blue transition-colors px-2 py-1 rounded-full border border-esther-yellow/70 hover:border-esther-blue font-display italic whitespace-nowrap"
+                title="把今天对话整理成第一人称日记"
+              >
+                ✨ 整理今天
+              </button>
+            )}
             {/* v3.1 §8.19 §B.2 — 跳 /diary 看所有写过的日记 */}
             <a
               href="/diary"
@@ -276,9 +352,98 @@ export function BuerFloatingButton() {
             </button>
           </div>
 
+          {/* v2 §8.20 §C.3 — summary modal overlay(覆盖 message 区)*/}
+          {summaryPhase !== "idle" && (
+            <div className="flex-1 overflow-y-auto px-4 py-4 bg-warm-bg/95 backdrop-blur-sm" style={{ maxHeight: "min(420px, calc(100vh - 16rem))" }}>
+              {summaryPhase === "loading" && (
+                <div className="h-full flex flex-col items-center justify-center text-center">
+                  <div className="inline-block animate-spin w-8 h-8 border-4 border-esther-blue border-t-transparent rounded-full mb-4" />
+                  <p className="text-sm text-ink-soft">不二正在整理今天的事...</p>
+                  <p className="text-xs text-ink-muted mt-2 font-display italic">通常 5-10 秒</p>
+                </div>
+              )}
+
+              {summaryPhase === "error" && (
+                <div className="h-full flex flex-col items-center justify-center text-center px-4">
+                  <p className="text-3xl mb-3">😣</p>
+                  <p className="text-sm text-esther-red mb-3">⚠️ {summaryError}</p>
+                  <div className="flex gap-2">
+                    <button onClick={handleSummarize} className="text-xs px-3 py-1.5 rounded-full bg-esther-blue text-white hover:bg-esther-blue-dark">重试</button>
+                    <button onClick={handleDiscardSummary} className="text-xs px-3 py-1.5 rounded-full border border-border text-ink-soft hover:text-ink">取消</button>
+                  </div>
+                </div>
+              )}
+
+              {summaryPhase === "saved" && (
+                <div className="h-full flex flex-col items-center justify-center text-center">
+                  <p className="text-4xl mb-3">✨</p>
+                  <p className="text-base text-ink font-medium mb-1">已保存到日记!</p>
+                  <p className="text-xs text-ink-muted font-display italic">/diary 页能看到</p>
+                </div>
+              )}
+
+              {summaryPhase === "preview" && summary && (
+                <div className="space-y-3">
+                  {summary.eligible ? (
+                    <>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-esther-blue text-white">
+                          🤖 AI 整理
+                        </span>
+                        <span className="text-[11px] text-ink-muted font-display italic">
+                          基于你 {summary.rawDialog.length} 条对话
+                        </span>
+                      </div>
+                      {summary.title && (
+                        <h3 className="text-base font-bold text-ink leading-snug">
+                          {summary.title}
+                        </h3>
+                      )}
+                      <div className="p-3 rounded-lg bg-card border border-border max-h-64 overflow-y-auto">
+                        <p className="text-sm text-ink leading-relaxed whitespace-pre-wrap break-words">
+                          {summary.content}
+                        </p>
+                      </div>
+                      <p className="text-[11px] text-ink-muted italic leading-relaxed">
+                        💡 AI 重写自你对话,不会编造新信息;保存后 /diary 里可对照原始对话
+                      </p>
+                      <div className="flex gap-2 pt-1">
+                        <button
+                          onClick={handleSaveSummary}
+                          className="flex-1 inline-flex items-center justify-center rounded-full bg-esther-blue text-white px-4 py-2 text-sm font-medium hover:bg-esther-blue-dark"
+                        >
+                          ✓ 保存到日记
+                        </button>
+                        <button
+                          onClick={handleDiscardSummary}
+                          className="inline-flex items-center justify-center rounded-full border border-border bg-card text-ink-soft px-4 py-2 text-sm hover:text-ink"
+                        >
+                          ✗ 不保存
+                        </button>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="text-center py-4">
+                      <p className="text-3xl mb-3">🌱</p>
+                      <p className="text-sm text-ink mb-3 leading-relaxed">
+                        {summary.reason || "今天的对话还没特别要记录的事,要不再多聊点?"}
+                      </p>
+                      <button
+                        onClick={handleDiscardSummary}
+                        className="text-xs px-4 py-1.5 rounded-full border border-border text-ink-soft hover:text-ink"
+                      >
+                        回去继续聊 →
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
           <div
             ref={scrollRef}
-            className="flex-1 overflow-y-auto px-4 py-4 space-y-3"
+            className={`flex-1 overflow-y-auto px-4 py-4 space-y-3 ${summaryPhase !== "idle" ? "hidden" : ""}`}
             style={{ maxHeight: "min(420px, calc(100vh - 16rem))" }}
           >
             {messages.map((m, i) => (
