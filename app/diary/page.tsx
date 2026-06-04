@@ -623,84 +623,169 @@ export default function DiaryPage() {
                     <div className="space-y-3 pl-6 border-l-2 border-esther-blue/10">
                       {g.items.map((e) => {
                         const meta = e.metadata;
+                        const sMeta = e.summary_meta;
                         const isAi = e.source === "ai-summary" || e.source === "buer-chat";
+                        const isFormalDiary = e.source === "ai-summary" && (
+                          (e.highlights && e.highlights.length > 0) || sMeta
+                        );
                         return (
                           <Card
                             key={e.id}
-                            className="p-5 border-2 border-border hover:border-esther-blue/60 hover:shadow-md transition-all"
+                            className={`border-2 hover:shadow-md transition-all ${
+                              isFormalDiary
+                                ? "p-0 border-esther-yellow/40 bg-gradient-to-b from-warm-bg-deep/30 to-warm-bg hover:border-esther-yellow/80"
+                                : "p-5 border-border hover:border-esther-blue/60"
+                            }`}
                           >
-                            {/* 顶部 chip 行 */}
-                            <div className="flex items-start justify-between gap-3 mb-2 flex-wrap">
-                              <div className="flex items-center gap-2 flex-wrap">
-                                <span className="font-display italic text-xs text-esther-blue">
-                                  {fmtTime(e.createdAt)}
-                                </span>
-                                {isAi ? (
+                            {/* === v5 §8.23 仪式感日记本 (ai-summary + highlights) === */}
+                            {isFormalDiary ? (
+                              <div className="p-5">
+                                {/* 顶部 metadata 栏 */}
+                                <div className="flex items-center justify-between gap-2 pb-3 mb-3 border-b border-esther-blue/20">
+                                  <p className="text-xs font-display italic text-esther-blue">
+                                    {g.date} · {fmtWeekday(e.createdAt)} · {fmtTime(e.createdAt)}
+                                  </p>
+                                  <div className="flex items-center gap-2 text-base">
+                                    {sMeta?.weather && <span title="天气">{sMeta.weather}</span>}
+                                    {sMeta?.mood && <span title="心情">{sMeta.mood}</span>}
+                                    {sMeta?.place && (
+                                      <span className="text-xs text-ink-muted">📍 {sMeta.place}</span>
+                                    )}
+                                  </div>
+                                </div>
+
+                                {/* 诗意 title */}
+                                {e.title && (
+                                  <>
+                                    <h4 className="font-display italic text-xl font-bold text-ink text-center leading-snug">
+                                      {e.title}
+                                    </h4>
+                                    <p className="text-center text-xs text-esther-blue/60 my-2 font-display italic tracking-widest">
+                                      · · ·
+                                    </p>
+                                  </>
+                                )}
+
+                                {/* highlights 亮点 list */}
+                                {e.highlights && e.highlights.length > 0 && (
+                                  <ul className="space-y-1.5 mb-4 pl-2">
+                                    {e.highlights.map((h, idx) => (
+                                      <li
+                                        key={idx}
+                                        className="text-sm text-ink leading-relaxed flex items-start gap-2"
+                                      >
+                                        <span className="text-esther-yellow mt-1 text-xs flex-shrink-0">●</span>
+                                        <span>{h}</span>
+                                      </li>
+                                    ))}
+                                  </ul>
+                                )}
+
+                                {/* content 自语 */}
+                                {e.content && (
+                                  <p
+                                    className="text-sm text-ink-soft leading-loose whitespace-pre-wrap break-words italic"
+                                    style={{ fontFamily: "var(--font-display, serif)" }}
+                                  >
+                                    {e.content}
+                                  </p>
+                                )}
+
+                                {/* 图片 */}
+                                {e.imageBase64 && (
+                                  <div className="mt-3">
+                                    <img
+                                      src={e.imageBase64}
+                                      alt="日记附图"
+                                      className="max-h-64 rounded-lg border border-border"
+                                    />
+                                  </div>
+                                )}
+
+                                {/* 底部 chip + 删除 */}
+                                <div className="flex items-center justify-between gap-2 mt-4 pt-3 border-t border-esther-blue/20">
                                   <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-esther-yellow/40 text-ink border border-esther-yellow/70">
                                     💬 不二记录
-                                    {e.source === "ai-summary" && e.rawDialog && (
+                                    {e.rawDialog && (
                                       <span className="ml-1 font-display italic font-normal opacity-80">
                                         · {e.rawDialog.length} 条对话
                                       </span>
                                     )}
                                   </span>
-                                ) : (
-                                  <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-esther-blue/15 text-esther-blue border border-esther-blue/30">
-                                    🖋️ 自己写
-                                  </span>
-                                )}
+                                  <button
+                                    onClick={() => handleDelete(e.id)}
+                                    className="text-xs text-ink-muted hover:text-esther-red transition-colors font-display italic"
+                                  >
+                                    删除
+                                  </button>
+                                </div>
                               </div>
-                              <button
-                                onClick={() => handleDelete(e.id)}
-                                className="text-xs text-ink-muted hover:text-esther-red transition-colors font-display italic"
-                                aria-label="删除此条"
-                              >
-                                删除
-                              </button>
-                            </div>
+                            ) : (
+                              <>
+                                {/* === 简单卡(diary-page 自己写 + buer-chat 单条桥接)=== */}
+                                <div className="flex items-start justify-between gap-3 mb-2 flex-wrap">
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <span className="font-display italic text-xs text-esther-blue">
+                                      {fmtTime(e.createdAt)}
+                                    </span>
+                                    {isAi ? (
+                                      <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-esther-yellow/40 text-ink border border-esther-yellow/70">
+                                        💬 不二记录
+                                      </span>
+                                    ) : (
+                                      <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-esther-blue/15 text-esther-blue border border-esther-blue/30">
+                                        🖋️ 自己写
+                                      </span>
+                                    )}
+                                  </div>
+                                  <button
+                                    onClick={() => handleDelete(e.id)}
+                                    className="text-xs text-ink-muted hover:text-esther-red transition-colors font-display italic"
+                                    aria-label="删除此条"
+                                  >
+                                    删除
+                                  </button>
+                                </div>
 
-                            {/* metadata 行(仅自己写时,有任意一项才显示)*/}
-                            {meta && (meta.weather || meta.mood || meta.place) && (
-                              <p className="text-xs text-ink-soft mb-2 flex flex-wrap gap-2 items-center font-display italic">
-                                {meta.weather && (
-                                  <span title={WEATHER_LABELS[meta.weather]}>
-                                    {meta.weather}
-                                  </span>
+                                {meta && (meta.weather || meta.mood || meta.place) && (
+                                  <p className="text-xs text-ink-soft mb-2 flex flex-wrap gap-2 items-center font-display italic">
+                                    {meta.weather && (
+                                      <span title={WEATHER_LABELS[meta.weather]}>{meta.weather}</span>
+                                    )}
+                                    {meta.mood && (
+                                      <span title={MOOD_LABELS[meta.mood]}>{meta.mood}</span>
+                                    )}
+                                    {meta.place && (
+                                      <span className="text-ink-muted">📍 {meta.place}</span>
+                                    )}
+                                  </p>
                                 )}
-                                {meta.mood && (
-                                  <span title={MOOD_LABELS[meta.mood]}>
-                                    {meta.mood}
-                                  </span>
-                                )}
-                                {meta.place && (
-                                  <span className="text-ink-muted">📍 {meta.place}</span>
-                                )}
-                              </p>
-                            )}
 
-                            {e.title && (
-                              <p className="text-base font-semibold text-ink mb-2 leading-snug">
-                                {e.title}
-                              </p>
-                            )}
-                            <p className="text-sm text-ink-soft leading-relaxed whitespace-pre-wrap break-words">
-                              {e.content}
-                            </p>
-                            {e.imageBase64 && (
-                              <div className="mt-3">
-                                <img
-                                  src={e.imageBase64}
-                                  alt="日记附图"
-                                  className="max-h-64 rounded-lg border border-border"
-                                />
-                              </div>
+                                {e.title && (
+                                  <p className="text-base font-semibold text-ink mb-2 leading-snug">
+                                    {e.title}
+                                  </p>
+                                )}
+                                <p className="text-sm text-ink-soft leading-relaxed whitespace-pre-wrap break-words">
+                                  {e.content}
+                                </p>
+                                {e.imageBase64 && (
+                                  <div className="mt-3">
+                                    <img
+                                      src={e.imageBase64}
+                                      alt="日记附图"
+                                      className="max-h-64 rounded-lg border border-border"
+                                    />
+                                  </div>
+                                )}
+                              </>
                             )}
 
                             {/* anti-fab 第 3 层 — 看原始对话(仅 ai-summary)*/}
                             {e.source === "ai-summary" &&
                               e.rawDialog &&
                               e.rawDialog.length > 0 && (
-                                <div className="mt-3 pt-3 border-t border-border">
+                                <div className={`mt-3 pt-3 border-t border-border ${isFormalDiary ? "px-5 pb-4" : ""}`}>
                                   <button
                                     onClick={() => toggleRawDialog(e.id)}
                                     className="text-xs text-ink-muted hover:text-esther-blue transition-colors font-display italic"
