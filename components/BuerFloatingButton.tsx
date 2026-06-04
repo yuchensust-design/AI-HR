@@ -116,6 +116,8 @@ type DiarySummary = {
 
 type SummaryPhase = "idle" | "loading" | "preview" | "saved" | "error";
 
+const DIARY_HINT_KEY = "buer_floating_diary_hint_dismissed";
+
 export function BuerFloatingButton() {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -130,6 +132,21 @@ export function BuerFloatingButton() {
   const [summaryPhase, setSummaryPhase] = useState<SummaryPhase>("idle");
   const [summary, setSummary] = useState<DiarySummary | null>(null);
   const [summaryError, setSummaryError] = useState<string | null>(null);
+
+  // v3 §8.21 §C.7 — 首次打开时提示去 /diary 小窝
+  const [showDiaryHint, setShowDiaryHint] = useState(false);
+  useEffect(() => {
+    if (open && typeof window !== "undefined") {
+      const dismissed = window.localStorage.getItem(DIARY_HINT_KEY) === "1";
+      if (!dismissed) setShowDiaryHint(true);
+    }
+  }, [open]);
+  const dismissDiaryHint = () => {
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(DIARY_HINT_KEY, "1");
+    }
+    setShowDiaryHint(false);
+  };
 
   useEffect(() => {
     if (!open) return;
@@ -438,6 +455,27 @@ export function BuerFloatingButton() {
                   )}
                 </div>
               )}
+            </div>
+          )}
+
+          {/* v3 §8.21 §C.7 — 首次提示去 /diary 小窝 */}
+          {showDiaryHint && summaryPhase === "idle" && (
+            <div className="bg-esther-yellow/20 border-b border-esther-yellow/60 px-4 py-2.5 flex items-start gap-2 flex-shrink-0">
+              <span className="text-base flex-shrink-0">💡</span>
+              <p className="flex-1 text-[11px] text-ink leading-relaxed">
+                想专门写日记?去
+                <a href="/diary" className="text-esther-blue font-medium hover:underline mx-0.5">
+                  /diary 小窝
+                </a>
+                有 🖋️ 自己写 + 💬 跟我聊聊 两个专门入口
+              </p>
+              <button
+                onClick={dismissDiaryHint}
+                className="text-ink-muted hover:text-ink text-sm leading-none px-1 flex-shrink-0"
+                aria-label="关闭提示"
+              >
+                ✕
+              </button>
             </div>
           )}
 
