@@ -8,9 +8,17 @@ import { Badge } from "@/components/ui/badge";
 import { Nav } from "@/components/Nav";
 import { BuerFloatingButton } from "@/components/BuerFloatingButton";
 import { useLocalState, STORAGE_KEYS } from "@/lib/use-local-state";
-import { EditSuggestionCard, type EditSuggestion, type Decision, type GapAlertDecision } from "@/components/EditSuggestionCard";
+import {
+  EditSuggestionCard,
+  type EditSuggestion,
+  type Decision,
+  type GapAlertDecision,
+  type RejectReason,
+} from "@/components/EditSuggestionCard";
 import { GapAlertCard } from "@/components/GapAlertCard";
 import { DiffMetricsTable, type LlmMetrics } from "@/components/DiffMetricsTable";
+import { M3DataDashboard } from "@/components/M3DataDashboard";
+import { JDKeywordsBar } from "@/components/JDKeywordsBar";
 import {
   computeRuleMetrics,
   extractV1Bullets,
@@ -49,14 +57,20 @@ type ParsedResume = {
   skills?: Record<string, string[]>;
   meta?: { narrative_tag_distribution?: Record<string, number> };
 } | null;
-type JdCtx = { jd_summary?: string; must_have?: string[] } | null;
+type JdCtx = { jd_summary?: string; must_have?: string[]; gaps?: { fixable?: string }[] } | null;
 type HiddenList = unknown[];
+type RejectionMap = Record<string, RejectReason>;
+type FromDebriefHighlight = { evidence: string; source_question?: string } | null;
 
 export default function ResultPage() {
   const router = useRouter();
   const [parsedResume] = useLocalState<ParsedResume>(STORAGE_KEYS.PARSED_RESUME, null);
   const [jdContext] = useLocalState<JdCtx>(STORAGE_KEYS.JD_CONTEXT, null);
   const [hiddenExperiences, setHiddenExperiences] = useLocalState<HiddenList>(STORAGE_KEYS.HIDDEN_EXPERIENCES, []);
+  const [, setRejectionReasons] = useLocalState<RejectionMap>(
+    STORAGE_KEYS.M3_REJECTION_REASONS,
+    {}
+  );
 
   const [status, setStatus] = useState<Status>("loading");
   const [errorMsg, setErrorMsg] = useState("");
@@ -67,11 +81,29 @@ export default function ResultPage() {
   const [gapFillBusyId, setGapFillBusyId] = useState<string | null>(null);
   const [regenBusyId, setRegenBusyId] = useState<string | null>(null);
   const [downloading, setDownloading] = useState(false);
+  const [fromDebriefHighlight, setFromDebriefHighlight] = useState<FromDebriefHighlight>(null);
+  const [highlightedKeyword, setHighlightedKeyword] = useState<string | null>(null);
 
   // Live Diff 6 维表 state(2026-06-04)
   const [llmMetrics, setLlmMetrics] = useState<LlmMetrics | null>(null);
   const [llmJdKeywords, setLlmJdKeywords] = useState<string[]>([]);
+  const [llmMatchedKeywords, setLlmMatchedKeywords] = useState<string[]>([]);
+  const [llmGapBreakdown, setLlmGapBreakdown] = useState<{ easy: number; mid: number; hard: number }>({
+    easy: 0,
+    mid: 0,
+    hard: 0,
+  });
   const [llmMetricsRefreshing, setLlmMetricsRefreshing] = useState(false);
+
+  // 读模块 5 复盘 highlight(不持久化在 STORAGE_KEYS 里,直接读 raw key,fail-safe)
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem("from_debrief_highlight");
+      if (raw) setFromDebriefHighlight(JSON.parse(raw));
+    } catch {
+      // ignore
+    }
+  }, []);
 
   const loadSuggestions = useCallback(async () => {
     if (!parsedResume) return;
@@ -85,6 +117,7 @@ export default function ResultPage() {
           parsedResume,
           jdContext: jdContext ?? null,
           hiddenExperiences: hiddenExperiences ?? [],
+          fromDebriefHighlight: fromDebriefHighlight ?? null,
         }),
       });
       if (!res.ok) {
@@ -111,7 +144,7 @@ export default function ResultPage() {
       setErrorMsg(message);
       setStatus("error");
     }
-  }, [parsedResume, jdContext, hiddenExperiences]);
+  }, [parsedResume, jdContext, hiddenExperiences, fromDebriefHighlight]);
 
   useEffect(() => {
     if (parsedResume && !data && status === "loading") {
@@ -122,8 +155,19 @@ export default function ResultPage() {
   function handleAccept(id: string) {
     setDecisions((d) => ({ ...d, [id]: "accept" }));
   }
-  function handleReject(id: string) {
+  function handleReject(id: string, reason: RejectReason) {
     setDecisions((d) => ({ ...d, [id]: "reject" }));
+    setRejectionReasons((m) => ({ ...m, [id]: reason }));
+  }
+  function handleKeywordClick(keyword: string) {
+    setHighlightedKeyword((cur) => (cur === keyword ? null : keyword));
+    // 滚到 JDKeywordsBar
+    if (typeof document !== "undefined") {
+      const el = document.querySelector<HTMLSpanElement>(`[data-keyword="${keyword}"]`);
+      if (el) {
+        el.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+    }
   }
   // === Live Diff 6 维表 computation(纯前端 4 维规则实时)===
 
@@ -170,7 +214,11 @@ export default function ResultPage() {
         }),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const parsed = (await res.json()) as LlmMetrics & { jd_keywords?: string[] };
+      const parsed = (await res.json()) as LlmMetrics & {
+        jd_keywords?: string[];
+        matched_keywords?: string[];
+        gap_breakdown?: { easy: number; mid: number; hard: number };
+      };
       setLlmMetrics({
         star_complete_v1: parsed.star_complete_v1,
         star_complete_v2: parsed.star_complete_v2,
@@ -182,6 +230,12 @@ export default function ResultPage() {
       });
       if (parsed.jd_keywords && parsed.jd_keywords.length > 0) {
         setLlmJdKeywords(parsed.jd_keywords);
+      }
+      if (parsed.matched_keywords) {
+        setLlmMatchedKeywords(parsed.matched_keywords);
+      }
+      if (parsed.gap_breakdown) {
+        setLlmGapBreakdown(parsed.gap_breakdown);
       }
     } catch (err) {
       console.error("[loadLlmMetrics] failed:", err);
@@ -341,6 +395,24 @@ export default function ResultPage() {
   const rejectedCount = Object.values(decisions).filter((d) => d === "reject").length;
   const pendingCount = (data?.edits.length ?? 0) - acceptedCount - rejectedCount;
 
+  // gap_breakdown 兜底:LLM 没返回时根据 jdContext.gaps 现算(纯规则)
+  const gapBreakdownFallback = useMemo(() => {
+    const gaps = jdContext?.gaps ?? [];
+    const b = { easy: 0, mid: 0, hard: 0 };
+    for (const g of gaps) {
+      const f = String(g?.fixable ?? "");
+      if (f.includes("易补")) b.easy++;
+      else if (f.includes("中等")) b.mid++;
+      else if (f.includes("难补")) b.hard++;
+    }
+    return b;
+  }, [jdContext]);
+
+  const effectiveGapBreakdown =
+    llmGapBreakdown.easy + llmGapBreakdown.mid + llmGapBreakdown.hard > 0
+      ? llmGapBreakdown
+      : gapBreakdownFallback;
+
   if (!parsedResume) {
     return (
       <>
@@ -442,7 +514,43 @@ export default function ResultPage() {
 
         {/* Ready */}
         {status === "ready" && data && (
-          <div className="max-w-[1400px] mx-auto px-6 py-6 grid grid-cols-1 lg:grid-cols-[1fr_1.4fr] gap-6">
+          <div className="max-w-[1400px] mx-auto px-6 py-6 space-y-4">
+            {/* PM 06 §3.4 #1 + #5 — 顶部数据看板 + 反编造文案 */}
+            <M3DataDashboard
+              data={{
+                jdKeywordsCount: llmJdKeywords.length,
+                matchedKeywordsCount: llmMatchedKeywords.length,
+                gapBreakdown: effectiveGapBreakdown,
+                acceptedCount,
+                totalEditsCount: data.edits.length,
+              }}
+            />
+            <div className="flex items-center gap-2 px-3 py-2 rounded-md border border-border bg-warm-bg-deep/30">
+              <span className="text-base">🛡️</span>
+              <p className="text-[11px] text-ink-soft leading-snug">
+                <span className="text-ink font-medium">Offer 捕手</span>
+                只会重组和追问你提供过的信息,不会替你发明经历。
+                每条建议都标了 <span className="font-medium text-esther-blue">来源 · 置信度 · 对应 JD 关键词</span>,可逐条 audit。
+              </p>
+            </div>
+
+            {/* JD 关键词条 — 让 "对应关键词" 可视化 */}
+            <JDKeywordsBar
+              keywords={llmJdKeywords}
+              matched={llmMatchedKeywords}
+              highlighted={highlightedKeyword}
+            />
+
+            {fromDebriefHighlight && (
+              <Card className="p-3 border-2 border-purple-500/30 bg-purple-500/5">
+                <p className="text-[11px] text-purple-700 leading-relaxed">
+                  💡 已读到模块 5 面试复盘高价值答案,AI 会优先把它整理成一条
+                  <span className="font-medium ml-1">来自面试回写</span>的建议。
+                </p>
+              </Card>
+            )}
+
+            <div className="grid grid-cols-1 lg:grid-cols-[1fr_1.4fr] gap-6">
             {/* 左:简历预览(简化版 — 列原始 bullet + 标 accepted/rejected) */}
             <div className="lg:sticky lg:top-44 lg:self-start lg:max-h-[calc(100vh-12rem)] lg:overflow-y-auto">
               <Card className="p-5 border-2 border-border bg-card">
@@ -532,14 +640,16 @@ export default function ResultPage() {
                         decision={decisions[edit.id] ?? null}
                         rewrittenText={rewritten[edit.id] ?? null}
                         onAccept={() => handleAccept(edit.id)}
-                        onReject={() => handleReject(edit.id)}
+                        onReject={(reason) => handleReject(edit.id, reason)}
                         onRegen={() => handleRegen(edit)}
                         regenBusy={regenBusyId === edit.id}
+                        onKeywordClick={handleKeywordClick}
                       />
                     ))}
                   </>
                 );
               })()}
+            </div>
             </div>
           </div>
         )}

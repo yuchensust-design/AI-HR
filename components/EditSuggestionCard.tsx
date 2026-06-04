@@ -1,6 +1,9 @@
 "use client";
 
+import { useEffect, useRef, useState } from "react";
 import { Card } from "@/components/ui/card";
+
+export type EditSource = "jd" | "resume" | "experience" | "interview";
 
 export type EditSuggestion = {
   id: string;
@@ -8,6 +11,9 @@ export type EditSuggestion = {
   original_text: string;
   suggested_text: string;
   evidence_source?: string;       // Anti-fabrication 透明化:LLM 必须声明素材来源
+  source?: EditSource;            // PM 06 §3.4 #2 — 4 选 1 枚举
+  confidence?: number;            // PM 06 §3.4 #2 — 0-1 置信度
+  linked_jd_keyword?: string | null; // PM 06 §3.4 #3 — 对应 JD 关键词
   fab_warning?: string | null;    // ⚠️ 未验证经历的标记
   reason: string;
   category: string;
@@ -15,6 +21,15 @@ export type EditSuggestion = {
   // gap-alert 特有字段(2026-06-02 v2)
   jd_requirement_text?: string | null;
   fixable?: string | null;
+};
+
+// 拒绝理由(PM 06 §3.4 #4)
+export type RejectReasonKind = "not-fact" | "no-emphasis" | "no-evidence" | "other";
+
+export type RejectReason = {
+  kind: RejectReasonKind;
+  note?: string;
+  ts: number;
 };
 
 // gap-alert 用户决策
@@ -44,6 +59,149 @@ const PRIORITY_STYLE: Record<string, string> = {
   low: "border-border bg-card",
 };
 
+const SOURCE_META: Record<EditSource, { label: string; color: string; hint: string }> = {
+  jd: {
+    label: "来自 JD",
+    color: "bg-esther-blue text-white",
+    hint: "证据来自 JD 解析(must_have / gaps)",
+  },
+  resume: {
+    label: "来自简历",
+    color: "bg-warm-bg-deep text-ink",
+    hint: "证据来自你简历原文",
+  },
+  experience: {
+    label: "来自经历挖掘",
+    color: "bg-esther-yellow text-ink",
+    hint: "证据来自 Phase 3 隐藏经验挖掘",
+  },
+  interview: {
+    label: "来自面试回写",
+    color: "bg-purple-500 text-white",
+    hint: "证据来自模块 5 面试复盘高价值答案",
+  },
+};
+
+function ConfidenceBar({ value }: { value: number }) {
+  const pct = Math.round(Math.max(0, Math.min(1, value)) * 100);
+  const tone =
+    value >= 0.85 ? "bg-esther-blue" : value >= 0.7 ? "bg-esther-yellow" : "bg-esther-red";
+  const label =
+    value >= 0.85
+      ? "高 · 简历明确证据"
+      : value >= 0.7
+      ? "中 · 经验可推但需确认"
+      : "低 · 仅追问,不直接写";
+
+  return (
+    <div className="mt-2">
+      <div className="flex items-center justify-between text-[10px] text-ink-muted mb-0.5">
+        <span>置信度</span>
+        <span className="font-mono tabular-nums">{pct}% · {label}</span>
+      </div>
+      <div className="h-1 w-full rounded bg-warm-bg-deep/60 overflow-hidden">
+        <div
+          className={`h-full ${tone} transition-all`}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
+const REJECT_OPTIONS: { kind: RejectReasonKind; label: string; hint: string }[] = [
+  { kind: "not-fact", label: "不是事实", hint: "重要 · 帮 Anti-fab 收集模型偏差" },
+  { kind: "no-emphasis", label: "不想强调", hint: "事实 OK,只是不在重点" },
+  { kind: "no-evidence", label: "暂无证据", hint: "可以补一下经历再说" },
+  { kind: "other", label: "其他", hint: "可加 1 句备注" },
+];
+
+function RejectPopover({
+  onConfirm,
+  onCancel,
+}: {
+  onConfirm: (reason: RejectReason) => void;
+  onCancel: () => void;
+}) {
+  const [selected, setSelected] = useState<RejectReasonKind | null>(null);
+  const [note, setNote] = useState("");
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function onClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        onCancel();
+      }
+    }
+    document.addEventListener("mousedown", onClick);
+    return () => document.removeEventListener("mousedown", onClick);
+  }, [onCancel]);
+
+  function confirm() {
+    if (!selected) return;
+    onConfirm({
+      kind: selected,
+      note: note.trim() || undefined,
+      ts: Date.now(),
+    });
+  }
+
+  return (
+    <div
+      ref={ref}
+      className="absolute right-0 top-full mt-2 z-40 w-72 p-3 rounded-lg border-2 border-esther-red/40 bg-card shadow-lg"
+    >
+      <p className="text-[11px] text-ink mb-2 font-medium">
+        为什么维持原文?<span className="text-ink-muted font-normal"> · 理由会帮 Offer 捕手未来不重复推这条</span>
+      </p>
+      <div className="space-y-1 mb-2">
+        {REJECT_OPTIONS.map((opt) => (
+          <button
+            key={opt.kind}
+            type="button"
+            onClick={() => setSelected(opt.kind)}
+            className={[
+              "w-full text-left px-2 py-1.5 rounded text-[11px] transition-colors",
+              selected === opt.kind
+                ? "bg-esther-red/15 border border-esther-red/40 text-ink"
+                : "bg-warm-bg-deep/30 border border-transparent text-ink-soft hover:bg-warm-bg-deep/60",
+            ].join(" ")}
+          >
+            <span className="font-medium">{opt.label}</span>
+            <span className="text-[10px] text-ink-muted ml-1.5">· {opt.hint}</span>
+          </button>
+        ))}
+      </div>
+      {selected === "other" && (
+        <textarea
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          placeholder="备注一句(可选)"
+          rows={2}
+          className="w-full text-[11px] p-1.5 rounded border border-border bg-card text-ink resize-none mb-2"
+        />
+      )}
+      <div className="flex items-center justify-end gap-2">
+        <button
+          type="button"
+          onClick={onCancel}
+          className="text-[11px] text-ink-muted hover:text-ink"
+        >
+          取消
+        </button>
+        <button
+          type="button"
+          onClick={confirm}
+          disabled={!selected}
+          className="inline-flex items-center justify-center rounded-full bg-esther-red text-white px-3 py-1 text-[11px] font-medium hover:bg-esther-red/80 transition-colors disabled:opacity-40"
+        >
+          确认维持
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export function EditSuggestionCard({
   edit,
   decision,
@@ -52,14 +210,16 @@ export function EditSuggestionCard({
   onReject,
   onRegen,
   regenBusy,
+  onKeywordClick,
 }: {
   edit: EditSuggestion;
   decision: Decision;
   rewrittenText?: string | null;
   onAccept: () => void;
-  onReject: () => void;
+  onReject: (reason: RejectReason) => void;
   onRegen: () => void;
   regenBusy: boolean;
+  onKeywordClick?: (keyword: string) => void;
 }) {
   const cat = CATEGORY_LABEL[edit.category] ?? { label: edit.category, color: "bg-warm-bg-deep text-ink-soft" };
   const priorityBorder = decision === "accept"
@@ -69,6 +229,19 @@ export function EditSuggestionCard({
     : `border-2 ${PRIORITY_STYLE[edit.priority] ?? PRIORITY_STYLE.medium}`;
 
   const finalSuggested = rewrittenText ?? edit.suggested_text;
+  const sourceMeta = edit.source ? SOURCE_META[edit.source] : null;
+  const hasConfidence = typeof edit.confidence === "number";
+
+  const [showRejectPopover, setShowRejectPopover] = useState(false);
+
+  function handleRejectClick() {
+    setShowRejectPopover(true);
+  }
+
+  function handleRejectConfirm(reason: RejectReason) {
+    setShowRejectPopover(false);
+    onReject(reason);
+  }
 
   return (
     <Card className={`p-4 transition-all ${priorityBorder}`}>
@@ -89,6 +262,24 @@ export function EditSuggestionCard({
           <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium ${cat.color}`}>
             {cat.label}
           </span>
+          {sourceMeta && (
+            <span
+              title={sourceMeta.hint}
+              className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium ${sourceMeta.color}`}
+            >
+              {sourceMeta.label}
+            </span>
+          )}
+          {edit.linked_jd_keyword && (
+            <button
+              type="button"
+              onClick={() => onKeywordClick?.(edit.linked_jd_keyword!)}
+              className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-medium bg-esther-yellow/40 text-ink hover:bg-esther-yellow transition-colors"
+              title="点击在 JD 关键词条里高亮这个词"
+            >
+              🔗 {edit.linked_jd_keyword}
+            </button>
+          )}
         </div>
         <span className="text-[10px] text-ink-muted font-mono">{edit.id}</span>
       </div>
@@ -140,15 +331,18 @@ export function EditSuggestionCard({
 
       {/* fab_warning — 未验证经历显式标 */}
       {edit.fab_warning && (
-        <div className="mb-3 px-2 py-1.5 rounded bg-esther-red/10 border-l-2 border-esther-red">
+        <div className="mb-2 px-2 py-1.5 rounded bg-esther-red/10 border-l-2 border-esther-red">
           <p className="text-[10px] text-esther-red leading-relaxed font-medium">
             {edit.fab_warning}
           </p>
         </div>
       )}
 
+      {/* confidence — PM §3.4 #2 */}
+      {hasConfidence && <ConfidenceBar value={edit.confidence ?? 0} />}
+
       {/* 3 按钮 */}
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 mt-3 relative">
         {decision === "accept" && (
           <span className="inline-flex items-center px-3 py-1.5 rounded-full bg-esther-blue text-white text-xs font-medium">
             ✓ 已采纳
@@ -168,11 +362,17 @@ export function EditSuggestionCard({
               ✓ 采纳
             </button>
             <button
-              onClick={onReject}
+              onClick={handleRejectClick}
               className="inline-flex items-center justify-center rounded-full border border-border bg-card text-ink-soft px-3 py-1.5 text-xs hover:border-esther-red hover:text-esther-red transition-colors"
             >
               ✗ 维持原文
             </button>
+            {showRejectPopover && (
+              <RejectPopover
+                onConfirm={handleRejectConfirm}
+                onCancel={() => setShowRejectPopover(false)}
+              />
+            )}
           </>
         )}
         <button

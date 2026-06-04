@@ -71,6 +71,7 @@ export const STORAGE_KEYS = {
   HIDDEN_EXPERIENCES: "hidden_experience_candidates",
   LEARNING_PLAN: "learning_plan",
   FINAL_RESUME: "final_resume", // { markdown, lastUpdated }
+  M3_REJECTION_REASONS: "m3_rejection_reasons", // { [editId]: { reason, note?, ts } } — PM 06 §3.4
   INTERVIEW_SESSIONS: "interview_sessions", // 最近 5 场
   PROJECT_BRIEF: "project_brief",
   LEARNING_CARDS: "learning_cards", // 学习卡组进度
