@@ -43,6 +43,47 @@ export type DiaryEntry = {
    * 用于:① 后端 DB 隔离用户 ② 跨设备同步 hydration
    */
   sessionId?: string;
+  /**
+   * v3 §8.21 — 温馨小窝 metadata(全部可选,用户用 chip 选,非 free-text)
+   * 仅 source = "diary-page" 时使用,ai-summary 不会填(LLM 不感知)
+   */
+  metadata?: DiaryEntryMetadata;
+};
+
+/** v3 §8.21 §C.3 — 自己写日记的元数据(chip 选择,零打字承诺只放宽地点) */
+export type DiaryEntryMetadata = {
+  /** YYYY-MM-DD,日记日期(覆盖 createdAt 显示),默认 today */
+  date?: string;
+  /** 天气 emoji,7 选 1 */
+  weather?: WeatherEmoji;
+  /** 心情 emoji,5 选 1 */
+  mood?: MoodEmoji;
+  /** 地点,可选自由文本(单行) */
+  place?: string;
+};
+
+export const WEATHER_OPTIONS = ["☀️", "⛅", "☁️", "🌧️", "⛈️", "❄️", "🌫️"] as const;
+export type WeatherEmoji = (typeof WEATHER_OPTIONS)[number];
+
+export const MOOD_OPTIONS = ["✨", "🙂", "😐", "😣", "😴"] as const;
+export type MoodEmoji = (typeof MOOD_OPTIONS)[number];
+
+export const WEATHER_LABELS: Record<WeatherEmoji, string> = {
+  "☀️": "晴",
+  "⛅": "多云",
+  "☁️": "阴",
+  "🌧️": "小雨",
+  "⛈️": "暴雨",
+  "❄️": "下雪",
+  "🌫️": "雾",
+};
+
+export const MOOD_LABELS: Record<MoodEmoji, string> = {
+  "✨": "超棒",
+  "🙂": "还行",
+  "😐": "一般",
+  "😣": "不太好",
+  "😴": "累瘫",
 };
 
 const STORAGE_KEY = "buer_diary_entries";
