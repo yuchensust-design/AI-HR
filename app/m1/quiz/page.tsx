@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Nav } from "@/components/Nav";
 import {
@@ -10,19 +10,21 @@ import {
   INTEREST_QUESTION,
   INTEREST_TAGS,
   LIKERT_OPTIONS,
+  migrateAnswersSchema,
   type LikertValue,
 } from "@/lib/quiz-data";
+import { M1_SAMPLE } from "@/lib/m1-sample";
 
 /**
- * 模块 1 测评答题页(v2 18REST-2 学术验证版)
+ * 模块 1 测评答题页
  *
- * 题型升级:
- *   - RIASEC 18 题:从"4 选 1"改为"5 点 Likert"(1 非常不喜欢 → 5 非常喜欢)
- *   - 第 19 题兴趣 tag:保留 multi-select(零打字)
+ * 题型:
+ *   - RIASEC 18 题:5 点 Likert(1 非常不喜欢 → 5 非常喜欢)
+ *   - 第 19 题兴趣 tag:multi-select(零打字),选中后可选喜欢强度 1-5
  *
  * 数据流:答完 → POST /api/m1/recommend → setItem('riasec_result') → /m1/result
  *
- * 题库来源:Martins et al. (2024). 18REST-2. Journal of Career Assessment 33(1).
+ * 进度断点:答题状态 debounce 写入 localStorage.m1_quiz_draft,刷新自动恢复
  */
 
 type LikertQ = {
@@ -32,11 +34,13 @@ type LikertQ = {
   type: "likert";
 };
 
+type MultiOption = { label: string; text: string };
+
 type MultiQ = {
   no: number;
   text: string;
   helper?: string;
-  options: Array<{ label: string; text: string }>;
+  options: MultiOption[];
   type: "multi";
 };
 
@@ -58,16 +62,21 @@ const ALL_QUESTIONS: QuestionUI[] = [
   },
 ];
 
-/**
- * answers schema(v3):
- *   - Likert 题(1-18): answers[no] = number 1-5
- *   - 兴趣题(19): answers[19] = Record<label, strength 1-5>
- *     例 { "🎵": 5, "✍️": 3 }
- */
-type AnswersMap = Record<
-  number,
-  LikertValue | Record<string, number>
->;
+const DRAFT_KEY = "m1_quiz_draft";
+
+type AnswersMap = Record<number, LikertValue | Record<string, number>>;
+
+type DraftPayload = {
+  answers: AnswersMap;
+  current: number;
+};
+
+function clampIndex(idx: number, max: number): number {
+  if (!Number.isFinite(idx)) return 0;
+  if (idx < 0) return 0;
+  if (idx > max) return max;
+  return idx;
+}
 
 export default function Module1QuizPage() {
   const router = useRouter();
@@ -75,10 +84,100 @@ export default function Module1QuizPage() {
   const [answers, setAnswers] = useState<AnswersMap>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [autoNext, setAutoNext] = useState(true); // v3 §8.18 §C.3 自动跳题
+  const [autoNext, setAutoNext] = useState(true);
+  const [restored, setRestored] = useState(false);
+  const draftTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hydratedRef = useRef(false);
 
-  const q = ALL_QUESTIONS[current];
-  const isLast = current === ALL_QUESTIONS.length - 1;
+  // 入场:恢复草稿(v2 schema 自动迁移)
+  useEffect(() => {
+    if (hydratedRef.current) return;
+    hydratedRef.current = true;
+    try {
+      const raw = window.localStorage.getItem(DRAFT_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as Partial<DraftPayload>;
+      const safeAnswers = migrateAnswersSchema(parsed.answers) as AnswersMap;
+      const safeCurrent = clampIndex(
+        typeof parsed.current === "number" ? parsed.current : 0,
+        ALL_QUESTIONS.length - 1
+      );
+      if (Object.keys(safeAnswers).length > 0) {
+        setAnswers(safeAnswers);
+        setCurrent(safeCurrent);
+        setRestored(true);
+      }
+    } catch (e) {
+      console.warn("[m1/quiz] draft restore failed:", e);
+      try {
+        window.localStorage.removeItem(DRAFT_KEY);
+      } catch {
+        // ignore
+      }
+    }
+  }, []);
+
+  // debounce 写草稿
+  useEffect(() => {
+    if (!hydratedRef.current) return;
+    if (draftTimer.current) clearTimeout(draftTimer.current);
+    draftTimer.current = setTimeout(() => {
+      try {
+        if (Object.keys(answers).length === 0) {
+          window.localStorage.removeItem(DRAFT_KEY);
+        } else {
+          window.localStorage.setItem(
+            DRAFT_KEY,
+            JSON.stringify({ answers, current } satisfies DraftPayload)
+          );
+        }
+      } catch {
+        // ignore (quota / disabled)
+      }
+    }, 400);
+    return () => {
+      if (draftTimer.current) clearTimeout(draftTimer.current);
+    };
+  }, [answers, current]);
+
+  const safeIndex = clampIndex(current, ALL_QUESTIONS.length - 1);
+  const q = ALL_QUESTIONS[safeIndex];
+  const isLast = safeIndex === ALL_QUESTIONS.length - 1;
+
+  // 边界守卫:q 缺失就用错误状态接管,避免后续访问 q.no/q.type 崩溃
+  if (!q) {
+    return (
+      <>
+        <Nav />
+        <main className="min-h-screen bg-warm-bg flex flex-col items-center justify-center px-6">
+          <div className="max-w-md text-center">
+            <p className="text-5xl mb-5">🤔</p>
+            <h2 className="text-xl font-bold text-ink mb-3">
+              测评数据看起来有点乱
+            </h2>
+            <p className="text-sm text-ink-soft leading-relaxed mb-6">
+              我们没读到合法的题目状态,可能是缓存残留。点下面按钮清掉重来。
+            </p>
+            <button
+              onClick={() => {
+                try {
+                  window.localStorage.removeItem(DRAFT_KEY);
+                } catch {
+                  // ignore
+                }
+                setAnswers({});
+                setCurrent(0);
+              }}
+              className="inline-flex items-center justify-center rounded-full bg-esther-blue text-white px-6 py-2.5 text-sm font-medium hover:bg-esther-blue-dark transition-colors"
+            >
+              重新开始测评
+            </button>
+          </div>
+        </main>
+      </>
+    );
+  }
+
   const currentAnswer = answers[q.no];
 
   const hasAnswer =
@@ -86,59 +185,93 @@ export default function Module1QuizPage() {
       ? typeof currentAnswer === "number"
       : typeof currentAnswer === "object" &&
         currentAnswer !== null &&
+        !Array.isArray(currentAnswer) &&
         Object.keys(currentAnswer).length > 0;
 
   const selectLikert = (value: LikertValue) => {
     setAnswers({ ...answers, [q.no]: value });
-    // 自动跳下一题(200ms 让用户看到 chip 高亮反馈,最后一题不跳)
     if (autoNext && !isLast) {
-      setTimeout(() => setCurrent((c) => c + 1), 200);
+      setTimeout(
+        () => setCurrent((c) => clampIndex(c + 1, ALL_QUESTIONS.length - 1)),
+        200
+      );
     }
   };
 
-  // v3 兴趣题:toggle 选中 + 默认强度 4
   const toggleInterest = (label: string) => {
-    const cur = (currentAnswer as Record<string, number>) || {};
+    const cur =
+      currentAnswer && typeof currentAnswer === "object" && !Array.isArray(currentAnswer)
+        ? { ...(currentAnswer as Record<string, number>) }
+        : {};
     if (cur[label] !== undefined) {
-      const { [label]: _removed, ...rest } = cur;
-      setAnswers({ ...answers, [q.no]: rest });
+      delete cur[label];
+      setAnswers({ ...answers, [q.no]: cur });
     } else {
-      setAnswers({ ...answers, [q.no]: { ...cur, [label]: 4 } });
+      cur[label] = 4;
+      setAnswers({ ...answers, [q.no]: cur });
     }
   };
 
-  // v3 兴趣题:设置某 tag 的强度(1-5)
   const setInterestStrength = (label: string, strength: number) => {
-    const cur = (currentAnswer as Record<string, number>) || {};
-    setAnswers({ ...answers, [q.no]: { ...cur, [label]: strength } });
+    const cur =
+      currentAnswer && typeof currentAnswer === "object" && !Array.isArray(currentAnswer)
+        ? { ...(currentAnswer as Record<string, number>) }
+        : {};
+    cur[label] = Math.max(1, Math.min(5, Math.round(strength)));
+    setAnswers({ ...answers, [q.no]: cur });
   };
 
-  const submitToBackend = async (finalAnswers: typeof answers) => {
+  const writeSampleFallback = () => {
+    try {
+      window.localStorage.setItem(
+        "riasec_result",
+        JSON.stringify({
+          ...M1_SAMPLE,
+          completedAt: new Date().toISOString(),
+          fallback: "api-error",
+        })
+      );
+    } catch {
+      // ignore
+    }
+  };
+
+  const submitToBackend = async (finalAnswers: AnswersMap) => {
     setLoading(true);
     setError(null);
     try {
+      const sanitized = migrateAnswersSchema(finalAnswers);
       const res = await fetch("/api/m1/recommend", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ answers: finalAnswers }),
+        body: JSON.stringify({ answers: sanitized }),
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         throw new Error(body.error || `请求失败: ${res.status}`);
       }
       const data = await res.json();
-      localStorage.setItem(
-        "riasec_result",
-        JSON.stringify({
-          ...data,
-          answers: finalAnswers,
-          refineCount: 0,
-        })
-      );
+      try {
+        window.localStorage.setItem(
+          "riasec_result",
+          JSON.stringify({
+            ...data,
+            answers: sanitized,
+            refineCount: 0,
+          })
+        );
+        window.localStorage.removeItem(DRAFT_KEY);
+      } catch {
+        // ignore quota
+      }
       router.push("/m1/result");
     } catch (e) {
       const msg = e instanceof Error ? e.message : "未知错误";
-      setError(`分析失败:${msg}。可以重试。`);
+      // API 失败兜底:写 sample 进 localStorage,result 页会 banner 提示
+      writeSampleFallback();
+      setError(
+        `分析失败:${msg}。已临时切到 sample 结果让你先往下看,可点 retry 重试。`
+      );
       setLoading(false);
     }
   };
@@ -147,19 +280,28 @@ export default function Module1QuizPage() {
     if (isLast) {
       submitToBackend(answers);
     } else {
-      setCurrent(current + 1);
+      setCurrent(clampIndex(safeIndex + 1, ALL_QUESTIONS.length - 1));
     }
   };
 
   const handlePrev = () => {
-    if (current > 0) setCurrent(current - 1);
+    if (safeIndex > 0) setCurrent(safeIndex - 1);
   };
 
   const handleSkip = () => {
     handleNext();
   };
 
-  const progress = ((current + 1) / ALL_QUESTIONS.length) * 100;
+  const handleRetryFromFallback = () => {
+    setError(null);
+    submitToBackend(answers);
+  };
+
+  const handleViewFallback = () => {
+    router.push("/m1/result");
+  };
+
+  const progress = ((safeIndex + 1) / ALL_QUESTIONS.length) * 100;
 
   if (loading) {
     return (
@@ -172,7 +314,7 @@ export default function Module1QuizPage() {
               不二正在帮你分析…
             </h2>
             <p className="text-sm text-ink-soft leading-relaxed">
-              基于 18REST-2 学术测评 + 你的兴趣 tag,
+              基于 RIASEC 6 维 + 你的兴趣 tag,
               <br />
               从 40+ 职业方向里挑出最契合的 5 个
             </p>
@@ -199,10 +341,9 @@ export default function Module1QuizPage() {
                 href="/m1"
                 className="text-xs text-ink-soft hover:text-esther-blue transition-colors"
               >
-                ← 退出测评(进度会丢)
+                ← 退出测评(进度会保留)
               </Link>
               <div className="flex items-center gap-3">
-                {/* v3 §8.18 §C.3 自动跳题 toggle */}
                 <label className="flex items-center gap-1.5 cursor-pointer select-none">
                   <input
                     type="checkbox"
@@ -213,7 +354,7 @@ export default function Module1QuizPage() {
                   <span className="text-xs text-ink-soft">自动下一题</span>
                 </label>
                 <p className="text-xs text-ink-muted font-display italic">
-                  {current + 1} / {ALL_QUESTIONS.length}
+                  {safeIndex + 1} / {ALL_QUESTIONS.length}
                 </p>
               </div>
             </div>
@@ -223,11 +364,16 @@ export default function Module1QuizPage() {
                 style={{ width: `${progress}%` }}
               />
             </div>
+            {restored && safeIndex > 0 && (
+              <p className="text-[11px] text-ink-muted mt-2 font-display italic">
+                ↻ 已恢复上次进度(第 {safeIndex + 1} 题)
+              </p>
+            )}
           </div>
         </section>
 
         {/* 第 1 题时显示一次性指导语 */}
-        {current === 0 && q.type === "likert" && (
+        {safeIndex === 0 && q.type === "likert" && (
           <section className="max-w-[800px] mx-auto px-6 pt-8">
             <div className="p-4 rounded-xl bg-esther-yellow/15 border-l-4 border-esther-yellow">
               <p className="text-sm text-ink leading-relaxed">
@@ -235,7 +381,7 @@ export default function Module1QuizPage() {
                 下面 18 件事,如果让你做,你对它的喜欢程度是?选 1(非常不喜欢)到 5(非常喜欢)。
               </p>
               <p className="text-xs text-ink-soft mt-2 italic">
-                测评基于 18REST-2 学术量表(Martins et al., 2024),共 19 题约 3-4 分钟。
+                基于霍兰德 RIASEC 职业兴趣理论的简化测评,结合你的经历信号做交叉验证 · 共 19 题约 3-4 分钟。
               </p>
             </div>
           </section>
@@ -292,14 +438,16 @@ export default function Module1QuizPage() {
               </>
             )}
 
-            {/* Multi-select(兴趣 tag)— v3 §8.18 §C.2 选中后展开 1-5 强度 */}
-            {q.type === "multi" && (
+            {/* Multi-select(兴趣 tag) */}
+            {q.type === "multi" && Array.isArray(q.options) && (
               <>
                 <div className="space-y-3">
                   {q.options.map((opt) => {
+                    if (!opt || typeof opt.label !== "string") return null;
                     const selectedMap =
+                      currentAnswer &&
                       typeof currentAnswer === "object" &&
-                      currentAnswer !== null
+                      !Array.isArray(currentAnswer)
                         ? (currentAnswer as Record<string, number>)
                         : {};
                     const isSelected = selectedMap[opt.label] !== undefined;
@@ -335,7 +483,6 @@ export default function Module1QuizPage() {
                             </span>
                           )}
                         </button>
-                        {/* v3 强度选择 — 选中后展开 */}
                         {isSelected && (
                           <div className="border-t border-esther-blue/20 px-4 py-3 bg-esther-blue/5">
                             <p className="text-[11px] text-ink-muted mb-2 font-display italic">
@@ -379,7 +526,21 @@ export default function Module1QuizPage() {
 
           {error && (
             <div className="mt-4 p-4 rounded-xl bg-esther-red/5 border border-esther-red/30 text-sm text-esther-red">
-              {error}
+              <p className="leading-relaxed">{error}</p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button
+                  onClick={handleRetryFromFallback}
+                  className="inline-flex items-center justify-center rounded-full bg-esther-red text-white px-4 py-1.5 text-xs font-medium hover:bg-esther-red/90 transition-colors"
+                >
+                  重试分析
+                </button>
+                <button
+                  onClick={handleViewFallback}
+                  className="inline-flex items-center justify-center rounded-full border border-esther-red/40 text-esther-red px-4 py-1.5 text-xs font-medium hover:bg-esther-red/10 transition-colors"
+                >
+                  先看 sample 结果 →
+                </button>
+              </div>
             </div>
           )}
 
@@ -387,7 +548,7 @@ export default function Module1QuizPage() {
           <div className="flex items-center justify-between mt-6 gap-4">
             <button
               onClick={handlePrev}
-              disabled={current === 0}
+              disabled={safeIndex === 0}
               className="px-5 py-2.5 rounded-full border border-border bg-card text-sm text-ink-soft hover:border-esther-blue transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             >
               ← 上一题
@@ -411,7 +572,7 @@ export default function Module1QuizPage() {
           </div>
 
           <p className="text-xs text-ink-muted text-center mt-6 font-display italic">
-            * 共 {ALL_QUESTIONS.length} 题 · 答不上可跳过(不致命)· 基于 18REST-2 学术量表
+            * 共 {ALL_QUESTIONS.length} 题 · 答不上可跳过(不致命)· 基于霍兰德 RIASEC 6 维
           </p>
         </div>
       </main>

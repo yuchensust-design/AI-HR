@@ -1,25 +1,27 @@
 /**
- * 模块 1 测评 — 18REST-2 学术验证版(18 题 RIASEC + 1 题兴趣 tag)
+ * 模块 1 测评 — 基于霍兰德 RIASEC 职业兴趣理论(18 题 RIASEC + 1 题兴趣 tag)
  *
- * 题库来源:Martins et al. (2024). 18REST-2: A Revised Measure of the RIASEC Model
- *           for Large-Scale Assessment With Students. Journal of Career Assessment 33(1).
- *           DOI: 10.1177/10690727241256289
+ * 主理论:Holland, J. L. (1997). Making vocational choices: A theory of vocational
+ *         personalities and work environments (3rd ed.). PAR.
  *
- * 计分方式(论文 §Method §Procedures):
+ * 题库参考:Martins et al. (2024) 心理测量学修订项(18REST-2),
+ *           DOI: 10.1177/10690727241256289 — 用作 18 题简化测评的题面基础。
+ *
+ * 计分方式:
  *   - 5 点 Likert: 1 = 非常不喜欢 → 5 = 非常喜欢
  *   - 每维 3 题,简单加和(raw score),范围 3-15 分
  *   - 无反向计分题
  *
- * 高低分阈值(论文未明确,我们基于 Likert 中点 + 实战经验设定):
+ * 高低分阈值(基于 Likert 中点 + 实战经验设定):
  *   - 高: ≥ 12 分(平均每题 ≥ 4 分 = 喜欢)
  *   - 中: 9-11 分(平均每题 3-4 分 = 中立到喜欢)
  *   - 低: ≤ 8 分(平均每题 ≤ 2.67 分 = 不喜欢)
  *
- * 适用人群:大学生(论文样本最分化的群体在 12 年级 / 17-18 岁,大学生更分化)
+ * 适用人群:大学生。
  *
- * License 说明:18REST-2 由 SAGE 出版(2024),非 CC-BY。本项目作为
- * 比赛教育用途使用,并在 result 页显式引用论文出处。商用前需联系作者
- * (gustavoh.martins95@gmail.com)获明确授权。
+ * License 说明:题库参考的 18REST-2 由 SAGE 出版(2024),非 CC-BY。
+ * 本项目作为比赛教育用途使用,并在 result 页底部小字引用文献。
+ * 商用前需联系原作者(gustavoh.martins95@gmail.com)获明确授权。
  */
 
 export type Dimension = "R" | "I" | "A" | "S" | "E" | "C";
@@ -473,4 +475,57 @@ export function getSelectedInterestKeys(
   answers: Record<number, number | string[] | Record<string, number>>
 ): string[] {
   return getSelectedInterests(answers).map((i) => i.key);
+}
+
+/**
+ * 把任意外部 answers 输入归一化到当前 v3 schema,丢弃异常值。
+ * 主要用途:
+ *   - localStorage 老格式残留(v2 answers[19] = string[])→ 转 Record<label, 4>
+ *   - quiz draft 自动恢复时,防御 JSON 反序列化后类型错乱
+ *   - API 进入时再过一遍,避免坏数据进 LLM prompt
+ */
+export function migrateAnswersSchema(
+  raw: unknown
+): Record<number, number | Record<string, number>> {
+  const safe: Record<number, number | Record<string, number>> = {};
+  if (!raw || typeof raw !== "object") return safe;
+
+  const validQuestionNos = new Set<number>([
+    ...RIASEC_QUESTIONS.map((q) => q.no),
+    INTEREST_QUESTION.no,
+  ]);
+
+  for (const [rawKey, value] of Object.entries(raw as Record<string, unknown>)) {
+    const noNum = Number(rawKey);
+    if (!Number.isFinite(noNum) || !validQuestionNos.has(noNum)) continue;
+
+    if (noNum === INTEREST_QUESTION.no) {
+      if (Array.isArray(value)) {
+        const map: Record<string, number> = {};
+        for (const lbl of value) {
+          if (typeof lbl === "string") map[lbl] = 4;
+        }
+        if (Object.keys(map).length > 0) safe[noNum] = map;
+      } else if (value && typeof value === "object") {
+        const map: Record<string, number> = {};
+        for (const [lbl, strRaw] of Object.entries(
+          value as Record<string, unknown>
+        )) {
+          const s = typeof strRaw === "number" ? strRaw : Number(strRaw);
+          if (Number.isFinite(s)) {
+            map[lbl] = Math.max(1, Math.min(5, Math.round(s)));
+          }
+        }
+        if (Object.keys(map).length > 0) safe[noNum] = map;
+      }
+      continue;
+    }
+
+    const n = typeof value === "number" ? value : Number(value);
+    if (Number.isFinite(n) && n >= 1 && n <= 5) {
+      safe[noNum] = Math.round(n) as 1 | 2 | 3 | 4 | 5;
+    }
+  }
+
+  return safe;
 }

@@ -216,7 +216,7 @@ export default function Module1EntryPage() {
                 </p>
                 <RIASECRadar scores={SAMPLE.riasec} />
                 <p className="text-[11px] text-ink-muted text-center mt-2">
-                  每维 0-10 分 · 数值越高倾向越强
+                  示意 demo · 实际每维 3-15 分,数值越高倾向越强
                 </p>
               </div>
 
