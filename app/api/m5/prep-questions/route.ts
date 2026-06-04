@@ -20,11 +20,25 @@ import { buildPersonaBlock, PERSONA_SPECS } from "@/lib/interviewer-personas";
 import { buildTypeBlock, TYPE_SPECS } from "@/lib/interview-type-prompts";
 import {
   VALID_CATEGORIES,
+  type InterviewerStyle,
   type InterviewQuestion,
   type InterviewType,
   type PersonaKey,
   type QuestionCategory,
+  type SceneType,
 } from "@/lib/interview-types";
+
+const SCENE_BY_TYPE: Record<InterviewType, SceneType> = {
+  semi: "semi_structured",
+  bq: "behavioral",
+  tech: "technical",
+};
+
+const STYLE_BY_PERSONA: Record<PersonaKey, InterviewerStyle> = {
+  gentle: "warm",
+  strict: "tough",
+  rigor: "rigor",
+};
 
 const VALID_TYPES: readonly InterviewType[] = ["semi", "bq", "tech"] as const;
 const VALID_PERSONAS: readonly PersonaKey[] = [
@@ -73,6 +87,7 @@ ${personaBlock}
 5. **ideal_hints ≤ 4 条**,每条 ≤ 25 字,STAR / 数字 / own 决策 / 反思 4 个维度提醒,**不给直接答案**
 6. **空洞夸赞禁止**:${personaSpec.forbidden_phrases.join(" / ")} 等不许出现在 text / intent / ideal_hints 里
 7. **category 严格 enum**:warmup / behavioral / project / technical / stress / closing 之一
+8. **追问 ≠ 羞辱**:即便 strict / rigor 性格,追细节是为让候选人讲清价值,题目不许出现"你是不是不会"/"你确定你做过吗"等贬低式措辞
 
 【4 套思辨纪律(内化到出题里)】
 - **Anti-fabrication**:简历里没的细节(eg DAU / 数字 / 公司名)不要假设。问「你能讲讲项目的指标吗」而不是「你做的 DAU 提升了多少%?」
@@ -91,10 +106,20 @@ ${typeSpec.category_mix.replace(/N/g, String(numQuestions))}
       "text": "完整问题(中文,15-50 字,口语化 — 像真人面试官说话,准备给 TTS 念)",
       "intent": "本题考察什么(1 句,挂钩 4 维某项)",
       "ideal_hints": ["→ STAR 结构提示", "→ 数字提示", "→ own 决策提示", "→ 反思提示"],
-      "category": "warmup | behavioral | project | technical | stress | closing"
+      "category": "warmup | behavioral | project | technical | stress | closing",
+      "interviewerStyle": "warm | tough | rigor",
+      "sceneType": "semi_structured | behavioral | technical",
+      "followUpReason": "opener / 追问 X 段经历的具体动作 / 压力测试候选人 trade-off 意识 …(1 句话,首问统一写 opener)",
+      "whatItTests": "本题考察候选人的什么具体能力(1 句,挂钩岗位能力链,比 intent 更细)"
     }
   ]
 }
+
+【新增字段填法】
+- interviewerStyle 一定填 "${STYLE_BY_PERSONA[persona]}"(由 persona 反推),不要乱给
+- sceneType 一定填 "${SCENE_BY_TYPE[type]}"(由 type 反推),不要乱给
+- followUpReason 必填,体现追问设计意图。首问(category=warmup 或 closing 的第 1 题)写 "opener"
+- whatItTests 跟 intent 配合,whatItTests 写"考察候选人的什么能力"(候选人视角),intent 写"4 维评分挂钩点"(评分视角)
 
 正好 ${numQuestions} 题。请返 JSON。`;
 }
@@ -118,9 +143,29 @@ function normalizeCategory(raw: unknown): QuestionCategory {
   return "behavioral";
 }
 
+function normalizeStyle(
+  raw: unknown,
+  fallback: InterviewerStyle
+): InterviewerStyle {
+  if (raw === "warm" || raw === "tough" || raw === "rigor") return raw;
+  return fallback;
+}
+
+function normalizeScene(raw: unknown, fallback: SceneType): SceneType {
+  if (
+    raw === "semi_structured" ||
+    raw === "behavioral" ||
+    raw === "technical"
+  ) {
+    return raw;
+  }
+  return fallback;
+}
+
 function normalizeQuestion(
   q: Record<string, unknown>,
-  idx: number
+  idx: number,
+  defaults: { style: InterviewerStyle; scene: SceneType }
 ): InterviewQuestion | null {
   const text =
     (q.text as string) ??
@@ -145,12 +190,33 @@ function normalizeQuestion(
         .filter((h): h is string => typeof h === "string")
         .slice(0, 4)
     : [];
+  const followUpReasonRaw =
+    (q.followUpReason as string) ??
+    (q.follow_up_reason as string) ??
+    (q.followup as string) ??
+    "";
+  const whatItTestsRaw =
+    (q.whatItTests as string) ??
+    (q.what_it_tests as string) ??
+    (q.tests as string) ??
+    "";
   return {
     id: (q.id as string) ?? `Q${idx + 1}`,
     text: scrubCompanyNames(text.trim()),
     intent: scrubCompanyNames(intent.trim()),
     ideal_hints: ideal_hints.map((h) => scrubCompanyNames(h)),
     category: normalizeCategory(q.category ?? q.type),
+    interviewerStyle: normalizeStyle(
+      q.interviewerStyle ?? q.style,
+      defaults.style
+    ),
+    sceneType: normalizeScene(q.sceneType ?? q.scene, defaults.scene),
+    followUpReason: scrubCompanyNames(
+      (followUpReasonRaw || (idx === 0 ? "opener" : "未标注")).trim()
+    ),
+    whatItTests: scrubCompanyNames(
+      (whatItTestsRaw || intent || "未标注").trim()
+    ),
   };
 }
 
@@ -252,8 +318,12 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const defaults = {
+      style: STYLE_BY_PERSONA[personaRaw],
+      scene: SCENE_BY_TYPE[typeRaw],
+    };
     const questions = (rawList as Array<Record<string, unknown>>)
-      .map((q, i) => normalizeQuestion(q, i))
+      .map((q, i) => normalizeQuestion(q, i, defaults))
       .filter((q): q is InterviewQuestion => q !== null)
       .slice(0, num_questions);
 

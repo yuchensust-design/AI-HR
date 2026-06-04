@@ -20,6 +20,7 @@ import {
   type TurnAnswer,
   type TurnEvaluation,
 } from "@/lib/interview-types";
+import { PERSONA_SPECS } from "@/lib/interviewer-personas";
 import { useASR } from "@/lib/use-asr";
 import { useMediaStream } from "@/lib/use-media-stream";
 
@@ -238,6 +239,8 @@ const TYPE_LABEL: Record<string, string> = {
   tech: "技术面",
 };
 
+type InputMode = "voice" | "text";
+
 export default function Module5LivePage() {
   const router = useRouter();
   const [state, dispatch] = useReducer(reducer, initial);
@@ -248,6 +251,15 @@ export default function Module5LivePage() {
   const [elapsedSec, setElapsedSec] = useState(0);
   const [silenceMs, setSilenceMs] = useState(0);
   const [recordingActive, setRecordingActive] = useState(false);
+  /**
+   * 答题输入模式 toggle:voice = 语音(默认)/ text = 文字。
+   * TTS 失败或浏览器 ASR 不可用都会自动切 text;用户也可以主动切。
+   */
+  const [inputMode, setInputMode] = useState<InputMode>("voice");
+  /** 当前题的文字答题草稿(text 模式独立维护,提交时合并到 currentTranscript) */
+  const [textDraft, setTextDraft] = useState("");
+  /** TTS 失败标志:显示顶部 banner 并自动切文字模式 */
+  const [ttsFailed, setTtsFailed] = useState(false);
 
   // 从 localStorage 读 config
   useEffect(() => {
@@ -390,6 +402,11 @@ export default function Module5LivePage() {
   });
   const asrStartedForIdx = useRef<number | null>(null);
   useEffect(() => {
+    // 文字模式下完全不启 ASR,避免麦克风抢占 / 浏览器报错
+    if (inputMode === "text") {
+      if (asr.running) asr.stop();
+      return;
+    }
     if (state.status === "listening") {
       if (
         stream &&
@@ -404,7 +421,7 @@ export default function Module5LivePage() {
     } else if (state.status === "paused" || state.status === "finished") {
       if (asr.running) asr.stop();
     }
-  }, [state.status, state.currentIdx, stream, asr]);
+  }, [state.status, state.currentIdx, stream, asr, inputMode]);
 
   // TTS:status === asking 时合成 + 播
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -443,8 +460,12 @@ export default function Module5LivePage() {
           dispatch({ type: "TTS_END" });
         }
       } catch (err) {
-        console.warn("[m5/live] tts failed, fallback to silent next", err);
-        // TTS 失败 → 静默切到 listening 让用户直接答(纯文字模式)
+        console.warn("[m5/live] tts failed, fallback to text mode", err);
+        // TTS 失败 → 显性 banner + 自动切文字模式,让用户清楚知道语音不可用但流程不中断
+        if (!cancelled) {
+          setTtsFailed(true);
+          setInputMode("text");
+        }
         dispatch({ type: "TTS_END" });
       } finally {
         if (!cancelled) setTtsLoading(false);
@@ -481,6 +502,29 @@ export default function Module5LivePage() {
         console.warn("[m5/live] evaluate-turn failed (silent)", err)
       );
   }, [state.answers, state.questions, state.turnEvaluations]);
+
+  // 切到下一题时清空文字草稿
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setTextDraft("");
+  }, [state.currentIdx]);
+
+  // 切到文字模式时,自动把左侧 panel 切到 transcript tab 让 textarea 可见
+  useEffect(() => {
+    if (inputMode === "text" && state.panelTab !== "transcript") {
+      dispatch({ type: "PANEL_TAB", tab: "transcript" });
+    }
+  }, [inputMode, state.panelTab]);
+
+  /** 文字模式:点提交 → 把 textDraft 合并到 transcript → 走 USER_ANSWER_DONE */
+  const handleTextSubmit = useCallback(() => {
+    const trimmed = textDraft.trim();
+    if (!trimmed) return;
+    dispatch({ type: "ASR_FINAL", text: trimmed });
+    setTextDraft("");
+    // ASR_FINAL 通过 reducer 把 text 拼进 currentTranscript;下面 USER_ANSWER_DONE 才会把它结算
+    dispatch({ type: "USER_ANSWER_DONE" });
+  }, [textDraft]);
 
   // 全场计时
   useEffect(() => {
@@ -604,10 +648,15 @@ export default function Module5LivePage() {
 
   const personaLabel = config ? PERSONA_LABEL[config.persona] : "";
   const typeLabel = config ? TYPE_LABEL[config.type] : "";
+  const personaTagline = config
+    ? PERSONA_SPECS[config.persona].short_tagline
+    : "";
   const showSilenceTip =
     state.status === "listening" &&
     state.silenceShownForIdx === state.currentIdx &&
     silenceMs > 60000;
+  const canSubmitText =
+    state.status === "listening" && textDraft.trim().length > 0;
 
   const formattedElapsed = useMemo(() => {
     const m = Math.floor(elapsedSec / 60)
@@ -696,8 +745,8 @@ export default function Module5LivePage() {
       <audio ref={audioRef} hidden />
 
       {/* 顶部 header */}
-      <header className="bg-card border-b border-border px-6 py-3 flex items-center justify-between flex-shrink-0">
-        <div className="flex items-center gap-4">
+      <header className="bg-card border-b border-border px-6 py-3 flex items-center justify-between flex-shrink-0 gap-4 flex-wrap">
+        <div className="flex items-center gap-4 flex-wrap">
           <Link
             href="/m5"
             className="text-sm text-ink-soft hover:text-esther-blue transition-colors"
@@ -705,13 +754,18 @@ export default function Module5LivePage() {
             ← 退出面试
           </Link>
           <div className="h-5 w-px bg-border" />
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <span className="inline-flex items-center px-2 py-0.5 rounded bg-esther-red/15 text-esther-red text-[11px] font-bold">
               {state.status === "paused" ? "⏸ 暂停" : "● LIVE"}
             </span>
             <span className="text-sm text-ink-soft">
               {typeLabel} · {personaLabel}
             </span>
+            {personaTagline && (
+              <span className="text-[11px] text-ink-muted italic hidden md:inline">
+                · {personaTagline}
+              </span>
+            )}
             {recording && (
               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-esther-red/15 text-esther-red text-[10px] font-bold">
                 <span className="w-2 h-2 rounded-full bg-esther-red animate-pulse" />
@@ -721,7 +775,32 @@ export default function Module5LivePage() {
           </div>
         </div>
 
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3 flex-wrap">
+          {/* 答题模式 toggle:不再藏在 ASR 失败兜底里 */}
+          <div className="inline-flex rounded-full border border-border bg-warm-bg-deep p-0.5 text-[11px]">
+            <button
+              type="button"
+              onClick={() => setInputMode("voice")}
+              className={`px-3 py-1 rounded-full transition-colors ${
+                inputMode === "voice"
+                  ? "bg-esther-blue text-white"
+                  : "text-ink-soft hover:text-ink"
+              }`}
+            >
+              🎙️ 语音
+            </button>
+            <button
+              type="button"
+              onClick={() => setInputMode("text")}
+              className={`px-3 py-1 rounded-full transition-colors ${
+                inputMode === "text"
+                  ? "bg-esther-blue text-white"
+                  : "text-ink-soft hover:text-ink"
+              }`}
+            >
+              ⌨️ 文字
+            </button>
+          </div>
           <p className="text-sm text-ink">
             <span className="font-bold text-esther-blue">
               {state.currentIdx + 1}
@@ -733,6 +812,23 @@ export default function Module5LivePage() {
           </p>
         </div>
       </header>
+
+      {ttsFailed && (
+        <div className="bg-esther-yellow/30 border-b border-esther-yellow/50 px-6 py-2 flex items-center gap-3 text-xs text-ink flex-shrink-0">
+          <span className="text-base">🔇</span>
+          <p className="flex-1 leading-relaxed">
+            <span className="font-medium">语音合成暂时不可用</span> — 已切换到文字模式,你可以照常用键盘答题继续这场面试
+          </p>
+          <button
+            type="button"
+            onClick={() => setTtsFailed(false)}
+            className="text-ink-muted hover:text-ink text-sm"
+            aria-label="关闭提示"
+          >
+            ✕
+          </button>
+        </div>
+      )}
 
       {/* 主内容 */}
       <div className="flex-1 grid grid-cols-1 lg:grid-cols-[360px_1fr] overflow-hidden">
@@ -837,15 +933,37 @@ export default function Module5LivePage() {
                   )}
                 </div>
               )}
-              {asr.mode === "text_input" && (
-                <textarea
-                  value={state.currentTranscript}
-                  onChange={(e) =>
-                    dispatch({ type: "ASR_FINAL", text: e.target.value })
-                  }
-                  placeholder="浏览器不支持语音 — 用文字答题"
-                  className="w-full min-h-[120px] p-3 rounded border border-border bg-warm-bg-deep text-sm"
-                />
+              {inputMode === "text" && state.status === "listening" && (
+                <div className="space-y-2 pt-2 border-t border-border">
+                  <p className="text-[11px] text-ink-muted font-display italic">
+                    ⌨️ 文字答题 — 想到什么先打,提交后立即进入下一题评分
+                  </p>
+                  <textarea
+                    value={textDraft}
+                    onChange={(e) => setTextDraft(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                        e.preventDefault();
+                        handleTextSubmit();
+                      }
+                    }}
+                    placeholder="把你的答案打在这里(⌘/Ctrl + Enter 直接提交)"
+                    className="w-full min-h-[160px] p-3 rounded border border-border bg-warm-bg-deep text-sm focus:outline-none focus:border-esther-blue"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleTextSubmit}
+                    disabled={!canSubmitText}
+                    className="w-full rounded-full bg-esther-blue text-white px-4 py-2 text-sm font-medium hover:bg-esther-blue-dark transition-colors disabled:bg-ink-muted disabled:cursor-not-allowed"
+                  >
+                    ✓ 提交这题
+                  </button>
+                </div>
+              )}
+              {inputMode === "text" && state.status !== "listening" && (
+                <p className="text-[11px] text-ink-muted italic pt-2 border-t border-border">
+                  ⌨️ 文字模式已开启 — 等面试官说完就可以打字答题
+                </p>
               )}
             </div>
           )}
@@ -947,7 +1065,9 @@ export default function Module5LivePage() {
             {state.status === "listening" && (
               <>
                 <span className="w-2 h-2 rounded-full bg-esther-red animate-pulse" />
-                听你回答中... ({asr.mode ?? "init"})
+                {inputMode === "text"
+                  ? "等你打字答题"
+                  : `听你回答中... (${asr.mode ?? "init"})`}
               </>
             )}
             {state.status === "thinking" && "思考中…"}
@@ -1010,7 +1130,7 @@ export default function Module5LivePage() {
             >
               {state.status === "paused" ? "▶" : "⏸"}
             </button>
-            {state.status === "listening" && (
+            {state.status === "listening" && inputMode === "voice" && (
               <button
                 type="button"
                 onClick={() => dispatch({ type: "USER_ANSWER_DONE" })}

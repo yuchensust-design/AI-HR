@@ -35,12 +35,27 @@ export type QuestionCategory =
   | "stress"
   | "closing";
 
+/**
+ * 审计 §3.5 要求每题挂上四组结构化标签,让 AI-HR 能直接看到 prompt 设计能力:
+ *   interviewerStyle = 风格(warm/tough/rigor)反推自 persona,客户端展示
+ *   sceneType        = 场景(semi/bq/tech)反推自 type
+ *   followUpReason   = 追问/首问的设计动机
+ *   whatItTests      = 本题考察候选人的什么能力
+ * 全部可选,旧 session 数据 normalize 后照常渲染。
+ */
+export type InterviewerStyle = "warm" | "tough" | "rigor";
+export type SceneType = "semi_structured" | "behavioral" | "technical";
+
 export type InterviewQuestion = {
   id: string;
   text: string;
   intent: string;
   ideal_hints: string[];
   category: QuestionCategory;
+  interviewerStyle?: InterviewerStyle;
+  sceneType?: SceneType;
+  followUpReason?: string;
+  whatItTests?: string;
 };
 
 export type SkipKind = "dont_know" | "know_but_skip";
@@ -90,10 +105,37 @@ export type TranscriptSummaryItem = {
   hasHighlight: boolean;
 };
 
+/**
+ * 维度证据 + 缺失信号 + 下一步,审计 §3.5 LLM JSON schema 要求字段。
+ * 全部可选,旧 debrief 数据回填后 UI 安全 fallback。
+ */
+export type DimEvidence = {
+  logic: string;
+  specific: string;
+  clarity: string;
+  filler: string;
+};
+
 export type DebriefResult = {
+  /** 全跳过/无 transcript 时 evaluable=false,scores 渲染为 N/A 卡 */
+  evaluable: boolean;
+  /** evaluable=false 时 scores 仍可能为空数组;旧数据 evaluable 缺失时按 true */
   scores: DebriefScore[];
+  /** 实际参与维度统计的题数 / 总题数 — 用来在 UI 上展示「基于 X / Y 题计算」 */
+  answeredCount?: number;
+  totalCount?: number;
   avg: number;
   highlights: DebriefHighlight[];
+  /** 审计字段别名 — 与 highlights 同步写入,UI 优先读 resumeBackfillCandidates */
+  resumeBackfillCandidates?: DebriefHighlight[];
+  /** 4 维各一句证据,UI 已有 scoreEvidence 显示,这里给结构化 access */
+  evidence?: DimEvidence;
+  /** transcript 没说但 JD 在意的能力信号 */
+  missedSignals?: string[];
+  /** 一句话下一步建议 + 单场免责语气 */
+  nextPractice?: string;
+  /** 一句话总览,N/A 场景下含「本次未完成任何回答」文案 */
+  summary?: string;
   transcript_summary: TranscriptSummaryItem[];
   finished_at: string;
 };
