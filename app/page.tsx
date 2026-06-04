@@ -47,7 +47,7 @@ const CASES = [
   {
     color: "blue" as const,
     emoji: "💻",
-    background: "CS 大四,冲字节 AI PM 实习",
+    background: "CS 大四,冲互联网大厂 AI PM 实习",
     moduleNo: "03",
     moduleLabel: "简历整理",
     outcome: "Word 简历 + 目标 JD 关键词命中率从 30% 提到 70%",
@@ -156,7 +156,7 @@ export default function Home() {
                 <span className="text-esther-blue">少一点迷茫,多一点底气</span>
               </h1>
               {/* Subtitle — 产品定位长句 */}
-              <p className="text-base text-ink-soft leading-relaxed mb-6 max-w-xl">
+              <p className="text-base text-ink-soft leading-relaxed mb-3 max-w-xl">
                 从岗位定位、经历挖掘、简历优化到模拟面试,陪你把学生时代的积累,变成{" "}
                 <span
                   className="bg-esther-yellow/40 font-medium text-ink"
@@ -166,20 +166,24 @@ export default function Home() {
                 </span>
                 。
               </p>
+              <p className="text-sm text-ink-soft leading-relaxed mb-6 max-w-xl">
+                用测评、JD 解析、结构化追问和复盘指标,把求职从感觉判断变成{" "}
+                <span className="text-esther-blue font-medium">可分析、可优化的路径</span>。
+              </p>
 
-              {/* 数据条 — 3 个核心卖点,每个对应一个真实模块 */}
+              {/* 数据条 — 3 个能力信号,对应一条 AI-HR 看得见的能力链 */}
               <div className="flex flex-wrap items-center gap-2 mb-8">
                 <div className="inline-flex items-center gap-1.5 rounded-full bg-card border border-border px-3 py-1.5">
                   <span className="text-esther-blue text-sm leading-none">🧭</span>
-                  <span className="text-xs text-ink-soft">18 道专业测评,锁定 3-5 个适合方向</span>
+                  <span className="text-xs text-ink-soft">RIASEC 测评 + 经历信号交叉验证</span>
                 </div>
                 <div className="inline-flex items-center gap-1.5 rounded-full bg-card border border-border px-3 py-1.5">
-                  <span className="text-esther-blue text-sm leading-none">📝</span>
-                  <span className="text-xs text-ink-soft">3 分钟挖出隐藏经历,提炼可投递的简历亮点</span>
+                  <span className="text-esther-blue text-sm leading-none">🔎</span>
+                  <span className="text-xs text-ink-soft">JD 关键词命中 + Live Diff + 缺口映射</span>
                 </div>
                 <div className="inline-flex items-center gap-1.5 rounded-full bg-card border border-border px-3 py-1.5">
                   <span className="text-esther-blue text-sm leading-none">🎤</span>
-                  <span className="text-xs text-ink-soft">模拟真实面试追问,反哺更能过筛的简历表达</span>
+                  <span className="text-xs text-ink-soft">3 类面试 × 3 种面试官风格 × 4 维复盘</span>
                 </div>
               </div>
 
@@ -248,21 +252,24 @@ export default function Home() {
                   no: "01",
                   title: "投递很多,却始终没有回应",
                   desc: "不知道是岗位方向不合适、简历匹配度不够,还是经历表达不够清晰。问题没有被解决,投递就很难持续优化。",
+                  diagnose: ["JD 关键词覆盖", "简历匹配度", "JD gaps"],
                 },
                 {
                   no: "02",
                   title: "面试没过,却复盘不出问题",
                   desc: "感觉自己答得一般,却说不清是哪一题失分、哪段经历没讲透、哪种表达不够有说服力,下一次也就很难真正改进。",
+                  diagnose: ["4 维评分", "transcript evidence", "面试官追问点"],
                 },
                 {
                   no: "03",
                   title: "想补短板,却不知道该补哪一块",
                   desc: "要不要换方向、补项目,或重新整理已有经历,这些选择都影响后面的投递效率。没有清晰判断时,准备越多,越容易分散。",
+                  diagnose: ["gap 难度", "时间预算", "项目可交付边界"],
                 },
               ].map((p) => (
                 <div
                   key={p.no}
-                  className="bg-card border-2 border-border rounded-2xl p-6 hover:border-esther-red/50 transition-colors"
+                  className="bg-card border-2 border-border rounded-2xl p-6 hover:border-esther-red/50 transition-colors flex flex-col"
                 >
                   <p className="font-display italic text-2xl font-bold text-esther-red mb-3 leading-none">
                     {p.no}
@@ -270,9 +277,25 @@ export default function Home() {
                   <h3 className="text-base font-semibold text-ink mb-2 leading-snug">
                     {p.title}
                   </h3>
-                  <p className="text-sm text-ink-soft leading-relaxed">
+                  <p className="text-sm text-ink-soft leading-relaxed mb-4 flex-1">
                     {p.desc}
                   </p>
+                  {/* 诊断维度 chip — 体现产品如何接住痛点 */}
+                  <div className="pt-3 border-t border-border">
+                    <p className="text-[10px] font-semibold text-ink-muted uppercase tracking-wider mb-2">
+                      产品诊断维度
+                    </p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {p.diagnose.map((d) => (
+                        <span
+                          key={d}
+                          className="inline-flex items-center rounded-full bg-esther-blue/10 border border-esther-blue/30 text-esther-blue text-[11px] px-2 py-0.5"
+                        >
+                          {d}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
                 </div>
               ))}
             </div>
