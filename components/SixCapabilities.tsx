@@ -1,8 +1,8 @@
 import { Card } from "@/components/ui/card";
 
 /**
- * 六大核心能力 — 紧跟 PersonaSelector,作为产品功能特点 grid
- * 回答「为什么我们能解决 3 大痛点 + 6 种困境」
+ * 六大智能能力 — 撑起一条可分析、可优化的求职闭环
+ * 每张卡 = 一个 AI-HR/数据分析视角能看见的能力模块,而非用户价值口号。
  */
 
 type Capability = {
@@ -15,38 +15,38 @@ type Capability = {
 const CAPABILITIES: Capability[] = [
   {
     emoji: "🧭",
-    title: "3 分钟找到更适合的方向",
-    desc: "基于霍兰德 RIASEC 测评,结合经历交叉判断,快速锁定 3-5 个值得尝试的方向。",
+    title: "RIASEC + 经历交叉验证",
+    desc: "基于职业兴趣测评和真实经历信号,不只看喜欢什么,也判断做过什么、适合什么。",
     accent: "blue",
   },
   {
     emoji: "📝",
-    title: "把零散经历挖成可写进简历的 STAR",
-    desc: "把课程、实习、社团和项目里的零散经历,整理成更具体、可量化的 STAR 素材。",
+    title: "STAR 挖掘 + 量化证据提取",
+    desc: "把课程、实习、社团、项目拆成任务、动作、结果和数字,沉淀可写进简历的素材。",
     accent: "yellow",
   },
   {
     emoji: "🔎",
-    title: "按目标 JD 对齐关键词和缺口",
-    desc: "拆解目标岗位关键词和能力缺口,把简历改得更贴岗,减少初筛一眼不匹配。",
+    title: "JD 解析 + 关键词缺口映射",
+    desc: "拆解岗位关键词、硬性要求和能力缺口,减少简历初筛一眼不匹配。",
     accent: "blue",
   },
   {
     emoji: "🛡",
-    title: "提前找出简历里容易被追问的地方",
-    desc: "先暴露表述太空、成果不实或细节不足的地方,避免真实面试时一问就卡住。",
+    title: "怀疑型追问 + 风险提前暴露",
+    desc: "先找出表述太空、证据不足、容易被追问卡住的地方,再进入真实投递。",
     accent: "red",
   },
   {
     emoji: "🎤",
-    title: "3 类场景 × 3 种风格模拟面试",
-    desc: "支持半结构化、行为面、技术面 3 类场景,搭配亲切、严厉、严谨 3 种面试官风格。",
+    title: "3 类场景 × 3 种面试官风格",
+    desc: "半结构化、行为面、技术面,搭配亲切、严厉、严谨风格,训练不同压力下的应答。",
     accent: "yellow",
   },
   {
     emoji: "♻️",
-    title: "把面试里讲出来的新亮点补回简历",
-    desc: "自动识别面试回答里的新成果、数字和隐藏亮点,直接带回简历继续优化。",
+    title: "面试亮点识别 + 简历回写",
+    desc: "自动识别面试回答里的新成果、数字和隐藏亮点,把答出来的价值补回简历。",
     accent: "blue",
   },
 ];
@@ -63,13 +63,13 @@ export function SixCapabilities() {
       <div className="max-w-[1300px] mx-auto px-6 py-20">
         <div className="mb-12 text-center">
           <p className="font-display italic text-sm text-esther-blue mb-2">
-            Six core capabilities
+            Six intelligent capabilities
           </p>
           <h2 className="text-3xl md:text-4xl font-bold text-ink mb-3">
-            六大核心能力,撑起一条求职闭环
+            六大智能能力,支撑一条可分析、可优化的求职闭环
           </h2>
           <p className="text-ink-soft text-base max-w-2xl mx-auto">
-            围绕“找准方向、讲清经历、提高匹配、练好面试”这几步核心任务设计,帮助学生把求职从零散准备变成可执行的完整路径。
+            围绕 RIASEC 测评、JD 解析、结构化追问、面试复盘和闭环回写设计,把求职准备从感觉判断变成可分析、可优化的路径。
           </p>
         </div>
 

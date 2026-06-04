@@ -20,15 +20,15 @@ export function StepsSection() {
       <div className="max-w-[1300px] mx-auto px-6 py-20">
         <div className="mb-10">
           <p className="font-display italic text-sm text-esther-blue mb-2">
-            5 things we do together
+            5 stages · outcomes & handoff
           </p>
           <h2 className="text-3xl md:text-4xl font-bold text-ink mb-3">
-            能陪你做的 5 件事
+            五阶段流程 · 每一步的产出和承接
           </h2>
           <p className="text-ink-soft max-w-2xl">
-            一条从「找方向」到「答得好反哺简历」跑通的{" "}
-            <span className="text-esther-blue font-medium">闭环求职路径</span>
-            ,不是 5 个孤立功能。点上方任一阶段查看详情与量化指标。
+            不是 5 个孤立功能,而是一条{" "}
+            <span className="text-esther-blue font-medium">可分析、可优化的求职闭环</span>
+            。每一步有明确产出、能力支撑和向下游的承接逻辑。点上方任一阶段查看详情。
           </p>
         </div>
 
@@ -42,7 +42,7 @@ export function StepsSection() {
         </div>
 
         {/* 主体大卡片 */}
-        <StepDetailCard step={step} />
+        <StepDetailCard step={step} onSelectStep={setActive} />
 
         {/* 闭环 callout(非 05 时显示) */}
         {active !== "05" && (
