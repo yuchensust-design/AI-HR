@@ -17,6 +17,7 @@ import {
   setDiaryConsent,
   type DiaryEntry,
 } from "@/lib/diary";
+import { compressImage } from "@/lib/image-compress";
 
 /**
  * /diary — 日记 timeline 主入口
@@ -70,9 +71,25 @@ export default function DiaryPage() {
   const [newContent, setNewContent] = useState("");
   const [newTitle, setNewTitle] = useState("");
   const [composing, setComposing] = useState(false);
+  // v2 §8.20 §C.2 — 单图上传(客户端 Canvas 压缩 < 500KB)
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [imageSizeKB, setImageSizeKB] = useState<number | null>(null);
+  const [imageError, setImageError] = useState<string | null>(null);
+  const [imageBusy, setImageBusy] = useState(false);
 
   // 隐藏式确认(清空 / 删除)
   const [confirmClear, setConfirmClear] = useState(false);
+
+  // v2 §8.20 §C.4 — 哪些 ai-summary entry 展开了"原始对话"
+  const [rawOpenIds, setRawOpenIds] = useState<Set<string>>(new Set());
+  const toggleRawDialog = (id: string) => {
+    setRawOpenIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
 
   useEffect(() => {
     setEntries(getDiaryEntries());
@@ -90,12 +107,40 @@ export default function DiaryPage() {
     addEntry({
       content: trimmed,
       title: newTitle.trim() || undefined,
+      imageBase64: imagePreview ?? null,
       source: "diary-page",
     });
     setNewContent("");
     setNewTitle("");
+    setImagePreview(null);
+    setImageSizeKB(null);
+    setImageError(null);
     setComposing(false);
     refresh();
+  };
+
+  // v2 §8.20 §C.2 — 选图 → 客户端压缩 → 预览 base64
+  const handleImagePick = async (file: File | undefined | null) => {
+    if (!file) return;
+    setImageError(null);
+    setImageBusy(true);
+    try {
+      const r = await compressImage(file);
+      setImagePreview(r.dataUrl);
+      setImageSizeKB(r.sizeKB);
+    } catch (e) {
+      setImageError(e instanceof Error ? e.message : "图片处理失败");
+      setImagePreview(null);
+      setImageSizeKB(null);
+    } finally {
+      setImageBusy(false);
+    }
+  };
+
+  const removeImage = () => {
+    setImagePreview(null);
+    setImageSizeKB(null);
+    setImageError(null);
   };
 
   const handleDelete = (id: string) => {
@@ -257,6 +302,50 @@ export default function DiaryPage() {
                   autoFocus
                   className="w-full text-sm text-ink leading-relaxed bg-transparent placeholder:text-ink-muted/70 focus:outline-none resize-none"
                 />
+
+                {/* v2 §8.20 §C.2 — 单图上传 + 预览 */}
+                <div className="mt-3 pt-3 border-t border-border">
+                  {imagePreview ? (
+                    <div className="relative inline-block">
+                      <img
+                        src={imagePreview}
+                        alt="预览"
+                        className="max-h-48 rounded-lg border border-border"
+                      />
+                      <button
+                        onClick={removeImage}
+                        className="absolute top-1 right-1 w-7 h-7 rounded-full bg-ink/70 hover:bg-ink text-white text-sm leading-none flex items-center justify-center"
+                        aria-label="删除图片"
+                      >
+                        ×
+                      </button>
+                      {imageSizeKB !== null && (
+                        <p className="text-[11px] text-ink-muted mt-1.5 font-display italic">
+                          已压缩到 {imageSizeKB} KB
+                        </p>
+                      )}
+                    </div>
+                  ) : (
+                    <label className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-border bg-card text-xs text-ink-soft hover:border-esther-blue hover:text-esther-blue transition-colors cursor-pointer">
+                      <span>🖼️</span>
+                      <span>{imageBusy ? "压缩中..." : "加张图(单张,可选)"}</span>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        disabled={imageBusy}
+                        onChange={(e) => {
+                          handleImagePick(e.target.files?.[0]);
+                          e.target.value = ""; // 允许重选同一文件
+                        }}
+                      />
+                    </label>
+                  )}
+                  {imageError && (
+                    <p className="text-xs text-esther-red mt-2">⚠️ {imageError}</p>
+                  )}
+                </div>
+
                 <div className="flex items-center justify-between mt-4 pt-3 border-t border-border">
                   <p className="text-xs text-ink-muted font-display italic">
                     {newContent.length} 字
@@ -267,6 +356,7 @@ export default function DiaryPage() {
                         setComposing(false);
                         setNewContent("");
                         setNewTitle("");
+                        removeImage();
                       }}
                       className="px-4 py-2 text-sm text-ink-soft hover:text-ink transition-colors"
                     >
@@ -336,6 +426,17 @@ export default function DiaryPage() {
                                   来自不二聊天
                                 </span>
                               )}
+                              {/* v2 §8.20 §C.4 anti-fab 第 2 层 — AI 整理 来源 chip */}
+                              {e.source === "ai-summary" && (
+                                <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-esther-blue text-white">
+                                  🤖 AI 整理
+                                  {e.rawDialog && (
+                                    <span className="ml-1 font-display italic font-normal opacity-90">
+                                      · {e.rawDialog.length} 条对话
+                                    </span>
+                                  )}
+                                </span>
+                              )}
                             </div>
                             <button
                               onClick={() => handleDelete(e.id)}
@@ -360,6 +461,38 @@ export default function DiaryPage() {
                                 alt="日记附图"
                                 className="max-h-64 rounded-lg border border-border"
                               />
+                            </div>
+                          )}
+                          {/* v2 §8.20 §C.4 anti-fab 第 3 层 — 看原始对话(仅 ai-summary)*/}
+                          {e.source === "ai-summary" && e.rawDialog && e.rawDialog.length > 0 && (
+                            <div className="mt-3 pt-3 border-t border-border">
+                              <button
+                                onClick={() => toggleRawDialog(e.id)}
+                                className="text-xs text-ink-muted hover:text-esther-blue transition-colors font-display italic"
+                              >
+                                {rawOpenIds.has(e.id) ? "▾ 收起原始对话" : "📜 看原始对话(对照,验证 AI 没编)"}
+                              </button>
+                              {rawOpenIds.has(e.id) && (
+                                <div className="mt-3 p-3 rounded-lg bg-warm-bg-deep/50 border border-border space-y-2">
+                                  <p className="text-[10px] text-ink-muted uppercase tracking-wider mb-2 font-display italic">
+                                    你的原话(精简版)
+                                  </p>
+                                  {e.rawDialog.map((line, i) => (
+                                    <p
+                                      key={i}
+                                      className="text-xs text-ink-soft leading-relaxed whitespace-pre-wrap break-words"
+                                    >
+                                      <span className="text-esther-blue/60 mr-1.5 font-display italic">
+                                        ({i + 1})
+                                      </span>
+                                      {line}
+                                    </p>
+                                  ))}
+                                  <p className="text-[10px] text-ink-muted italic pt-2 border-t border-border/60">
+                                    AI 仅重组上面这些话,不应加新信息 / 数字 / 名字
+                                  </p>
+                                </div>
+                              )}
                             </div>
                           )}
                         </Card>

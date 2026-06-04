@@ -11,27 +11,43 @@
  * plan §8.19 §B.1 lock
  */
 
-export type DiaryEntrySource = "diary-page" | "buer-chat" | "manual";
+export type DiaryEntrySource =
+  | "diary-page"     // /diary 手动写
+  | "buer-chat"      // chat 单条桥接(用户点"记成日记"按钮)
+  | "ai-summary"     // v2 §8.20: chat 多轮 → LLM 整理成第一人称日记
+  | "manual";
 
 export type DiaryEntry = {
   /** crypto.randomUUID */
   id: string;
   /** ISO timestamp */
   createdAt: string;
-  /** 用户主动写入 */
+  /** 日记正文 — 用户写入 或 LLM 重写 */
   content: string;
-  /** 可选:简短一行标签(用户自填或留空) */
+  /** 可选:简短一行标签(用户自填或 LLM 生成) */
   title?: string;
-  /** base64 data URL,图片可选 */
+  /** base64 data URL,图片可选(单图,客户端 Canvas 压缩到 < 500KB) */
   imageBase64?: string | null;
-  /** 来源:/diary 直写 / 从「不二」 chat 桥接 / 其他 */
+  /** 来源 */
   source: DiaryEntrySource;
-  /** LLM 挖素材时可填(eg "organization"、"leadership"),v1 留空 */
+  /** LLM 挖素材时可填,v1 留空 */
   tags?: string[];
+  /**
+   * v2 §8.20 anti-fab 第 3 层防护 —
+   * source = "ai-summary" 时必填:用户原始对话精简(只存 user 的话,assistant 的省去)
+   * 让用户随时能"看原始对话"对照 AI 整理版,验证没幻觉
+   */
+  rawDialog?: string[];
+  /**
+   * v2 §8.20 留口子 — v1 游客 UUID,v2 加登录后换成真 user id
+   * 用于:① 后端 DB 隔离用户 ② 跨设备同步 hydration
+   */
+  sessionId?: string;
 };
 
 const STORAGE_KEY = "buer_diary_entries";
 const CONSENT_KEY = "buer_diary_consent";
+const SESSION_KEY = "buer_session_id";
 
 function isBrowser(): boolean {
   return typeof window !== "undefined" && typeof window.localStorage !== "undefined";
@@ -71,11 +87,12 @@ export function getDiaryEntries(): DiaryEntry[] {
   return read().sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
-/** 新建并写入,返回完整 entry */
+/** 新建并写入,返回完整 entry — sessionId 自动注入(v2 登录留口子)*/
 export function addEntry(
   partial: Omit<DiaryEntry, "id" | "createdAt">
 ): DiaryEntry {
   const entry: DiaryEntry = {
+    sessionId: getOrCreateSessionId(),
     ...partial,
     id:
       typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
@@ -140,4 +157,22 @@ export function setDiaryConsent(): void {
 export function revokeDiaryConsent(): void {
   if (!isBrowser()) return;
   window.localStorage.removeItem(CONSENT_KEY);
+}
+
+/* ---------- session id(v2 登录留口子)---------- */
+
+/**
+ * 取或生成游客 sessionId(localStorage 持久)
+ * v1 用 UUID(游客),v2 加登录后:登录时把此 sessionId 替换为真 user id
+ */
+export function getOrCreateSessionId(): string {
+  if (!isBrowser()) return "";
+  const existing = window.localStorage.getItem(SESSION_KEY);
+  if (existing) return existing;
+  const fresh =
+    typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+      ? `guest_${crypto.randomUUID()}`
+      : `guest_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+  window.localStorage.setItem(SESSION_KEY, fresh);
+  return fresh;
 }
