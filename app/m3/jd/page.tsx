@@ -59,6 +59,49 @@ export default function JdPage() {
   const [status, setStatus] = useState<ParseStatus>("idle");
   const [errorMsg, setErrorMsg] = useState("");
   const [result, setResult] = useState<JdContext | null>(null);
+  const [m6Source, setM6Source] = useState<{
+    roleName: string;
+    company: string;
+    salary: string;
+    city: string;
+    sourceJobId: string;
+  } | null>(null);
+
+  // 从 M6 跳过来 → 读 m6_pending_jd 自动预填,消费后清除
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(STORAGE_KEYS.M6_PENDING_JD);
+      if (!raw) return;
+      const pending = JSON.parse(raw) as {
+        jdText?: string;
+        roleName?: string;
+        company?: string;
+        salary?: string;
+        city?: string;
+        sourceJobId?: string;
+        from_m6?: boolean;
+      };
+      if (!pending.from_m6 || !pending.roleName) return;
+      if (pending.jdText && pending.jdText.length > 50) {
+        setMode("full");
+        setJdText(pending.jdText);
+      } else {
+        setMode("role");
+        setRoleName(pending.roleName);
+        setCompany(pending.company ?? "");
+      }
+      setM6Source({
+        roleName: pending.roleName,
+        company: pending.company ?? "",
+        salary: pending.salary ?? "",
+        city: pending.city ?? "",
+        sourceJobId: pending.sourceJobId ?? "",
+      });
+      window.localStorage.removeItem(STORAGE_KEYS.M6_PENDING_JD);
+    } catch {
+      /* ignore */
+    }
+  }, []);
 
   // 没解析过简历 → 回 upload
   useEffect(() => {
@@ -193,6 +236,29 @@ export default function JdPage() {
                 className="text-esther-blue font-medium hover:underline"
               >
                 请先上传 →
+              </Link>
+            </div>
+          </section>
+        )}
+
+        {/* M6 跳转预填提示 */}
+        {m6Source && (
+          <section className="bg-esther-blue/8 border-b border-esther-blue/30">
+            <div className="max-w-[1100px] mx-auto px-6 py-2.5 text-xs flex items-center justify-between gap-3 flex-wrap">
+              <p className="text-ink">
+                <span className="inline-flex items-center gap-1 text-esther-blue font-medium">
+                  📍 来自岗位发现:
+                </span>
+                <span className="ml-2 font-medium">{m6Source.roleName}</span>
+                <span className="ml-1 text-ink-soft">@ {m6Source.company}</span>
+                {m6Source.salary && (
+                  <span className="ml-1 text-esther-red">· {m6Source.salary}</span>
+                )}
+                {m6Source.city && <span className="ml-1 text-ink-soft">· {m6Source.city}</span>}
+                <span className="ml-2 text-ink-muted">— 已为你预填,点继续直接做匹配</span>
+              </p>
+              <Link href="/m6/discover" className="text-ink-muted hover:text-esther-blue transition-colors">
+                换一个岗位 →
               </Link>
             </div>
           </section>

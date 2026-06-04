@@ -14,6 +14,7 @@ import {
   type PersonaKey,
 } from "@/lib/interview-types";
 import { PERSONA_SPECS } from "@/lib/interviewer-personas";
+import { STORAGE_KEYS } from "@/lib/use-local-state";
 import {
   parseResumeFile,
   ResumeParseError,
@@ -114,6 +115,33 @@ export default function Module5ConfigPage() {
   const [cameraOn, setCameraOn] = useState(true);
   const [recordSession, setRecordSession] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+
+  // 从 M6 跳过来 → 读 m6_pending_jd 自动预填 JD,消费后清除
+  useEffect(() => {
+    /* eslint-disable react-hooks/set-state-in-effect */
+    try {
+      const raw = window.localStorage.getItem(STORAGE_KEYS.M6_PENDING_JD);
+      if (!raw) return;
+      const pending = JSON.parse(raw) as {
+        jdText?: string;
+        roleName?: string;
+        company?: string;
+        salary?: string;
+        city?: string;
+        from_m6?: boolean;
+      };
+      if (!pending.from_m6 || !pending.roleName) return;
+      const fallback = `【${pending.roleName}】@ ${pending.company ?? "(公司)"}\n${
+        pending.salary ?? ""
+      } · ${pending.city ?? ""}\n\n(完整 JD 暂未抓到,可手动补充)`;
+      setJdText(
+        pending.jdText && pending.jdText.length > 50 ? pending.jdText : fallback
+      );
+      window.localStorage.removeItem(STORAGE_KEYS.M6_PENDING_JD);
+    } catch {
+      /* ignore */
+    }
+  }, []);
 
   useEffect(() => {
     // 初始化:hydration 后从 localStorage 读简历快照,setState 是必要的副作用

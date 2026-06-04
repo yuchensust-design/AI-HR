@@ -75,4 +75,15 @@ export const STORAGE_KEYS = {
   INTERVIEW_SESSIONS: "interview_sessions", // 最近 5 场
   PROJECT_BRIEF: "project_brief",
   LEARNING_CARDS: "learning_cards", // 学习卡组进度
+  // M6 智能岗位匹配
+  DISCOVER_FILTERS: "discover_filters", // { role, city }
+  DISCOVER_SEARCH_JOBS: "discover_search_jobs", // 搜索 tab 结果
+  DISCOVER_RECOMMENDED_JOBS: "discover_recommended_jobs", // 推荐 tab 结果
+  DISCOVER_TAB: "discover_tab", // 'search' | 'recommend'
+  DISCOVER_MATCH_META: "discover_match_meta", // { keywords, city, reasoning, stats }
+  /**
+   * M6 → M3/M5 的"待消费" raw JD 输入(M3 解析后存 JD_CONTEXT;M5 直接填 JD 字段后清除)
+   * Schema: { jdText?, roleName, company, salary?, city?, jdUrl, from_m6: true, sourceJobId, platform }
+   */
+  M6_PENDING_JD: "m6_pending_jd",
 } as const;

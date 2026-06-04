@@ -6,6 +6,7 @@ import { PersonaSelector } from "@/components/PersonaSelector";
 import { SixCapabilities } from "@/components/SixCapabilities";
 import { StepsSection } from "@/components/StepsSection";
 import { BuerFloatingButton } from "@/components/BuerFloatingButton";
+import { JobMatchHero } from "@/components/m6/JobMatchHero";
 
 /**
  * Landing 首页 v4 — Offer 捕手学生求职智能体
@@ -226,6 +227,11 @@ export default function Home() {
             </div>
           </div>
         </section>
+
+        {/* ============================================================
+            M6 Job Match Hero — 智能岗位匹配入口(首屏高位)
+            ============================================================ */}
+        <JobMatchHero />
 
         {/* ============================================================
             Pain Points — 学生求职 3 大痛点
