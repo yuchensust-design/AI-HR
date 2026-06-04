@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Nav } from "@/components/Nav";
 import { BuerFloatingButton } from "@/components/BuerFloatingButton";
 import { useLocalState, STORAGE_KEYS } from "@/lib/use-local-state";
+import { DiaryMiningCard } from "@/components/DiaryMiningCard";
 
 /**
  * 模块 3 · 简历整理 — 5-phase router(2026-06-04 Phase 0 改写)
@@ -212,6 +213,12 @@ export default function Module3Page() {
                 </>
               )}
             </Card>
+
+            {/* 📔 从日记挖素材(plan §8.19 §B.4)— 辅助流程,主流程无依赖 */}
+            <DiaryMiningCard
+              targetRole={jdContext?.jd_summary ?? null}
+              jdSummary={jdContext?.jd_summary ?? null}
+            />
 
             {/* 5 phase 进度 */}
             <Card className="p-5 border-2 border-border">
