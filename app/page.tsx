@@ -496,15 +496,23 @@ export default function Home() {
                       1000 字方案文档
                     </a>
                   </li>
+                  <li>
+                    <Link href="/diary" className="hover:text-esther-blue">
+                      📔 日记 · 素材小本本
+                    </Link>
+                  </li>
                 </ul>
               </div>
               <div>
                 <p className="text-xs font-semibold text-ink-muted uppercase tracking-wider mb-3">
                   隐私
                 </p>
-                <p className="text-xs text-ink-soft leading-relaxed">
+                <p className="text-xs text-ink-soft leading-relaxed mb-3">
                   v1 游客模式 · 数据(除「不二」临时会话外)都在浏览器本地 ·
                   视频流绝不上传服务器 · 音频流由火山 STT 处理且默认不存
+                </p>
+                <p className="text-xs text-ink-muted leading-relaxed italic">
+                  📱 微信版准备中 — 之后随手发条消息给「不二」就能记进日记
                 </p>
               </div>
             </div>

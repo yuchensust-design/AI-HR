@@ -10,6 +10,7 @@ import {
   type FormEvent,
   type KeyboardEvent,
 } from "react";
+import { addEntry as addDiaryEntry } from "@/lib/diary";
 
 /**
  * 「不二」情绪陪伴 — 右下角悬浮按钮 + chat panel
@@ -27,7 +28,13 @@ import {
 
 type Role = "user" | "assistant";
 type RouteAction = { route: string; label: string };
-type Message = { role: Role; content: string; actions?: RouteAction[] };
+type Message = {
+  role: Role;
+  content: string;
+  actions?: RouteAction[];
+  /** v3.1 §8.19 §B.2:user 消息可桥接到 /diary;assistant 消息忽略此字段 */
+  savedToDiary?: boolean;
+};
 
 const INITIAL_GREETING: Message = {
   role: "assistant",
@@ -121,6 +128,22 @@ export function BuerFloatingButton() {
     },
     [router]
   );
+
+  // v3.1 §8.19 §B.2 — 用户主动把这条 user 消息存到 /diary
+  // 内存模式 (PRD §3.8.6) 不变;只是把这一条 user content 单独写到日记 localStorage
+  const handleSaveToDiary = useCallback((idx: number) => {
+    setMessages((prev) => {
+      const msg = prev[idx];
+      if (!msg || msg.role !== "user" || msg.savedToDiary) return prev;
+      addDiaryEntry({
+        content: msg.content,
+        source: "buer-chat",
+      });
+      const next = [...prev];
+      next[idx] = { ...msg, savedToDiary: true };
+      return next;
+    });
+  }, []);
 
   const sendMessage = useCallback(
     async (text: string) => {
@@ -236,6 +259,14 @@ export function BuerFloatingButton() {
                 你的情绪小窝
               </p>
             </div>
+            {/* v3.1 §8.19 §B.2 — 跳 /diary 看所有写过的日记 */}
+            <a
+              href="/diary"
+              className="text-xs text-ink-soft hover:text-esther-blue transition-colors px-2 py-1 rounded-full border border-border bg-card font-display italic"
+              title="看所有日记"
+            >
+              📔 日记
+            </a>
             <button
               onClick={() => setOpen(false)}
               className="text-ink-muted hover:text-ink text-2xl leading-none px-1"
@@ -255,6 +286,7 @@ export function BuerFloatingButton() {
                 key={i}
                 message={m}
                 onActionClick={handleActionClick}
+                onSaveToDiary={() => handleSaveToDiary(i)}
               />
             ))}
 
@@ -324,10 +356,13 @@ function MessageBubble({
   message,
   streaming = false,
   onActionClick,
+  onSaveToDiary,
 }: {
   message: Message;
   streaming?: boolean;
   onActionClick?: (action: RouteAction) => void;
+  /** v3.1 §8.19 §B.2 — 把 user 这条消息写到 /diary localStorage */
+  onSaveToDiary?: () => void;
 }) {
   const isUser = message.role === "user";
   const isHotline = !isUser && isHotlineResponse(message.content);
@@ -347,6 +382,9 @@ function MessageBubble({
     ? `${baseBubble} ${hotlineCls}`
     : `${baseBubble} ${assistantCls}`;
 
+  // v3.1 §8.19 §B.2 — 只对 user 消息显示"记成日记"按钮,且字数 ≥ 8(太短没素材价值)
+  const showDiaryAction = isUser && !streaming && message.content.trim().length >= 8;
+
   return (
     <div
       className={`flex flex-col ${isUser ? "items-end" : "items-start"} gap-2`}
@@ -357,6 +395,21 @@ function MessageBubble({
           <span className="inline-block w-1 h-3.5 ml-0.5 -mb-0.5 bg-ink-muted/60 animate-pulse" />
         )}
       </div>
+      {showDiaryAction && (
+        message.savedToDiary ? (
+          <span className="text-[11px] text-esther-blue/80 font-display italic px-2">
+            ✓ 已记到日记
+          </span>
+        ) : (
+          <button
+            onClick={onSaveToDiary}
+            className="text-[11px] text-ink-muted hover:text-esther-blue px-2 py-1 rounded-md hover:bg-esther-yellow/15 transition-colors font-display italic"
+            title="把这条记进日记 — 简历整理时 AI 能从这里挖素材"
+          >
+            📔 记成日记
+          </button>
+        )
+      )}
       {message.actions?.map((a) => (
         <ActionCard
           key={a.route}
