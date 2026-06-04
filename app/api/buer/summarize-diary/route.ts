@@ -20,9 +20,13 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { chat } from "@/lib/llm";
+import { chatVision, type VisionMessage, type VisionContentPart } from "@/lib/llm";
 
-type ChatMessage = { role: "user" | "assistant"; content: string };
+/** v4 §8.22 — content 可以是 string 或 vision parts */
+type IncomingMessage = {
+  role: "user" | "assistant";
+  content: string | VisionContentPart[];
+};
 
 type SummaryResponse = {
   title: string;
@@ -30,6 +34,25 @@ type SummaryResponse = {
   eligible: boolean;
   reason?: string;
 };
+
+/** 从一条消息抽出 text + 图片 URL */
+function splitContent(content: IncomingMessage["content"]): {
+  text: string;
+  images: string[];
+} {
+  if (typeof content === "string") return { text: content, images: [] };
+  const text = content
+    .filter((p): p is { type: "text"; text: string } => p.type === "text")
+    .map((p) => p.text)
+    .join(" ");
+  const images = content
+    .filter(
+      (p): p is { type: "image_url"; image_url: { url: string } } =>
+        p.type === "image_url"
+    )
+    .map((p) => p.image_url.url);
+  return { text, images };
+}
 
 function buildSystemPrompt(): string {
   return `你是「Offer 捕手」的日记整理助手「不二」。用户跟你聊了一些今天的碎片,请把这些对话整理成 **用户第一人称视角** 的日记。
@@ -53,6 +76,12 @@ function buildSystemPrompt(): string {
 - 自然口语化,不要 ChatGPT 风格的工整段落
 - 可以用"...""嗯""不知道为什么"等口头语
 
+【📷 用户发的图(v4 多模态)】
+- 用户聊天里发的图,你看得到 — 自然描述进日记
+- "今天看到一只三色小猫"(看到猫)/ "做了一杯拿铁"(看到咖啡)/ "去了那家新开的书店"(看到店面)
+- 描述基于你真实看到的,不要瞎编("小猫戴着粉色项圈" — 必须图里真的有)
+- 隐私敏感图(自拍 / 私人物品) → 只提你能记的事,不评论外貌或物品具体细节
+
 【输出 JSON 严格格式,无 markdown 包裹】
 若可整理:
 {
@@ -73,7 +102,7 @@ function buildSystemPrompt(): string {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const messages = body.messages as ChatMessage[] | undefined;
+    const messages = body.messages as IncomingMessage[] | undefined;
 
     if (!Array.isArray(messages) || messages.length === 0) {
       return NextResponse.json(
@@ -97,30 +126,49 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 组装 user 段
-    const userBlock = userMessages
-      .map((m, idx) => `(${idx + 1}) ${m.content.trim()}`)
-      .join("\n\n");
+    // v4 §8.22 — 抽取每条 user message 的文本 + 图片
+    const userBlocks = userMessages.map((m, idx) => {
+      const split = splitContent(m.content);
+      const imgMark =
+        split.images.length > 0 ? ` [+${split.images.length} 张图]` : "";
+      return {
+        idx: idx + 1,
+        text: split.text.trim() || "(没文字,只发了图)",
+        images: split.images,
+        line: `(${idx + 1}) ${split.text.trim() || "(没文字,只发了图)"}${imgMark}`,
+      };
+    });
 
-    const userPrompt = `用户跟你聊了 ${userMessages.length} 条今天的事,请整理成第一人称日记:
+    const userBlock = userBlocks.map((b) => b.line).join("\n\n");
+    const allImages = userBlocks.flatMap((b) => b.images);
+
+    const userPromptText = `用户跟你聊了 ${userMessages.length} 条今天的事,请整理成第一人称日记:
 
 【用户原话】
 ${userBlock}
+${allImages.length > 0 ? `\n【📷 用户共发了 ${allImages.length} 张图,请看图后融进日记的相应位置】` : ""}
 
-请返 JSON。记住:只重组原话,不加新信息,不编数字 / 名字 / 细节。`;
+请返 JSON。记住:只重组原话 / 看图描述真实内容,不加新信息,不编数字 / 名字 / 细节。`;
 
-    const raw = await chat(
-      [
-        { role: "system", content: buildSystemPrompt() },
-        { role: "user", content: userPrompt },
-      ],
-      {
-        model: "chat",
-        temperature: 0.5,
-        max_tokens: 1200,
-        jsonMode: true,
-      }
-    );
+    // v4 §8.22 — vision message:user content = [text, image1, image2, ...]
+    const userContent: VisionContentPart[] = [
+      { type: "text", text: userPromptText },
+      ...allImages.map((url) => ({
+        type: "image_url" as const,
+        image_url: { url },
+      })),
+    ];
+
+    const visionMessages: VisionMessage[] = [
+      { role: "system", content: buildSystemPrompt() },
+      { role: "user", content: userContent },
+    ];
+
+    const raw = await chatVision(visionMessages, {
+      temperature: 0.5,
+      max_tokens: 1500,
+      jsonMode: true,
+    });
 
     let parsed: SummaryResponse;
     try {
@@ -138,8 +186,8 @@ ${userBlock}
       content: parsed.content || "",
       eligible: !!parsed.eligible,
       reason: parsed.reason,
-      // 给前端的"原始对话精简"— 只 user 的话,assistant 不传
-      rawDialog: userMessages.map((m) => m.content),
+      // 给前端的"原始对话精简"— 只 user 的 text,图片不回传(localStorage 友好 + 隐私)
+      rawDialog: userBlocks.map((b) => b.line),
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";

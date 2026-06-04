@@ -10,6 +10,7 @@ import {
   type KeyboardEvent,
 } from "react";
 import { addEntry as addDiaryEntry } from "@/lib/diary";
+import { compressImage } from "@/lib/image-compress";
 
 /**
  * 💬 「跟不二聊聊」内嵌对话区 — /diary 温馨小窝 主入口之一
@@ -26,7 +27,8 @@ import { addEntry as addDiaryEntry } from "@/lib/diary";
  */
 
 type Role = "user" | "assistant";
-type Message = { role: Role; content: string };
+/** v4 §8.22 — user message 可附图(base64 data URL) */
+type Message = { role: Role; content: string; imageBase64?: string };
 
 type SummaryPhase = "idle" | "loading" | "preview" | "saved" | "error";
 type DiarySummary = {
@@ -57,6 +59,11 @@ export function DiaryChatPanel({
   const [streaming, setStreaming] = useState("");
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
+  // v4 §8.22 — pending image(待发送)
+  const [pendingImage, setPendingImage] = useState<string | null>(null);
+  const [imageBusy, setImageBusy] = useState(false);
+  const [imageError, setImageError] = useState<string | null>(null);
+
   const [summaryPhase, setSummaryPhase] = useState<SummaryPhase>("idle");
   const [summary, setSummary] = useState<DiarySummary | null>(null);
   const [summaryError, setSummaryError] = useState<string | null>(null);
@@ -69,19 +76,39 @@ export function DiaryChatPanel({
   const sendMessage = useCallback(
     async (text: string) => {
       const trimmed = text.trim();
-      if (!trimmed || loading) return;
+      // 允许:有文字 / 或者只有图(没文字也行)
+      if ((!trimmed && !pendingImage) || loading) return;
 
-      const next: Message[] = [...messages, { role: "user", content: trimmed }];
+      const userMsg: Message = {
+        role: "user",
+        content: trimmed || "(发了一张图)",
+        ...(pendingImage ? { imageBase64: pendingImage } : {}),
+      };
+      const next: Message[] = [...messages, userMsg];
       setMessages(next);
       setInput("");
+      setPendingImage(null);
       setLoading(true);
       setStreaming("");
 
       try {
+        // v4 §8.22 — 转 vision content 格式发给后端
+        const payloadMessages = next.map((m) => {
+          if (m.role === "user" && m.imageBase64) {
+            return {
+              role: m.role,
+              content: [
+                { type: "text", text: m.content },
+                { type: "image_url", image_url: { url: m.imageBase64 } },
+              ],
+            };
+          }
+          return { role: m.role, content: m.content };
+        });
         const res = await fetch("/api/buer/diary-chat", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ messages: next }),
+          body: JSON.stringify({ messages: payloadMessages }),
         });
         if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
 
@@ -110,12 +137,33 @@ export function DiaryChatPanel({
         setLoading(false);
       }
     },
-    [messages, loading]
+    [messages, loading, pendingImage]
   );
 
   const handleSubmit = (e?: FormEvent) => {
     e?.preventDefault();
     sendMessage(input);
+  };
+
+  // v4 §8.22 — 选图 → 客户端压缩 → 预览
+  const handleImagePick = async (file: File | undefined | null) => {
+    if (!file) return;
+    setImageError(null);
+    setImageBusy(true);
+    try {
+      const r = await compressImage(file);
+      setPendingImage(r.dataUrl);
+    } catch (e) {
+      setImageError(e instanceof Error ? e.message : "图片处理失败");
+      setPendingImage(null);
+    } finally {
+      setImageBusy(false);
+    }
+  };
+
+  const removePendingImage = () => {
+    setPendingImage(null);
+    setImageError(null);
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -340,29 +388,76 @@ export function DiaryChatPanel({
         )}
       </div>
 
-      {/* Input */}
-      <form
-        onSubmit={handleSubmit}
-        className="border-t border-border bg-warm-bg-deep/30 px-4 py-3 flex items-end gap-2 flex-shrink-0"
-      >
-        <textarea
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder="今天怎么样?"
-          rows={1}
-          disabled={loading || summaryPhase !== "idle"}
-          className="flex-1 resize-none rounded-2xl px-3 py-2 text-sm bg-card border border-border focus:outline-none focus:border-esther-blue text-ink placeholder:text-ink-muted/70 disabled:opacity-60 max-h-32"
-          style={{ minHeight: 40, lineHeight: 1.4 }}
-        />
-        <button
-          type="submit"
-          disabled={loading || input.trim().length === 0 || summaryPhase !== "idle"}
-          className="flex-shrink-0 rounded-full bg-esther-blue text-white px-5 py-2.5 text-sm font-medium hover:bg-esther-blue-dark transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+      {/* Input region */}
+      <div className="border-t border-border bg-warm-bg-deep/30 flex-shrink-0">
+        {/* v4 §8.22 — pending image 预览(在 input 上方)*/}
+        {(pendingImage || imageError) && (
+          <div className="px-4 pt-3">
+            {pendingImage && (
+              <div className="relative inline-block">
+                <img
+                  src={pendingImage}
+                  alt="待发送"
+                  className="max-h-24 rounded-lg border border-border"
+                />
+                <button
+                  onClick={removePendingImage}
+                  className="absolute top-1 right-1 w-6 h-6 rounded-full bg-ink/70 hover:bg-ink text-white text-xs leading-none flex items-center justify-center"
+                  aria-label="撤回图片"
+                >
+                  ×
+                </button>
+              </div>
+            )}
+            {imageError && (
+              <p className="text-xs text-esther-red mt-1">⚠️ {imageError}</p>
+            )}
+          </div>
+        )}
+
+        <form
+          onSubmit={handleSubmit}
+          className="px-4 py-3 flex items-end gap-2"
         >
-          发送
-        </button>
-      </form>
+          {/* v4 §8.22 — 图片上传按钮 */}
+          <label className="flex-shrink-0 w-10 h-10 rounded-full border border-border bg-card hover:border-esther-blue hover:bg-esther-yellow/10 transition-colors cursor-pointer flex items-center justify-center text-lg"
+            title={imageBusy ? "压缩中..." : "发张图给不二看"}>
+            {imageBusy ? "⏳" : "🖼️"}
+            <input
+              type="file"
+              accept="image/*"
+              className="hidden"
+              disabled={imageBusy || loading || summaryPhase !== "idle"}
+              onChange={(e) => {
+                handleImagePick(e.target.files?.[0]);
+                e.target.value = "";
+              }}
+            />
+          </label>
+
+          <textarea
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder={pendingImage ? "配个文字?(可选,直接发也行)" : "今天怎么样?"}
+            rows={1}
+            disabled={loading || summaryPhase !== "idle"}
+            className="flex-1 resize-none rounded-2xl px-3 py-2 text-sm bg-card border border-border focus:outline-none focus:border-esther-blue text-ink placeholder:text-ink-muted/70 disabled:opacity-60 max-h-32"
+            style={{ minHeight: 40, lineHeight: 1.4 }}
+          />
+          <button
+            type="submit"
+            disabled={
+              loading ||
+              (input.trim().length === 0 && !pendingImage) ||
+              summaryPhase !== "idle"
+            }
+            className="flex-shrink-0 rounded-full bg-esther-blue text-white px-5 py-2.5 text-sm font-medium hover:bg-esther-blue-dark transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            发送
+          </button>
+        </form>
+      </div>
     </div>
   );
 }
@@ -382,7 +477,15 @@ function ChatBubble({
     "bg-warm-bg-deep text-ink rounded-tl-md border border-border/60";
 
   return (
-    <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
+    <div className={`flex flex-col gap-1.5 ${isUser ? "items-end" : "items-start"}`}>
+      {/* v4 §8.22 — user 附图(在文本气泡上方) */}
+      {isUser && message.imageBase64 && (
+        <img
+          src={message.imageBase64}
+          alt="附图"
+          className="max-w-[80%] max-h-56 rounded-2xl border border-esther-blue/20"
+        />
+      )}
       <div className={`${baseBubble} ${isUser ? userCls : assistantCls}`}>
         {message.content}
         {streaming && (

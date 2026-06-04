@@ -63,6 +63,8 @@ export function DiaryMiningCard({
             content: e.content,
             title: e.title,
             source: e.source,
+            // v4 §8.22 — 透传图片(LLM 多模态可读)
+            imageBase64: e.imageBase64,
           })),
           targetRole,
           jdSummary,

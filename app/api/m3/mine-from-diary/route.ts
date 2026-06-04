@@ -15,7 +15,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { chat } from "@/lib/llm";
+import { chatVision, type VisionMessage, type VisionContentPart } from "@/lib/llm";
 
 type DiaryEntryIn = {
   id: string;
@@ -23,6 +23,8 @@ type DiaryEntryIn = {
   content: string;
   title?: string;
   source?: string;
+  /** v4 §8.22 — base64 data URL,LLM 多模态可读 */
+  imageBase64?: string | null;
 };
 
 type CandidateBullet = {
@@ -71,6 +73,12 @@ function buildPrompt(
 - 仍然可以挖素材,**但 source_excerpt 前必须加 "(AI 整理自对话)" 前缀**,让用户知道源头是聊天不是手写日记
 - 例:source_excerpt 写 "(AI 整理自对话)主持文艺晚会 300+ 同学到场"
 
+【📷 日记附图(v4 多模态)】
+- 部分日记会附图(eg "今天做了个海报",附海报照片)
+- 你能看到图,**只看从图里可以推断的可写进简历的能力信号**(eg 海报设计 → 设计能力)
+- **绝不**根据图里的私人信息猜测(eg 自拍 / 私人物品 / 家人朋友)
+- 如果图本身没简历价值(纯生活照),source_excerpt 仅说文字部分,图当背景
+
 【输出 JSON 严格格式,无 markdown 包裹】
 {
   "candidates": [
@@ -92,6 +100,7 @@ candidates 数量:**0-5 个**(没合适素材就给 0 个空数组,不强凑)`;
   const jdCtx = jdSummary ? `\n目标 JD 摘要:${jdSummary}` : "";
 
   // v2 §8.20 §C.4 anti-fab 第 4 层 — ai-summary entry 透传来源给 LLM,挖出来的 candidate 标注
+  // v4 §8.22 — 图片单独提取(LLM vision messages 加 image_url part)
   const entriesBlock = entries
     .map((e, idx) => {
       const dateOnly = e.createdAt.slice(0, 10);
@@ -101,9 +110,10 @@ candidates 数量:**0-5 个**(没合适素材就给 0 个空数组,不强凑)`;
           : e.source === "buer-chat"
           ? " [来自不二聊天]"
           : "";
+      const imgMark = e.imageBase64 ? " [附图]" : "";
       return `${idx + 1}. [id=${e.id}] ${dateOnly}${
         e.title ? ` · ${e.title}` : ""
-      }${sourceMark}\n   ${e.content}`;
+      }${sourceMark}${imgMark}\n   ${e.content}`;
     })
     .join("\n\n");
 
@@ -136,18 +146,37 @@ export async function POST(request: NextRequest) {
 
     const { system, user } = buildPrompt(limited, targetRole, jdSummary);
 
-    const raw = await chat(
-      [
-        { role: "system", content: system },
-        { role: "user", content: user },
-      ],
-      {
-        model: "chat",
-        temperature: 0.4,
-        max_tokens: 2000,
-        jsonMode: true,
+    // v4 §8.22 — 收集 entry 里所有图,组装 vision message
+    // 每张图带 "[id=xxx] 的附图" 文字注释,让 LLM 知道对应哪条 entry
+    const imageParts: VisionContentPart[] = [];
+    for (const e of limited) {
+      if (e.imageBase64) {
+        imageParts.push({
+          type: "text",
+          text: `↓ entry [id=${e.id}] 的附图 ↓`,
+        });
+        imageParts.push({
+          type: "image_url",
+          image_url: { url: e.imageBase64 },
+        });
       }
-    );
+    }
+
+    const userContent: VisionContentPart[] =
+      imageParts.length > 0
+        ? [{ type: "text", text: user }, ...imageParts]
+        : [{ type: "text", text: user }];
+
+    const visionMessages: VisionMessage[] = [
+      { role: "system", content: system },
+      { role: "user", content: userContent },
+    ];
+
+    const raw = await chatVision(visionMessages, {
+      temperature: 0.4,
+      max_tokens: 2500,
+      jsonMode: true,
+    });
 
     let parsed: { candidates: CandidateBullet[] };
     try {
