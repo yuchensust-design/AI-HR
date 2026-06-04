@@ -6,7 +6,7 @@
  *   - /api/buer/diary-chat = /diary 温馨小窝内嵌 → 日记引导师(温柔引导记录今天的事)
  *
  * v4 §8.22 多模态升级:
- *   - 改用阿里 qwen-vl-plus,支持读用户发的图(单图)
+ *   - 改用腾讯 hunyuan-turbo-vision,支持读用户发的图(单图)
  *   - 消息 content 可以是 string 或 [{type: text}, {type: image_url}]
  *
  * 自伤 / 自杀关键词命中仍 short-circuit 给真实热线(沿用 §8.10 lock)
@@ -204,7 +204,7 @@ export async function GET() {
     status: "ok",
     endpoint: "/api/buer/diary-chat",
     method: "POST",
-    keyConfigured: !!process.env.QWEN_VL_API_KEY,
-    model: "qwen-vl-plus",
+    keyConfigured: !!process.env.HUNYUAN_API_KEY,
+    model: "hunyuan-turbo-vision",
   });
 }
