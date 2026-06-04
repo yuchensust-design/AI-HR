@@ -11,30 +11,26 @@ import { RIASECRadar } from "@/components/RIASECRadar";
 import { ConfidenceBadge } from "@/components/ConfidenceBadge";
 import { NegativeReveal, type NegativeItem } from "@/components/NegativeReveal";
 import { RefineChips } from "@/components/RefineChips";
+import { RecommendationRationale } from "@/components/RecommendationRationale";
 import {
   DIMENSION_DESCRIPTIONS,
   DIMENSION_LABELS,
   DIMENSION_LEVEL_LABELS,
-  formatHollandCode,
   getDimensionLevel,
+  migrateAnswersSchema,
   type Confidence,
   type Dimension,
 } from "@/lib/quiz-data";
+import { M1_SAMPLE } from "@/lib/m1-sample";
 
 /**
- * 模块 1 测评结果页(v2 18REST-2 学术验证版)
+ * 模块 1 测评结果页
  * 路由 /m1/result
  *
  * 数据来源:
  *   - localStorage.riasec_result(来自 /m1/quiz → /api/m1/recommend)
- *   - 没数据 → 显示陈昊 sample(评委直接访问 demo 友好)
- *
- * 18REST-2 适配:
- *   - scores 范围 0-15(原 0-10)
- *   - positive 加 match_percentage 百分比进度条
- *   - 新增 6 维详细描述展开(基于 Holland 经典 + 论文修订)
- *
- * plan §8.16 §D-§K lock + §8.17 升级层(部分)
+ *   - 没数据 → 显示 sample(评委直接访问 demo 友好)
+ *   - 来源 = "api-error" → 顶部 banner 提示降级,可点重试
  */
 
 type PositiveItem = {
@@ -42,10 +38,21 @@ type PositiveItem = {
   role_type: string;
   why_fit: string;
   match: string;
-  match_percentage?: number; // 18REST-2 升级:0-100 百分比
+  match_percentage?: number;
 };
 
 type Scores = [number, number, number, number, number, number];
+
+type Rationale = {
+  interestEvidence?: string | null;
+  experienceEvidence?: string | null;
+  preferenceSignals?: string | null;
+  confidence?: Confidence | null;
+  confidenceWhy?: string | null;
+  cautions?: string[] | null;
+  nextStep?: string | null;
+  whyNotOther?: string | null;
+};
 
 type RecommendResult = {
   scores: Scores;
@@ -58,87 +65,21 @@ type RecommendResult = {
   completedAt: string;
   refineCount?: number;
   answers?: Record<number, number | string[] | Record<string, number>>;
+  rationale?: Rationale | null;
+  fallback?: "api-error" | "sample" | null;
+  isSample?: boolean;
+  sampleMeta?: {
+    background: string;
+    emoji: string;
+    tags: string[];
+    experiences: string[];
+  };
 };
 
 const DIMS: Dimension[] = ["R", "I", "A", "S", "E", "C"];
 
-const SAMPLE: RecommendResult & { isSample: true; sampleMeta: { background: string; emoji: string; tags: string[]; experiences: string[] } } = {
-  isSample: true,
-  sampleMeta: {
-    background: "CS 大四 · 1 段字节实习 · 做过 AI 学习助手项目",
-    emoji: "💻",
-    tags: ["数据 & AI", "内容创作"],
-    experiences: ["字节用户增长实习", "AI 学习助手(B 端用户 30+)", "Python 数据分析"],
-  },
-  scores: [5, 13, 8, 10, 14, 6],
-  code: "E14 I13 S10 A8 C6 R5",
-  confidence: "high",
-  positive: [
-    {
-      industry: "互联网",
-      role_type: "AI / 增长产品经理",
-      why_fit:
-        "E 14 + I 13 → 你既爱推动事情发生,又重逻辑分析,跟 PM 高度契合",
-      match: "高",
-      match_percentage: 92,
-    },
-    {
-      industry: "创业 / 自由职业",
-      role_type: "0-1 产品创始人 / 联创",
-      why_fit:
-        "E 14(企业型最高)+ 已经做过 AI 学习助手 → 你不只是想'打工',更想'主导一件事'",
-      match: "高",
-      match_percentage: 89,
-    },
-    {
-      industry: "互联网",
-      role_type: "数据分析师 / 增长分析",
-      why_fit: "I 13 + C 6 → 你重数据推理,愿意系统化拆解,适合用数字说话的角色",
-      match: "高",
-      match_percentage: 86,
-    },
-    {
-      industry: "互联网",
-      role_type: "用户研究员",
-      why_fit: "I 13 + S 10 → 你愿意挖背后原理,又能跟人聊,适合做用户洞察",
-      match: "中",
-      match_percentage: 78,
-    },
-    {
-      industry: "互联网",
-      role_type: "内容运营",
-      why_fit:
-        "选了内容创作兴趣 + S 10 → 你能持续表达 + 跟用户互动,适合做内容驱动的运营",
-      match: "中",
-      match_percentage: 71,
-    },
-  ],
-  negative: [
-    {
-      industry: "传统行政",
-      role_type: "档案管理 / 资料录入",
-      why_consuming:
-        "这类岗位 80% 时间在重复处理标准化流程,你的 E + I 表达欲会被压抑",
-    },
-    {
-      industry: "销售商务",
-      role_type: "电话销售 / 地推",
-      why_consuming:
-        "你的 I 13 偏好深度思考,纯转化型销售对'快节奏 + 浅交互'的要求会让你疲倦",
-    },
-    {
-      industry: "制造业",
-      role_type: "质量管理 / 品控",
-      why_consuming:
-        "C 6 + R 5 都不算高,这类岗位长期靠流程 + 标准化,你的创造性会找不到出口",
-    },
-  ],
-  refine_chips: ["去掉销售类岗位", "想要更稳定的方向", "加技术深度", "偏内容创作"],
-  disclaimer:
-    "本次推荐基于测评 + 兴趣 — 没看你的真实经历。投递前请先用『简历整理』模块结合 JD 确认能力对齐。",
-  completedAt: new Date().toISOString(),
-  refineCount: 0,
-};
+// 保留 sampleMeta 的具体类型,让本页直接 SAMPLE.sampleMeta.emoji 等访问可以 narrow
+const SAMPLE: RecommendResult & { sampleMeta: NonNullable<RecommendResult["sampleMeta"]> } = M1_SAMPLE;
 
 const NEXT_STEPS = [
   {
@@ -158,12 +99,16 @@ const NEXT_STEPS = [
   },
 ];
 
+type FallbackKind = "no-data" | "api-error" | null;
+
 export default function Module1ResultPage() {
   const [result, setResult] = useState<RecommendResult | null>(null);
   const [isSample, setIsSample] = useState(false);
+  const [fallbackKind, setFallbackKind] = useState<FallbackKind>(null);
   const [loaded, setLoaded] = useState(false);
   const [refining, setRefining] = useState(false);
   const [refineError, setRefineError] = useState<string | null>(null);
+  const [retrying, setRetrying] = useState(false);
 
   // hydrate from localStorage
   useEffect(() => {
@@ -171,10 +116,19 @@ export default function Module1ResultPage() {
       const raw = window.localStorage.getItem("riasec_result");
       if (raw) {
         const parsed = JSON.parse(raw) as RecommendResult;
-        // 真用户数据要含 positive 数组才算有效
-        if (parsed.positive && Array.isArray(parsed.positive) && parsed.positive.length > 0) {
+        const isApiFallback = parsed.fallback === "api-error";
+        if (
+          parsed.positive &&
+          Array.isArray(parsed.positive) &&
+          parsed.positive.length > 0
+        ) {
+          // 防御:外部塞进来的 answers 也走一次 schema 迁移
+          if (parsed.answers) {
+            parsed.answers = migrateAnswersSchema(parsed.answers) as RecommendResult["answers"];
+          }
           setResult(parsed);
-          setIsSample(false);
+          setIsSample(Boolean(parsed.isSample) || isApiFallback);
+          setFallbackKind(isApiFallback ? "api-error" : null);
           setLoaded(true);
           return;
         }
@@ -182,11 +136,41 @@ export default function Module1ResultPage() {
     } catch (e) {
       console.warn("riasec_result parse failed:", e);
     }
-    // fallback → sample
+    // 完全没数据 → sample,banner 提示「这是 sample,你还没做」
     setResult(SAMPLE);
     setIsSample(true);
+    setFallbackKind("no-data");
     setLoaded(true);
   }, []);
+
+  const handleRetryAnalysis = async () => {
+    if (!result?.answers) return;
+    setRetrying(true);
+    try {
+      const res = await fetch("/api/m1/recommend", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ answers: migrateAnswersSchema(result.answers) }),
+      });
+      if (!res.ok) throw new Error(`请求失败: ${res.status}`);
+      const data = await res.json();
+      const merged: RecommendResult = {
+        ...data,
+        answers: migrateAnswersSchema(result.answers) as RecommendResult["answers"],
+        refineCount: 0,
+        fallback: null,
+        isSample: false,
+      };
+      window.localStorage.setItem("riasec_result", JSON.stringify(merged));
+      setResult(merged);
+      setIsSample(false);
+      setFallbackKind(null);
+    } catch (e) {
+      console.warn("retry analysis failed:", e);
+    } finally {
+      setRetrying(false);
+    }
+  };
 
   const handleRefine = async (chip: string) => {
     if (!result || isSample) return;
@@ -216,6 +200,7 @@ export default function Module1ResultPage() {
         positive: data.positive,
         negative: data.negative,
         refine_chips: data.refine_chips,
+        rationale: data.rationale ?? result.rationale ?? null,
         refineCount: (result.refineCount || 0) + 1,
       };
       setResult(updated);
@@ -238,8 +223,22 @@ export default function Module1ResultPage() {
 
   if (!result) return null;
 
-  // 答得太少 — 提示重答
+  // 答得太少 — 提示重答(如果有 draft 也提示「继续上次」)
   if (result.confidence === "none") {
+    let hasDraft = false;
+    let draftAnswered = 0;
+    try {
+      const rawDraft = window.localStorage.getItem("m1_quiz_draft");
+      if (rawDraft) {
+        const parsedDraft = JSON.parse(rawDraft) as { answers?: Record<string, unknown> };
+        draftAnswered = parsedDraft.answers
+          ? Object.keys(parsedDraft.answers).length
+          : 0;
+        hasDraft = draftAnswered > 0;
+      }
+    } catch {
+      hasDraft = false;
+    }
     return (
       <>
         <Nav />
@@ -250,12 +249,30 @@ export default function Module1ResultPage() {
             <p className="text-sm text-ink-soft mb-8 leading-relaxed">
               至少需要答 5 道题才能给你靠谱的推荐 — 一道一道来,不着急
             </p>
-            <Link
-              href="/m1/quiz"
-              className="inline-flex items-center justify-center rounded-full bg-esther-blue text-white px-6 py-2.5 text-sm font-medium hover:bg-esther-blue-dark transition-colors"
-            >
-              重新答题 →
-            </Link>
+            <div className="flex flex-wrap items-center justify-center gap-3">
+              <Link
+                href="/m1/quiz"
+                className="inline-flex items-center justify-center rounded-full bg-esther-blue text-white px-6 py-2.5 text-sm font-medium hover:bg-esther-blue-dark transition-colors"
+              >
+                {hasDraft ? `继续上次(已答 ${draftAnswered} 题) →` : "重新答题 →"}
+              </Link>
+              {hasDraft && (
+                <button
+                  onClick={() => {
+                    try {
+                      window.localStorage.removeItem("m1_quiz_draft");
+                      window.localStorage.removeItem("riasec_result");
+                    } catch {
+                      // ignore
+                    }
+                    window.location.href = "/m1/quiz";
+                  }}
+                  className="inline-flex items-center justify-center rounded-full border border-border bg-card text-ink-soft px-6 py-2.5 text-sm font-medium hover:border-esther-blue transition-colors"
+                >
+                  从头开始
+                </button>
+              )}
+            </div>
           </div>
         </main>
       </>
@@ -267,6 +284,39 @@ export default function Module1ResultPage() {
       <Nav />
       <main className="min-h-screen bg-warm-bg" id="top">
         <div className="h-20" />
+
+        {/* Fallback banner — 顶部条 */}
+        {fallbackKind === "no-data" && (
+          <div className="border-b border-esther-yellow/40 bg-esther-yellow/15">
+            <div className="max-w-[1100px] mx-auto px-6 py-3 flex flex-wrap items-center justify-between gap-3">
+              <p className="text-sm text-ink leading-relaxed">
+                👋 你还没做过测评 — 下面是 sample 结果,先看长什么样,
+                <Link
+                  href="/m1/quiz"
+                  className="underline text-esther-blue hover:text-esther-blue-dark ml-1"
+                >
+                  点这里开始测自己的 →
+                </Link>
+              </p>
+            </div>
+          </div>
+        )}
+        {fallbackKind === "api-error" && (
+          <div className="border-b border-esther-red/40 bg-esther-red/10">
+            <div className="max-w-[1100px] mx-auto px-6 py-3 flex flex-wrap items-center justify-between gap-3">
+              <p className="text-sm text-ink leading-relaxed">
+                ⚠️ 实时分析失败,先用 sample 结果占位 — 不影响你浏览结构,可点右边重试真实分析。
+              </p>
+              <button
+                onClick={handleRetryAnalysis}
+                disabled={retrying || !result.answers}
+                className="inline-flex items-center justify-center rounded-full bg-esther-red text-white px-4 py-1.5 text-xs font-medium hover:bg-esther-red/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {retrying ? "重试中…" : "重试分析"}
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* 页面标题 */}
         <section className="border-b border-border">
@@ -287,7 +337,7 @@ export default function Module1ResultPage() {
               我们觉得你可能适合的方向
             </h1>
             <p className="text-ink-soft text-sm">
-              基于 18REST-2 学术量表(18 题)+ 兴趣 tag 综合判断
+              基于霍兰德 RIASEC 6 维(18 题)+ 兴趣 tag 综合判断
             </p>
           </div>
         </section>
@@ -394,7 +444,16 @@ export default function Module1ResultPage() {
           </div>
         </section>
 
-        {/* 自我探索 — 6 维深度解读(基于 Holland 1997 经典 + 18REST-2 修订) */}
+        {/* 推荐依据 5 块 — AI-HR 视角"可解释推荐"能力的核心展示 */}
+        <RecommendationRationale
+          scores={result.scores}
+          confidence={result.confidence}
+          answers={result.answers}
+          rationale={result.rationale}
+          isSample={isSample}
+        />
+
+        {/* 自我探索 — 6 维深度解读(基于 Holland 1997 经典 RIASEC) */}
         <section className="border-b border-border">
           <div className="max-w-[1100px] mx-auto px-6 py-14">
             <p className="font-display italic text-sm text-esther-blue mb-2">
@@ -404,7 +463,7 @@ export default function Module1ResultPage() {
               你是怎样的人 · 6 维深度解读
             </h2>
             <p className="text-sm text-ink-soft mb-8 max-w-2xl">
-              基于霍兰德经典 6 维 + 18REST-2 修订项 — 不只是"推荐"标签,先理解你自己。
+              基于霍兰德 RIASEC 经典 6 维理论 — 不只是"推荐"标签,先理解你自己。
             </p>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -665,10 +724,9 @@ export default function Module1ResultPage() {
               ℹ️ 测评仅供参考,愿你的热爱与擅长终在某处相逢
             </p>
             <p className="text-xs text-ink-muted mt-3 leading-relaxed">
-              测评基于 <span className="font-medium">18REST-2</span> 学术量表
-              (Martins et al., 2024, <em>J. Career Assessment</em> 33(1)),
+              基于霍兰德 RIASEC 经典 6 维理论(Holland, 1997),
               <br />
-              结合霍兰德 RIASEC 经典 6 维理论(Holland, 1997)
+              题面参考 Martins et al. (2024) 心理测量学修订项
             </p>
           </div>
         </footer>

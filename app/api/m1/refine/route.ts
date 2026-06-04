@@ -15,12 +15,80 @@
 import { NextRequest, NextResponse } from "next/server";
 import { chat } from "@/lib/llm";
 import {
+  computeConfidence,
   computeRIASEC,
   formatRIASECCode,
   getSelectedInterests,
+  migrateAnswersSchema,
+  type Confidence,
   type InterestWithStrength,
 } from "@/lib/quiz-data";
 import { generateCandidates } from "@/lib/career-pool";
+
+type LlmRationale = {
+  interestEvidence?: unknown;
+  experienceEvidence?: unknown;
+  preferenceSignals?: unknown;
+  confidence?: unknown;
+  confidenceWhy?: unknown;
+  cautions?: unknown;
+  nextStep?: unknown;
+  whyNotOther?: unknown;
+};
+
+function normString(v: unknown): string {
+  return typeof v === "string" ? v.trim() : "";
+}
+
+function normalizeRationale(
+  raw: LlmRationale | null | undefined,
+  confidence: Confidence,
+  scores: [number, number, number, number, number, number]
+) {
+  const r = raw || {};
+  const top1 = Math.max(...scores);
+  const cautionsRaw = Array.isArray(r.cautions) ? r.cautions : [];
+  const cautions = cautionsRaw
+    .map((c) => normString(c))
+    .filter((c) => c.length > 0)
+    .slice(0, 3);
+
+  const allowedConfidence = new Set<Confidence>(["high", "mid", "low", "none"]);
+  const conf =
+    typeof r.confidence === "string" && allowedConfidence.has(r.confidence as Confidence)
+      ? (r.confidence as Confidence)
+      : confidence;
+
+  return {
+    interestEvidence:
+      normString(r.interestEvidence) ||
+      "本次调整基于你的反馈,我们重新对齐 Top 3 维度 + 偏好。",
+    experienceEvidence:
+      r.experienceEvidence === null
+        ? null
+        : normString(r.experienceEvidence) || null,
+    preferenceSignals:
+      normString(r.preferenceSignals) ||
+      "RIASEC 是主信号,兴趣 tag 在该框架内做微调。",
+    confidence: conf,
+    confidenceWhy:
+      normString(r.confidenceWhy) ||
+      `Top1 = ${top1}/15,本次按反馈调整后推荐保留了主要倾向。`,
+    cautions:
+      cautions.length > 0
+        ? cautions
+        : [
+            "调整后仍是相对契合度,不是结论",
+            "投递前请用『简历整理』结合具体 JD 再核对",
+          ],
+    nextStep:
+      normString(r.nextStep) ||
+      "可以继续微调,或直接去『简历整理』把现有经历针对方向调一版。",
+    whyNotOther:
+      normString(r.whyNotOther) ||
+      "下面「反向 3 个」段会展开 — 只描述跟你的维度错配,不评判这些方向。",
+  };
+}
 
 // In-memory rate limit(单实例)
 const rateLimitMap = new Map<string, number[]>();
@@ -46,9 +114,9 @@ function buildSystemPrompt(): string {
   return `你是「Offer 捕手」的兴趣岗位顾问。用户对上次推荐有反馈,请基于反馈调整推荐。
 
 【★ 决策优先级 — 测评主 / 兴趣辅 ★】
-- **主信号 (70%) = 18 题 RIASEC 6 维分数**(学术验证)
+- **主信号 (70%) = RIASEC 6 维分数**(基于霍兰德经典理论)
 - **辅助信号 (30%) = 兴趣 tag**(消费爱好,辅助微调,不能反向决定 RIASEC)
-- 冲突时(eg A 低但兴趣多 A 类)**以 18 题测评为准**
+- 冲突时(eg A 低但兴趣多 A 类)**以 RIASEC 测评为准**
 
 【硬约束 — 永远不许违反】
 1. 永远不输出任何公司名(只输出"行业 + 职位类型")
@@ -67,6 +135,14 @@ a) 工作内容与用户 enjoy 信号反向
 b) 长期天花板低 — 本科起点 5 年后晋升空间 < 30%
 c) 工作模式与用户 RIASEC 类型反向(E 型坐冷板凳 / I 型纯销售 / A 型纯流程)
 
+【★ rationale 字段 — 可解释推荐 ★】
+- 必须输出顶层 rationale 对象,7 个子字段(experienceEvidence 仅可填 null)
+- 温和不绝对化("可能 / 看起来 / 值得探索",避免"一定 / 必然 / 不适合")
+- cautions 1-3 条,每条 ≤ 30 字,是温和提醒不是判决
+- whyNotOther 必须基于 negative 列表做对比解释,只描述维度错配
+- experienceEvidence v1 没接简历输入 → 必须填 null
+- 永远不输出公司名
+
 【输出格式 — 严格 JSON,字段名必须精确,无任何 markdown 包裹】
 {
   "positive": [
@@ -84,7 +160,17 @@ c) 工作模式与用户 RIASEC 类型反向(E 型坐冷板凳 / I 型纯销售 
       "why_consuming": "1 句,只描述错配"
     }
   ],
-  "refine_chips": ["...", "..."]
+  "refine_chips": ["...", "..."],
+  "rationale": {
+    "interestEvidence": "...",
+    "experienceEvidence": null,
+    "preferenceSignals": "...",
+    "confidence": "high",
+    "confidenceWhy": "...",
+    "cautions": ["...", "..."],
+    "nextStep": "...",
+    "whyNotOther": "..."
+  }
 }
 
 positive 正好 5 个,negative 正好 3 个,refine_chips 正好 4-6 个,每 chip ≤ 12 字。
@@ -148,14 +234,14 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    // 18REST-2 (v3): Likert 1-5 + 兴趣 tag Record<label, strength> (v2 string[] 兼容)
-    const { answers, previous, chip } = body as {
-      answers: Record<number, number | string[] | Record<string, number>>;
+    // Likert 1-5 + 兴趣 tag Record<label, strength>;migrateAnswersSchema 兜底 v2/坏数据
+    const { previous, chip } = body as {
       previous: unknown;
       chip: string;
     };
+    const answers = migrateAnswersSchema(body?.answers);
 
-    if (!answers || !chip) {
+    if (Object.keys(answers).length === 0 || !chip) {
       return NextResponse.json(
         { error: "answers + chip required" },
         { status: 400 }
@@ -165,6 +251,7 @@ export async function POST(request: NextRequest) {
     // 重算 Step 1+2
     const scores = computeRIASEC(answers);
     const code = formatRIASECCode(scores);
+    const confidence = computeConfidence(answers, scores);
     const interests = getSelectedInterests(answers);
     const candidates = generateCandidates(scores, interests, 30);
 
@@ -193,9 +280,10 @@ export async function POST(request: NextRequest) {
     );
 
     let parsed: {
-      positive: Array<Record<string, unknown>>;
-      negative: Array<Record<string, unknown>>;
-      refine_chips: string[];
+      positive?: Array<Record<string, unknown>>;
+      negative?: Array<Record<string, unknown>>;
+      refine_chips?: unknown;
+      rationale?: LlmRationale | null;
     };
     try {
       parsed = JSON.parse(raw);
@@ -215,10 +303,15 @@ export async function POST(request: NextRequest) {
         n.why_consuming ?? n.why_bad ?? n.why ?? n.reason ?? "",
     }));
 
+    const normalizedChips = Array.isArray(parsed.refine_chips)
+      ? parsed.refine_chips.filter((c): c is string => typeof c === "string")
+      : [];
+
     return NextResponse.json({
       positive: parsed.positive ?? [],
       negative: normalizedNegative,
-      refine_chips: parsed.refine_chips ?? [],
+      refine_chips: normalizedChips,
+      rationale: normalizeRationale(parsed.rationale ?? null, confidence, scores),
       rateLimit: { remaining, limit: RATE_LIMIT },
     });
   } catch (err) {

@@ -29,6 +29,8 @@ import {
   formatRIASECCode,
   computeConfidence,
   getSelectedInterests,
+  migrateAnswersSchema,
+  type Confidence,
   type InterestWithStrength,
 } from "@/lib/quiz-data";
 import { generateCandidates } from "@/lib/career-pool";
@@ -80,6 +82,17 @@ c) 工作模式与用户 RIASEC 类型反向(E 型坐冷板凳 / I 型纯销售 
 - 用于让用户"修推荐"(eg "去掉销售岗" / "想要更稳定" / "加技术深度")
 - 不要重复用户已表达的兴趣,要给"调整方向"的选项
 
+【★ rationale 字段 — 可解释推荐 ★】
+- 必须输出顶层 rationale 对象,7 个子字段(experienceEvidence 唯一例外可为 null)
+- 每个字段都用口语化中文,温和不绝对化(用"可能 / 看起来 / 值得探索",避免"一定 / 必然 / 你不适合")
+- cautions 1-3 条,每条 ≤ 30 字,是温和提醒不是判决
+  - 例 ✅: "投递前结合具体 JD 再核对"
+  - 例 ❌: "你不适合销售"(评判)/"你能上岸"(夸大)
+- whyNotOther 必须基于上面 negative 列表,做"为什么没推这些方向"的对比解释,只描述维度错配,不评判用户
+- experienceEvidence 当前 v1 没接简历输入 → 必须填 null
+- 永远不输出公司名(再强调)
+- 推荐和 rationale 严格基于真实分数,不张冠李戴
+
 【输出格式 — 严格 JSON,无任何 markdown 包裹】
 {
   "positive": [
@@ -98,7 +111,17 @@ c) 工作模式与用户 RIASEC 类型反向(E 型坐冷板凳 / I 型纯销售 
       "why_consuming": "这类岗位 80% 时间在重复处理标准化流程,你的 A+S 表达欲会被压抑(1 句,只描述错配)"
     }
   ],
-  "refine_chips": ["去掉销售类岗位", "想要更稳定的方向", "加技术深度", "偏内容创作"]
+  "refine_chips": ["去掉销售类岗位", "想要更稳定的方向", "加技术深度", "偏内容创作"],
+  "rationale": {
+    "interestEvidence": "你强烈喜欢的 X / Y 兴趣 tag,跟推荐方向的契合点是...(1-2 句中文)",
+    "experienceEvidence": null,
+    "preferenceSignals": "结合 RIASEC + 兴趣 tag,你在「主导 / 深挖 / 表达」上偏好哪条...(1 句中文)",
+    "confidence": "high",
+    "confidenceWhy": "答了 N 题,Top1 = X 落在「高」区间,分布有明显倾向...(1 句中文)",
+    "cautions": ["match% 是相对契合度,不是结论", "投递前用『简历整理』结合 JD 再核对"],
+    "nextStep": "可以先去『简历整理』,把现有经历针对 X 重点 JD 调一版(1 句)",
+    "whyNotOther": "没推的档案/电销/品控类,是因为你的 R/C 偏低,长期机械流程会让你的 E + I 找不到出口(1-2 句,只描述维度错配,不评判)"
+  }
 }
 
 【match_percentage 计分规则】
@@ -128,7 +151,7 @@ function buildUserPrompt(
           .map((t) => `${t.key}(强度 ${t.strength}/5)`)
           .join(", ")
       : "(无)";
-  return `用户测评结果(18REST-2 学术量表,5 点 Likert,每维 3 题加和,范围 3-15 分):
+  return `用户测评结果(RIASEC 测评,6 维 × 3 题,5 点 Likert,每维 3-15 分):
 RIASEC 编码: ${code}
 6 维分数(3-15): R${r} I${i} A${a} S${s} E${e} C${c}
 分数解读:≥12 高 / 9-11 中 / ≤8 低
@@ -156,18 +179,80 @@ ${pool
 请返 JSON。`;
 }
 
+type LlmRationale = {
+  interestEvidence?: unknown;
+  experienceEvidence?: unknown;
+  preferenceSignals?: unknown;
+  confidence?: unknown;
+  confidenceWhy?: unknown;
+  cautions?: unknown;
+  nextStep?: unknown;
+  whyNotOther?: unknown;
+};
+
+function normString(v: unknown): string {
+  return typeof v === "string" ? v.trim() : "";
+}
+
+function normalizeRationale(
+  raw: LlmRationale | null | undefined,
+  confidence: Confidence,
+  scores: [number, number, number, number, number, number]
+) {
+  const r = raw || {};
+  const top1 = Math.max(...scores);
+  const cautionsRaw = Array.isArray(r.cautions) ? r.cautions : [];
+  const cautions = cautionsRaw
+    .map((c) => normString(c))
+    .filter((c) => c.length > 0)
+    .slice(0, 3);
+
+  const allowedConfidence = new Set<Confidence>(["high", "mid", "low", "none"]);
+  const conf =
+    typeof r.confidence === "string" && allowedConfidence.has(r.confidence as Confidence)
+      ? (r.confidence as Confidence)
+      : confidence;
+
+  return {
+    interestEvidence:
+      normString(r.interestEvidence) ||
+      "我们主要看了你 Top 3 维度跟职业偏好的契合度,以及你强烈喜欢的兴趣 tag。",
+    experienceEvidence:
+      r.experienceEvidence === null
+        ? null
+        : normString(r.experienceEvidence) || null,
+    preferenceSignals:
+      normString(r.preferenceSignals) ||
+      "结合 RIASEC 6 维 + 兴趣 tag 综合判断。",
+    confidence: conf,
+    confidenceWhy:
+      normString(r.confidenceWhy) ||
+      `已答 RIASEC 题数充足,Top1 = ${top1}/15,分布提供了基础判断依据。`,
+    cautions:
+      cautions.length > 0
+        ? cautions
+        : [
+            "match% 是相对契合度,不是「一定能上岸」",
+            "投递前请用『简历整理』结合具体 JD 再核对",
+          ],
+    nextStep:
+      normString(r.nextStep) ||
+      "可以先去『简历整理』,把现有经历针对最契合的方向 JD 调一版。",
+    whyNotOther:
+      normString(r.whyNotOther) ||
+      "下面「反向 3 个」段会展开 — 我们只描述跟你的维度错配,不评判这些方向。",
+  };
+}
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    // 18REST-2 (v3):
-    //   RIASEC 题答案是 Likert 1-5 数字
-    //   兴趣 tag(第19) v3 是 Record<label,strength>(向后兼容 v2 string[])
-    const answers = body.answers as Record<
-      number,
-      number | string[] | Record<string, number>
-    >;
+    // RIASEC 题答案是 Likert 1-5 数字;兴趣 tag(第19)是 Record<label,strength>
+    // migrateAnswersSchema 兜底:v2 string[]、外部坏数据全部归一化
+    const rawAnswers = body?.answers;
+    const answers = migrateAnswersSchema(rawAnswers);
 
-    if (!answers || typeof answers !== "object") {
+    if (Object.keys(answers).length === 0) {
       return NextResponse.json(
         { error: "answers required" },
         { status: 400 }
@@ -217,9 +302,10 @@ export async function POST(request: NextRequest) {
     );
 
     let parsed: {
-      positive: Array<Record<string, unknown>>;
-      negative: Array<Record<string, unknown>>;
-      refine_chips: string[];
+      positive?: Array<Record<string, unknown>>;
+      negative?: Array<Record<string, unknown>>;
+      refine_chips?: unknown;
+      rationale?: LlmRationale | null;
     };
     try {
       parsed = JSON.parse(raw);
@@ -239,13 +325,18 @@ export async function POST(request: NextRequest) {
         n.why_consuming ?? n.why_bad ?? n.why ?? n.reason ?? "",
     }));
 
+    const normalizedChips = Array.isArray(parsed.refine_chips)
+      ? parsed.refine_chips.filter((c): c is string => typeof c === "string")
+      : [];
+
     return NextResponse.json({
       scores,
       code,
       confidence,
       positive: parsed.positive ?? [],
       negative: normalizedNegative,
-      refine_chips: parsed.refine_chips ?? [],
+      refine_chips: normalizedChips,
+      rationale: normalizeRationale(parsed.rationale ?? null, confidence, scores),
       disclaimer: DISCLAIMER,
       completedAt: new Date().toISOString(),
     });
