@@ -98,12 +98,11 @@ ${mcDesign}
 - 选项要紧扣 JD context 的 gaps,但用"沾边"语言降低门槛
   (eg 不是"你做过用户访谈吗?" 而是 "下面哪些跟用户接触的经验你有过?")
 - JD : 公司业务 = 80 : 20
-- **不重复**前几轮已问过的话题(看 history)
+- **不重复**前几轮已问过的话题(看 history.topic_name 列表,新的 topic_name 不能跟里面任何一个相似或同义)
 - **公司名脱敏**:options 文本里如有公司名,替换"某互联网大厂"
 
-【输出 JSON,无 markdown】
+【输出 JSON,无 markdown — 不要输出 id 字段,服务端会注入唯一 id】
 {
-  "id": "q-{epoch}",
   "topic_name": "1-3 字主题 eg 用户研究 / Python 编程 / 跨背景沟通",
   "context_intro": "1 句引子,说明这跟 JD 哪条要求挂钩(用'JD 提到的 XX' 不要说公司名)",
   "options": [
@@ -249,8 +248,9 @@ export async function POST(request: NextRequest) {
       catch {
         return NextResponse.json({ error: "LLM JSON parse failed", raw: raw.slice(0, 500) }, { status: 502 });
       }
-      // Normalize
-      const id = String(parsed.id ?? `q-${Date.now()}`);
+      // Normalize — 服务端始终生成唯一 id,忽略 LLM 输出避免 "q-1" 冲突(plan offer-1)
+      const round = Array.isArray(history) ? history.length + 1 : 1;
+      const id = `q-r${round}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
       const opts = Array.isArray(parsed.options) ? parsed.options : [];
       const options = ["A", "B", "C", "D"].map((letter, i) => {
         const o = (opts[i] ?? {}) as { text?: unknown };

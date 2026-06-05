@@ -58,6 +58,14 @@ Scorer Agent 已经给每个岗位打了分,产出 highlights + gaps,语气可�
 - 每条改写后字数控制在 30-50 字
 - 不引入新事实,只改写
 
+## ★ 模板化禁止(plan offer-1-sparkling-hippo P1)
+
+- **每条 highlights / gaps 必须包含至少 1 个本岗位 JD 特定关键词**(从 Scorer 的原句中的 JD 原文引用部分抄过来),不能用通用模板词混过去
+- **多个岗位的 highlights / gaps 不允许内容相同**:
+  - 错(模板感强):岗位 A "Excel 经验对 JD 数据要求" + 岗位 B "Excel 经验对 JD 数据要求" + 岗位 C "Excel 经验对 JD 数据要求"
+  - 对(差异化):岗位 A "Excel 经验对 JD 用户问卷统计要求" + 岗位 B "Excel 经验对 JD 活动转化漏斗要求" + 岗位 C "Excel 经验对 JD 增长拉新数据要求"
+- 如果 Scorer 给的原句本身就是模板化的(多个岗位用同样的原句),你应该**主动差异化改写**,引用各自 JD 的特定关键词
+
 ## 用户输入格式
 
 你会收到一个 JSON 数组(批量):

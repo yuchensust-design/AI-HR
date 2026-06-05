@@ -5,12 +5,43 @@ import { Card } from "@/components/ui/card";
 
 export type EditSource = "jd" | "resume" | "experience" | "interview";
 
+/**
+ * claimType — 反编造风险分级(offer-1-sparkling-hippo 新增)
+ *
+ * - explicit:        原文已经写明 / 数字已经给到 → 可直接采纳进简历
+ * - inferred:        基于现有素材合理推断(如改"参与"为"主导"但用户没显式说) → 默认待确认
+ * - needs_confirmation: 需要用户回答 "实际是这样吗?" 才能写入 (eg 转化率、量化效果)
+ * - forbidden:       LLM 试图编造的内容,normalize 层已删除/降级 → 不允许进 Live Preview
+ *
+ * 自动 accept 仅放行 claimType === "explicit" && priority === "high"。
+ * 其他 claimType 一律 status="待确认",等用户手动决策。
+ */
+export type ClaimType = "explicit" | "inferred" | "needs_confirmation" | "forbidden";
+
 export type EditSuggestion = {
   id: string;
   target: string;
+  /**
+   * 稳定 bullet ID(offer-1-sparkling-hippo P0-B) — server 端通过 target 反查 parsedResume
+   * 中对应 bullet 的稳定 id 后注入。Live Preview lookup 优先 by bullet_id,
+   * 简历重新解析章节顺序变化后仍能写回正确 bullet。
+   *
+   * 老数据可能没有,Live Preview fallback 走 target 字符串 + original_text 模糊匹配。
+   */
+  bullet_id?: string;
   original_text: string;
   suggested_text: string;
-  evidence_source?: string;       // Anti-fabrication 透明化:LLM 必须声明素材来源
+  /** 反编造风险分级(offer-1-sparkling-hippo) — 旧数据可能没有,UI 按 "needs_confirmation" 兜底 */
+  claim_type?: ClaimType;
+  /**
+   * 反编造审计:LLM 必须列出该建议的具体证据片段
+   * 旧数据可能用 evidence_source 字符串字段表达,新数据用结构化数组
+   */
+  evidence_audit?: Array<{
+    source: EditSource;
+    excerpt: string; // 原文片段(不超过 120 字)
+  }>;
+  evidence_source?: string;       // Anti-fabrication 透明化:LLM 必须声明素材来源(向后兼容)
   source?: EditSource;            // PM 06 §3.4 #2 — 4 选 1 枚举
   confidence?: number;            // PM 06 §3.4 #2 — 0-1 置信度
   linked_jd_keyword?: string | null; // PM 06 §3.4 #3 — 对应 JD 关键词
@@ -21,6 +52,33 @@ export type EditSuggestion = {
   // gap-alert 特有字段(2026-06-02 v2)
   jd_requirement_text?: string | null;
   fixable?: string | null;
+};
+
+/** claimType → UI badge meta */
+export const CLAIM_TYPE_META: Record<
+  ClaimType,
+  { label: string; color: string; hint: string }
+> = {
+  explicit: {
+    label: "✓ 有据可写",
+    color: "bg-esther-blue/15 text-esther-blue",
+    hint: "原文 / 简历已直接给出该信息,可直接进 Live Preview",
+  },
+  inferred: {
+    label: "≈ 合理推断",
+    color: "bg-esther-yellow/40 text-ink",
+    hint: "基于现有素材推断,默认待确认 — 你点采纳后才进 Live Preview",
+  },
+  needs_confirmation: {
+    label: "? 需你确认",
+    color: "bg-esther-yellow text-ink",
+    hint: "建议里有数字 / 成果需要你确认实际情况,占位符待你补",
+  },
+  forbidden: {
+    label: "⚠ 已拦截",
+    color: "bg-esther-red/20 text-esther-red",
+    hint: "LLM 试图编造未提供的数字 / 成果,normalize 层已替换为占位符",
+  },
 };
 
 // 拒绝理由(PM 06 §3.4 #4)
@@ -231,8 +289,12 @@ export function EditSuggestionCard({
   const finalSuggested = rewrittenText ?? edit.suggested_text;
   const sourceMeta = edit.source ? SOURCE_META[edit.source] : null;
   const hasConfidence = typeof edit.confidence === "number";
+  // claimType:旧数据无字段时按 needs_confirmation 兜底,避免老数据被当成"有据可写"自动采纳
+  const claimType: ClaimType = edit.claim_type ?? "needs_confirmation";
+  const claimMeta = CLAIM_TYPE_META[claimType];
 
   const [showRejectPopover, setShowRejectPopover] = useState(false);
+  const [showEvidenceAudit, setShowEvidenceAudit] = useState(false);
 
   function handleRejectClick() {
     setShowRejectPopover(true);
@@ -270,6 +332,12 @@ export function EditSuggestionCard({
               {sourceMeta.label}
             </span>
           )}
+          <span
+            title={claimMeta.hint}
+            className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium ${claimMeta.color}`}
+          >
+            {claimMeta.label}
+          </span>
           {edit.linked_jd_keyword && (
             <button
               type="button"
@@ -317,8 +385,8 @@ export function EditSuggestionCard({
         </p>
       </div>
 
-      {/* evidence_source — Anti-fabrication 透明化 */}
-      {edit.evidence_source && (
+      {/* evidence_source — Anti-fabrication 透明化(向后兼容字符串字段) */}
+      {edit.evidence_source && !edit.evidence_audit?.length && (
         <div className="mb-2 px-2 py-1 rounded bg-card border border-border">
           <p className="text-[10px] text-ink-muted leading-relaxed">
             📎 素材来源:
@@ -326,6 +394,41 @@ export function EditSuggestionCard({
               {edit.evidence_source}
             </code>
           </p>
+        </div>
+      )}
+
+      {/* evidence_audit — 反编造工程化(offer-1-sparkling-hippo):可展开查看原始证据 */}
+      {edit.evidence_audit && edit.evidence_audit.length > 0 && (
+        <div className="mb-2 rounded border border-border bg-card overflow-hidden">
+          <button
+            type="button"
+            onClick={() => setShowEvidenceAudit((v) => !v)}
+            className="w-full px-2 py-1.5 flex items-center justify-between text-left hover:bg-warm-bg-deep/30 transition-colors"
+          >
+            <p className="text-[10px] text-ink-muted">
+              📎 证据审计 · {edit.evidence_audit.length} 处来源(点击{showEvidenceAudit ? "收起" : "展开"})
+            </p>
+            <span className="text-[10px] text-ink-muted">{showEvidenceAudit ? "▴" : "▾"}</span>
+          </button>
+          {showEvidenceAudit && (
+            <div className="border-t border-border divide-y divide-border">
+              {edit.evidence_audit.map((ev, i) => {
+                const meta = SOURCE_META[ev.source];
+                return (
+                  <div key={i} className="px-2 py-1.5">
+                    <p className="text-[9px] text-ink-muted mb-0.5">
+                      <span className={`inline-block px-1 py-0 rounded text-[9px] font-medium ${meta.color} mr-1`}>
+                        {meta.label}
+                      </span>
+                    </p>
+                    <p className="text-[10px] text-ink leading-relaxed italic">
+                      &ldquo;{ev.excerpt}&rdquo;
+                    </p>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
 

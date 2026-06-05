@@ -201,24 +201,33 @@ RIASEC 编码: ${code}
 分数解读:≥12 高 / 9-11 中 / ≤8 低
 选中兴趣 tag(带喜欢程度): ${interestStr}${evidenceBlock}
 
-候选池(${pool.length} 项,来自 O*NET 30.3 美国劳工部 923 职业库筛选,每项带真实 RIASEC 1.0-7.0 数值):
+候选池(${pool.length} 项,来自 O*NET 30.3 美国劳工部 923 职业库筛选,每项带真实 RIASEC 1.0-7.0 数值 + Job Zone):
 ${pool
   .map(
-    (p, idx) =>
-      `${idx + 1}. [${p.industry_cn}] ${p.title_cn}(${p.title_en}) | R${p.riasec.R} I${p.riasec.I} A${p.riasec.A} S${p.riasec.S} E${p.riasec.E} C${p.riasec.C}`
+    (p, idx) => {
+      const z = (p as { job_zone?: number }).job_zone ?? 3;
+      const employ = z <= 2 ? "now" : z === 3 ? "needs_project" : "long_term";
+      return `${idx + 1}. [${p.industry_cn}] ${p.title_cn}(${p.title_en}) | R${p.riasec.R} I${p.riasec.I} A${p.riasec.A} S${p.riasec.S} E${p.riasec.E} C${p.riasec.C} | JobZone=${z} employability=${employ}`;
+    }
   )
   .join("\n")}
 
-【★ 输出要求(v6 改造) ★】
-- **positive 共 15-25 项,分布在 3-5 个行业大类,每大类 3-5 个具体职业**
-  - 例:计算机大类 5 个职位 + 商业大类 5 个 + 艺术大类 5 个 + 教育大类 5 个 = 20 个 positive
-  - 同一 industry_cn 下的多个职业都列出来(eg 计算机大类下 "系统分析师 92%" + "信息安全分析师 88%" + "数据库管理员 85%" ...)
-  - 给用户横向对比的空间,不是只 5 个挤一类
+【★ 输出要求(v7 改造 — offer-1-sparkling-hippo 收敛 + 可投性分级) ★】
+- **positive 共 6-10 项,分布在 2-4 个行业大类,每大类 2-3 个具体职业**
+  - 收敛理由:迷茫学生看 20+ 个反而更迷茫;6-10 个主方向 + 可投性标签更可行动
+  - 同一 industry_cn 下 2-3 个职业横向对比即可
+- **每条 positive 必填 employability_level 字段**(从候选池里那一项 employability= 直接抄):
+  - "now"            — 应届可直接投递(Job Zone 1-2)
+  - "needs_project"  — 需要项目 / 经验补强后才可投(Job Zone 3)
+  - "long_term"      — 长期深造方向,不适合短期投递(Job Zone 4-5)
+- **positive 里"now" 和 "needs_project" 至少占 70%**(给迷茫学生可执行起点);"long_term" 最多 30%(避免推荐变成"职业百科")
 - **industry 字段填中文行业大类**(如"计算机与数学"),role_type 填中文职业名(从候选池抄)
-- **每大类内按 match_percentage 降序排**(让用户看到该大类下最匹配的优先)
+- **每大类内按 employability(now > needs_project > long_term)+ match_percentage 降序排**
 - negative 3 项:从候选池里挑跟用户 Top 3 维度反向的(eg 用户 R 低 → 推 R 高的"机械维修"作反向);**如果有补充信息**,negative 也可以体现用户明确说不想做的方向
 - 推荐**严格匹配候选池 RIASEC 数值跟用户 Top 3 维度**,百分比反映真实契合度
-- why_fit **≤ 30 字简短**(因为 20+ 个推荐,太长读不完);**有补充信息时优先引用具体经历或用户原话**
+- why_fit **≤ 40 字**;**有补充信息时优先引用具体经历或用户原话**
+- **文案降强度**:不要写"短期可投""完美匹配"这种强结论;改用"可作为短期探索起点,建议在 M3/M6 用真实 JD 验证""适合应届投递" 等温和措辞
+  - 强承诺词(eg "这个职业一定适合你 / 直接投这条")严禁出现
 ${evidence ? "- ⚠️ 本次请求带补充信息 → rationale.experienceEvidence 必填(不填则违规);why_fit 至少 1/3 要引用补充信息内容" : "- ⚠️ 本次请求没有补充信息 → rationale.experienceEvidence 必须填 null"}
 
 请返 JSON。`;
@@ -406,6 +415,29 @@ export async function POST(request: NextRequest) {
         n.why_consuming ?? n.why_bad ?? n.why ?? n.reason ?? "",
     }));
 
+    // Normalize positive — 补 employability_level 字段(plan offer-1-sparkling-hippo P1):
+    // LLM 应该已经输出,但 fallback 用候选池 role_type 反查 job_zone 推断;再 fallback "needs_project"
+    const VALID_EMPLOY = ["now", "needs_project", "long_term"] as const;
+    type ValidEmploy = (typeof VALID_EMPLOY)[number];
+    function inferEmployability(role_type: string, raw: unknown): ValidEmploy {
+      if (typeof raw === "string" && (VALID_EMPLOY as readonly string[]).includes(raw)) {
+        return raw as ValidEmploy;
+      }
+      // 在候选池里按 title_cn 找(模糊匹配)
+      const candidate = candidates.find(
+        (p) => p.title_cn === role_type || role_type.includes(p.title_cn) || p.title_cn.includes(role_type),
+      );
+      if (candidate) {
+        const z = (candidate as { job_zone?: number }).job_zone ?? 3;
+        return z <= 2 ? "now" : z === 3 ? "needs_project" : "long_term";
+      }
+      return "needs_project";
+    }
+    const normalizedPositive = (parsed.positive ?? []).map((p) => ({
+      ...p,
+      employability_level: inferEmployability(String(p.role_type ?? ""), p.employability_level),
+    }));
+
     const normalizedChips = Array.isArray(parsed.refine_chips)
       ? parsed.refine_chips.filter((c): c is string => typeof c === "string")
       : [];
@@ -421,7 +453,7 @@ export async function POST(request: NextRequest) {
       scores,
       code,
       confidence,
-      positive: parsed.positive ?? [],
+      positive: normalizedPositive,
       negative: normalizedNegative,
       refine_chips: normalizedChips,
       rationale: normalizeRationale(

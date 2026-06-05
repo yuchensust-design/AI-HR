@@ -26,6 +26,7 @@ import {
   extractV2Bullets,
   type RuleMetrics,
 } from "@/lib/diff-metrics";
+import { ensureResumeIds } from "@/lib/m3-id-helpers";
 
 /**
  * 模块 3 / Phase 5 Interactive Review-Confirm(2026-06-02 redesigned per user feedback)
@@ -58,7 +59,15 @@ type ParsedResume = {
   skills?: Record<string, string[]>;
   meta?: { narrative_tag_distribution?: Record<string, number> };
 } | null;
-type JdCtx = { jd_summary?: string; must_have?: string[]; gaps?: { fixable?: string }[] } | null;
+type JdCtx = {
+  jd_summary?: string;
+  must_have?: string[];
+  gaps?: { fixable?: string }[];
+  /** plan offer-1-sparkling-hippo P1:M6 跳过来但没拿到 JD 全文 → true,UI 展示低置信提示 */
+  placeholder_mode?: boolean;
+  role_name?: string;
+  company?: string;
+} | null;
 type HiddenList = unknown[];
 type RejectionMap = Record<string, RejectReason>;
 type FromDebriefHighlight = { evidence: string; source_question?: string } | null;
@@ -85,7 +94,7 @@ function ResultContent() {
   const router = useRouter();
   const { isLoggedInWithConv, dbData, convQs, saveField } = useM3DBSync();
 
-  const [localParsedResume] = useLocalState<ParsedResume>(STORAGE_KEYS.PARSED_RESUME, null);
+  const [localParsedResume, setLocalParsedResume] = useLocalState<ParsedResume>(STORAGE_KEYS.PARSED_RESUME, null);
   const [localJdContext] = useLocalState<JdCtx>(STORAGE_KEYS.JD_CONTEXT, null);
   const [localHidden, setLocalHidden] = useLocalState<HiddenList>(STORAGE_KEYS.HIDDEN_EXPERIENCES, []);
   const [, setRejectionReasons] = useLocalState<RejectionMap>(
@@ -141,6 +150,20 @@ function ResultContent() {
     }
   }, []);
 
+  // P0-B(offer-1-sparkling-hippo):为 parsedResume 注入稳定 bullet/item ID,
+  // Live Preview 写回时优先按 ID 找,避免章节重排后 target 字符串失配。
+  // 幂等:hasAllResumeIds 检测,已齐全则不触发 setter。
+  useEffect(() => {
+    if (!parsedResume) return;
+    const withIds = ensureResumeIds(parsedResume);
+    if (withIds === parsedResume) return; // 已经齐全,不重写
+    if (isLoggedInWithConv) {
+      saveField("parsed_resume_json", withIds);
+    } else {
+      setLocalParsedResume(withIds);
+    }
+  }, [parsedResume, isLoggedInWithConv, saveField, setLocalParsedResume]);
+
   const loadSuggestions = useCallback(async () => {
     if (!parsedResume) return;
     setStatus("loading");
@@ -163,15 +186,20 @@ function ResultContent() {
       const parsed = (await res.json()) as SuggestEditsResult;
       setData(parsed);
 
-      // Auto-accept top high-priority edits per default_accept_count
+      // Auto-accept 风险分级(offer-1-sparkling-hippo):
+      // 仅放行 claim_type === "explicit" && priority === "high" 的 edit。
+      // inferred / needs_confirmation / forbidden 一律保持待确认,由用户手动决策。
+      // 老数据没 claim_type 时按 needs_confirmation 兜底,因此老 demo 也会变成"保守模式"。
       const initialDecisions: DecisionsMap = {};
-      const highPriorityEdits = parsed.edits.filter((e) => e.priority === "high");
+      const safeAutoAcceptable = parsed.edits.filter(
+        (e) => e.priority === "high" && e.claim_type === "explicit",
+      );
       const autoAcceptCount = Math.min(
         parsed.default_accept_count ?? 3,
-        highPriorityEdits.length
+        safeAutoAcceptable.length,
       );
       for (let i = 0; i < autoAcceptCount; i++) {
-        initialDecisions[highPriorityEdits[i].id] = "accept";
+        initialDecisions[safeAutoAcceptable[i].id] = "accept";
       }
       setDecisions(initialDecisions);
       setStatus("ready");
@@ -521,6 +549,20 @@ function ResultContent() {
             <p className="text-xs text-ink-muted mt-3 leading-relaxed bg-warm-bg-deep/40 border border-border rounded-md px-3 py-2">
               ℹ️ Offer 捕手只重组你提供过的素材,不会替你发明经历。每条建议都标注来源(JD / 简历 / 经历挖掘 / 面试),你可以逐条拒绝、修改或覆盖。
             </p>
+            {/* placeholder_mode 提示(plan offer-1-sparkling-hippo P1):M6 跳过来但没拿到 JD 全文 */}
+            {jdContext?.placeholder_mode && (
+              <div className="mt-3 leading-relaxed bg-esther-yellow/15 border border-esther-yellow/50 rounded-md px-3 py-2">
+                <p className="text-xs text-ink">
+                  ⚠️ <strong>岗位摘要模式</strong>:当前 JD 全文未能从 M6 抓到(可能是平台反爬或岗位下架),仅基于
+                  <span className="font-medium"> {jdContext.role_name ?? "(岗位名)"}{jdContext.company ? ` @ ${jdContext.company}` : ""} </span>
+                  做岗位推断。
+                </p>
+                <p className="text-[11px] text-ink-soft mt-1">
+                  本次所有改写建议的 claim_type 已自动降级为 <code className="font-mono text-ink">inferred</code>(置信度 medium),
+                  建议你回 M6 点开原始岗位页面手动复制 JD 后回来重做一次。
+                </p>
+              </div>
+            )}
           </div>
         </section>
 
@@ -690,6 +732,30 @@ function ResultContent() {
               })()}
             </div>
             </div>
+            {/* Tracker 前置入口(plan offer-1-sparkling-hippo P2):简历版本 → Tracker 闭环 */}
+            <div className="max-w-[1400px] mx-auto px-6 pb-12">
+              <Card className="p-5 border-2 border-esther-blue/30 bg-esther-blue/5">
+                <div className="flex items-start gap-4 flex-wrap">
+                  <div className="flex-1 min-w-[280px]">
+                    <p className="font-display italic text-xs text-esther-blue mb-1">
+                      Next loop · Tracker
+                    </p>
+                    <h3 className="text-base font-semibold text-ink mb-1">
+                      📊 改完简历就开始投递 — 投了什么、回了什么,一起跟踪
+                    </h3>
+                    <p className="text-xs text-ink-soft leading-relaxed">
+                      把这一版简历加进「投递追踪」,后续回复率 / 面试转化率自动算出来。10 条以上才出转化结论,样本不足时不乱给百分比。
+                    </p>
+                  </div>
+                  <Link
+                    href="/tracker"
+                    className="inline-flex items-center justify-center rounded-full bg-esther-blue text-white px-5 py-2.5 text-sm font-medium hover:bg-esther-blue-dark transition-colors"
+                  >
+                    去投递追踪 →
+                  </Link>
+                </div>
+              </Card>
+            </div>
           </div>
         )}
 
@@ -714,7 +780,37 @@ function ResumePreview({
 }) {
   function getBulletText(section: "experience" | "projects" | "activities", sectionIdx: number, bulletIdx: number, originalText: string): { text: string; status: "original" | "accepted" | "rejected" } {
     const target = `${section}[${sectionIdx}].bullets[${bulletIdx}]`;
-    const matched = edits.find((e) => e.target === target);
+    // 双轨 lookup(offer-1-sparkling-hippo P0-B):
+    //   1. 先按 target 字符串匹配(最快,绝大多数 case 走这里)
+    //   2. 再按 edit.bullet_id 匹配:lookup 当前 parsedResume 中相同 bullet_id 的 bullet 位置
+    //   3. 再按 edit.original_text 模糊匹配:LLM 偶尔写错 target 时的兜底
+    let matched = edits.find((e) => e.target === target);
+    if (!matched) {
+      // 解析当前位置的 bullet_id,再到 edits 里找 bullet_id 一致的
+      const currentBulletId = (() => {
+        const items = (parsedResume as Record<string, unknown>)?.[section];
+        if (!Array.isArray(items)) return null;
+        const it = items[sectionIdx] as { bullets?: Array<{ id?: string } | string> } | undefined;
+        const b = it?.bullets?.[bulletIdx];
+        if (!b || typeof b === "string") return null;
+        return b.id ?? null;
+      })();
+      if (currentBulletId) {
+        matched = edits.find((e) => e.bullet_id === currentBulletId);
+      }
+    }
+    if (!matched) {
+      // original_text 模糊匹配(70% 字符重叠)
+      matched = edits.find((e) => {
+        if (!e.original_text || e.original_text === "(新增)" || e.original_text === "(JD 缺口)") return false;
+        if (e.original_text.length < 10 || originalText.length < 10) return false;
+        const a = new Set(e.original_text.replace(/\s/g, ""));
+        const b = new Set(originalText.replace(/\s/g, ""));
+        const inter = [...a].filter((c) => b.has(c)).length;
+        const union = new Set([...a, ...b]).size;
+        return union > 0 && inter / union >= 0.7;
+      });
+    }
     if (!matched) return { text: originalText, status: "original" };
     const d = decisions[matched.id];
     if (d === "accept") return { text: rewritten[matched.id] ?? matched.suggested_text, status: "accepted" };
