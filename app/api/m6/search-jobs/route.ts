@@ -71,7 +71,74 @@ export async function POST(request: NextRequest) {
         seenKey.add(key);
         return true;
       });
+
+      // ==== Post-filter(plan offer-1-sparkling-hippo P1)====
+      // 减少"搜 AI 产品实习出现总账会计"这类不相关结果
+      // Mock fallback 数据已保证 role 匹配 + 经验合适,跳过 filter 避免误杀(如 "产品经理" 命中 /经理/ 正则)
+      if (data.isMock) {
+        data.total = data.jobs.length;
+        data.anti_noise_filtered = 0;
+        return NextResponse.json(data);
+      }
+      const roleKw = role.toLowerCase();
+      const wantsIntern = /实习|intern/.test(roleKw);
+      const wantsGraduate = /校招|应届|graduate/.test(roleKw);
+      const roleTokens: string[] = roleKw
+        .replace(/[实习生|实习|校招|应届|岗|师|员]/g, " ")
+        .split(/\s+/)
+        .filter((t: string) => t.length >= 1);
+
+      const beforeFilter = data.jobs.length;
+      data.jobs = data.jobs.filter(
+        (j: {
+          title?: string;
+          city?: string;
+          experience?: string;
+          salary?: string;
+        }) => {
+          const title = (j.title ?? "").toLowerCase();
+          const exp = (j.experience ?? "").toLowerCase();
+          const jobCity = (j.city ?? "").toLowerCase();
+
+          // 1) 实习关键词:title 必须含 实习 / intern,或经验 = 无 / 在校
+          if (wantsIntern) {
+            const hasInternMarker =
+              /实习|intern/.test(title) ||
+              /无经验|无要求|在校|应届/.test(exp);
+            if (!hasInternMarker) return false;
+          }
+
+          // 2) 校招应届:title 含 校招 / 应届 / 实习,或 exp 含 应届 / 无经验
+          if (wantsGraduate) {
+            const hasGradMarker =
+              /校招|应届|实习/.test(title) ||
+              /应届|无经验/.test(exp);
+            if (!hasGradMarker) return false;
+          }
+
+          // 3) 经验过滤:title / experience 含 "3 年以上" / "5 年" / "10 年" → 排除(学生场景)
+          const seniorMatch = /(3-?5|5-?10|3年以上|5年以上|10年|经验丰富|资深|高级|总监|leader|经理)/.test(
+            `${title} ${exp}`,
+          );
+          if (seniorMatch) return false;
+
+          // 4) 城市过滤:用户指定 city 时,job.city 必须包含或为空(空表示远程/未填)
+          if (city && jobCity && !jobCity.includes(city.toLowerCase()) && !city.toLowerCase().includes(jobCity)) {
+            return false;
+          }
+
+          // 5) 标题相关性:title 必须命中 role 的至少 1 个 token(避免完全不相关)
+          if (roleTokens.length > 0) {
+            const matched = roleTokens.some((t) => title.includes(t));
+            if (!matched) return false;
+          }
+
+          return true;
+        },
+      );
+
       data.total = data.jobs.length;
+      data.anti_noise_filtered = beforeFilter - data.jobs.length;
     }
 
     return NextResponse.json(data);

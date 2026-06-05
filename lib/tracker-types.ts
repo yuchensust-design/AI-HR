@@ -112,7 +112,19 @@ export type Metrics = {
   sampleCount: number;
   /** 数据中真实(非 sample)数 */
   realCount: number;
+  /**
+   * 转化率可信度(plan offer-1-sparkling-hippo P1):
+   *   "ok"   — 真实样本 ≥ MIN_RELIABLE_SAMPLE,转化率可放心展示
+   *   "weak" — 真实样本 < MIN_RELIABLE_SAMPLE,UI 应模糊化展示比率(eg 不显示精确百分比,改"样本不足,建议累计后再看")
+   *   "empty"— 还没投出去任何一份
+   */
+  reliability: "ok" | "weak" | "empty";
+  /** 模糊化阈值:真实样本 < 10 → weak;< 1 → empty */
+  reliableSampleThreshold: number;
 };
+
+/** plan offer-1-sparkling-hippo P1:转化率可信样本阈值 */
+export const MIN_RELIABLE_SAMPLE = 10;
 
 export type DirectionMetric = {
   direction: RoleDirection;

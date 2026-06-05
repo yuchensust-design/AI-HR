@@ -11,6 +11,7 @@ import {
   DIRECTION_LABELS,
   DirectionMetric,
   Metrics,
+  MIN_RELIABLE_SAMPLE,
   RoleDirection,
 } from "./tracker-types";
 
@@ -106,6 +107,10 @@ export function computeMetrics(applications: Application[]): Metrics {
   const sampleCount = list.filter((a) => a.isSample).length;
   const realCount = total - sampleCount;
 
+  // plan offer-1-sparkling-hippo P1:转化率可信度,真实样本不够时 UI 模糊化展示
+  const reliability: "ok" | "weak" | "empty" =
+    realCount === 0 ? "empty" : realCount < MIN_RELIABLE_SAMPLE ? "weak" : "ok";
+
   return {
     total,
     applied,
@@ -122,6 +127,8 @@ export function computeMetrics(applications: Application[]): Metrics {
     byDirection,
     sampleCount,
     realCount,
+    reliability,
+    reliableSampleThreshold: MIN_RELIABLE_SAMPLE,
   };
 }
 

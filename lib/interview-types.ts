@@ -88,6 +88,12 @@ export type DebriefScore = {
   dim: DebriefDim;
   score: number;
   evidence: string;
+  /**
+   * 低分示范回答(plan offer-1-sparkling-hippo P1):
+   * 维度 score ≤ 2 时,LLM 必须给一段 "如果重新答可以这样组织" 的示范回答,
+   * 让用户拿到改进路径而不是只挨打。score ≥ 3 时此字段为 null。
+   */
+  improvement_example?: string | null;
 };
 
 export type DebriefHighlight = {

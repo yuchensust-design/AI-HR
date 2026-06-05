@@ -166,6 +166,24 @@ export function generateCandidates(
 }
 
 /**
+ * 可投性等级(plan offer-1-sparkling-hippo P1):
+ *   "now"            — 应届可直接投递(Job Zone 1-2,本科以下即可入门)
+ *   "needs_project"  — 需要项目 / 经验补强后才可投(Job Zone 3,一些实战经验)
+ *   "long_term"      — 长期深造方向,不适合短期投递(Job Zone 4-5,硕博 / 多年经验)
+ *
+ * RIASEC 给的是兴趣倾向,不能承诺"短期可投";这个字段让 UI 把"应届可投"和"长期方向"
+ * 分组展示,避免迷茫学生看到"教授 / 研究员"这类长期职业误以为是短期推荐。
+ */
+export type Employability = "now" | "needs_project" | "long_term";
+
+export function careerEmployability(career: CareerEntry): Employability {
+  const zone = career.job_zone;
+  if (zone <= 2) return "now";
+  if (zone === 3) return "needs_project";
+  return "long_term"; // 4-5
+}
+
+/**
  * 按行业大类分组(用于 result 页层级展示)
  * 输入 top N 推荐(已排序)→ 按 industry_cn 分组,保留原顺序
  */

@@ -7,11 +7,15 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { chat } from "@/lib/llm";
+import {
+  buildSourceCorpus,
+  normalizeSuggestedText,
+} from "@/lib/m3-normalize";
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { edit, parsedResume, jdContext } = body;
+    const { edit, parsedResume, jdContext, hiddenExperiences, fromDebriefHighlight } = body;
 
     if (!edit || !edit.original_text) {
       return NextResponse.json({ error: "edit + original_text required" }, { status: 400 });
@@ -63,8 +67,25 @@ JD context: ${JSON.stringify(jdContext ?? null, null, 2).slice(0, 800)}
       return NextResponse.json({ error: "LLM JSON parse failed", raw: raw.slice(0, 300) }, { status: 502 });
     }
 
+    // 反编造 normalize:数字溯源校验 + 强承诺词审查(offer-1-sparkling-hippo)
+    const corpus = buildSourceCorpus({
+      parsedResume,
+      jdContext,
+      hiddenExperiences,
+      fromDebriefHighlight,
+    });
+    const [safeText, report] = normalizeSuggestedText(
+      String(parsed.suggested_text ?? ""),
+      corpus,
+      edit.claim_type,
+    );
+
     return NextResponse.json({
-      suggested_text: String(parsed.suggested_text ?? ""),
+      suggested_text: safeText,
+      claim_type: report.resolvedClaimType,
+      fab_normalized: report.modified,
+      replaced_tokens: report.replacedTokens,
+      strong_claims_hit: report.strongClaimsHit,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";

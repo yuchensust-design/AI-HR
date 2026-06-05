@@ -526,9 +526,49 @@ export default function Module2Page() {
                 <b className="text-ink">{intake.stories.length}</b> 个故事 ·{" "}
                 <b className="text-ink">{bullets.length}</b> 条候选 bullet
               </p>
+
+              {/* 已识别证据 panel(plan offer-1-sparkling-hippo P1)
+                  从 roles 的 charter + scale 和 stories 的 star.result 抽取数字 / 规模 / 角色名等
+                  让用户看到 "原来这些细节已经被记住了" */}
+              {(() => {
+                const evidence: string[] = [];
+                // 从 roles 拿 scale 和 role
+                intake.roles.forEach((r) => {
+                  if (r.scale) evidence.push(`${r.scale}(${r.role ?? "角色"})`);
+                  else if (r.role) evidence.push(r.role);
+                });
+                // 从 stories 抽数字证据
+                const NUM_RE = /\d+\.?\d*[+]?[%]?(?:\s*(?:人|份|个|场|条|篇|轮|款|家|位|名|周|月|小时|分钟))?/g;
+                intake.stories.forEach((s) => {
+                  const result = s.star?.result ?? "";
+                  const matches = result.match(NUM_RE);
+                  if (matches) matches.slice(0, 2).forEach((m) => evidence.push(m));
+                });
+                const unique = Array.from(new Set(evidence)).slice(0, 8);
+                if (unique.length === 0) return null;
+                return (
+                  <div className="mt-3 pt-3 border-t border-border">
+                    <p className="text-[10px] text-ink-muted mb-1 font-display italic uppercase tracking-wider">
+                      Evidence captured
+                    </p>
+                    <p className="text-[10px] text-ink-soft mb-2">已识别证据:</p>
+                    <div className="flex flex-wrap gap-1">
+                      {unique.map((ev, i) => (
+                        <span
+                          key={i}
+                          className="inline-flex items-center px-1.5 py-0.5 rounded bg-esther-blue/10 text-esther-blue text-[10px]"
+                        >
+                          {ev}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
+
               <button
                 onClick={reset}
-                className="mt-2 text-[11px] text-ink-soft hover:text-esther-red transition-colors underline"
+                className="mt-3 text-[11px] text-ink-soft hover:text-esther-red transition-colors underline"
               >
                 清空重来
               </button>

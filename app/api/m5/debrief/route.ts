@@ -71,11 +71,16 @@ const SYSTEM_PROMPT = `你是「Offer 捕手」的面试复盘评分师。整场
 {
   "evaluable": true,
   "scores": [
-    { "dim": "逻辑性", "score": 4, "evidence": "Q3 你说过『...』,STAR 4 要素完整,但缺 trade-off 解释" },
-    { "dim": "具体性", "score": 3, "evidence": "..." },
-    { "dim": "应答清晰度", "score": 4, "evidence": "..." },
-    { "dim": "口水话频次", "score": 3, "evidence": "..." }
+    { "dim": "逻辑性", "score": 4, "evidence": "Q3 你说过『...』,STAR 4 要素完整,但缺 trade-off 解释", "improvement_example": null },
+    { "dim": "具体性", "score": 3, "evidence": "...", "improvement_example": null },
+    { "dim": "应答清晰度", "score": 4, "evidence": "...", "improvement_example": null },
+    { "dim": "口水话频次", "score": 3, "evidence": "...", "improvement_example": null }
   ],
+  // ★ (plan offer-1-sparkling-hippo P1)improvement_example 规则:
+  //   - score ≥ 3 → improvement_example = null
+  //   - score ≤ 2 → improvement_example = 一段示范回答(120-200 字),展示"如果重新答,可以这样组织"
+  //     · 必须基于用户 transcript 里真实出现过的内容做改写,不编造经历
+  //     · 写得自然,不要写"如下..."这种生硬开头,直接给一段完整的口语化改进示范
   "evidence": {
     "logic": "(同 scores[0].evidence,1 句话不重复总分维度信息)",
     "specific": "...",
@@ -140,17 +145,30 @@ function normalizeScores(raw: unknown): DebriefScore[] {
       VALID_DIMS.includes(item.dim as DebriefDim)
         ? (item.dim as DebriefDim)
         : dim;
+    const finalScore = clamp1to5(item.score ?? item.rating ?? 3);
+    const rawImprov =
+      typeof item.improvement_example === "string"
+        ? scrubCompanyNames(item.improvement_example.trim())
+        : null;
     out.push({
       dim: incomingDim,
-      score: clamp1to5(item.score ?? item.rating ?? 3),
+      score: finalScore,
       evidence: scrubCompanyNames(
         ((item.evidence as string) ?? (item.reason as string) ?? "").trim()
       ),
+      // 仅 score ≤ 2 时保留示范回答;score ≥ 3 时强制 null(避免 LLM 漏掉规则)
+      improvement_example: finalScore <= 2 ? rawImprov || null : null,
     });
   }
   // 顺序按 VALID_DIMS 排
   return VALID_DIMS.map(
-    (d) => out.find((s) => s.dim === d) ?? { dim: d, score: 3, evidence: "" }
+    (d) =>
+      out.find((s) => s.dim === d) ?? {
+        dim: d,
+        score: 3,
+        evidence: "",
+        improvement_example: null,
+      },
   );
 }
 
