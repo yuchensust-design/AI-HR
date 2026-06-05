@@ -288,13 +288,13 @@ function DiscoverPageInner() {
           {/* Header */}
           <header className="mb-6">
             <p className="font-display italic text-sm text-esther-blue mb-2">
-              Module 6 · Multi-Agent powered
+              Look for jobs
             </p>
             <h1 className="text-3xl md:text-4xl font-bold text-ink mb-2">
-              🎯 智能岗位匹配
+              🎯 找适合你的岗位
             </h1>
             <p className="text-ink-soft text-sm">
-              从 BOSS 直聘、前程无忧(51job)实时抓取真实在招岗位,4 阶段 AI Agent 流水线为你打分、解释、推荐
+              从主流招聘站抓取真实在招岗位,AI 帮你按简历评分、推荐、解释为什么适合。
             </p>
           </header>
 
@@ -538,7 +538,7 @@ function RecommendTab({
               disabled={loading}
               className="w-full sm:w-auto px-6 py-3 rounded-lg bg-esther-yellow text-ink font-semibold hover:bg-esther-yellow/80 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm border-2 border-esther-yellow/60"
             >
-              {loading ? "AI 正在工作..." : "✨ 启动 4 阶段 AI 推荐流水线 →"}
+              {loading ? "AI 正在工作..." : "✨ 用我的简历推荐岗位 →"}
             </button>
             <p className="text-xs text-ink-muted mt-2">
               全流程约 60-90 秒。会调爬虫抓取 + 3 次 LLM 评分 / 改写。
