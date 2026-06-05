@@ -26,6 +26,7 @@ import {
   extractV2Bullets,
   type RuleMetrics,
 } from "@/lib/diff-metrics";
+import { ensureResumeIds } from "@/lib/m3-id-helpers";
 
 /**
  * 模块 3 / Phase 5 Interactive Review-Confirm(2026-06-02 redesigned per user feedback)
@@ -85,7 +86,7 @@ function ResultContent() {
   const router = useRouter();
   const { isLoggedInWithConv, dbData, convQs, saveField } = useM3DBSync();
 
-  const [localParsedResume] = useLocalState<ParsedResume>(STORAGE_KEYS.PARSED_RESUME, null);
+  const [localParsedResume, setLocalParsedResume] = useLocalState<ParsedResume>(STORAGE_KEYS.PARSED_RESUME, null);
   const [localJdContext] = useLocalState<JdCtx>(STORAGE_KEYS.JD_CONTEXT, null);
   const [localHidden, setLocalHidden] = useLocalState<HiddenList>(STORAGE_KEYS.HIDDEN_EXPERIENCES, []);
   const [, setRejectionReasons] = useLocalState<RejectionMap>(
@@ -140,6 +141,20 @@ function ResultContent() {
       // ignore
     }
   }, []);
+
+  // P0-B(offer-1-sparkling-hippo):为 parsedResume 注入稳定 bullet/item ID,
+  // Live Preview 写回时优先按 ID 找,避免章节重排后 target 字符串失配。
+  // 幂等:hasAllResumeIds 检测,已齐全则不触发 setter。
+  useEffect(() => {
+    if (!parsedResume) return;
+    const withIds = ensureResumeIds(parsedResume);
+    if (withIds === parsedResume) return; // 已经齐全,不重写
+    if (isLoggedInWithConv) {
+      saveField("parsed_resume_json", withIds);
+    } else {
+      setLocalParsedResume(withIds);
+    }
+  }, [parsedResume, isLoggedInWithConv, saveField, setLocalParsedResume]);
 
   const loadSuggestions = useCallback(async () => {
     if (!parsedResume) return;
@@ -719,7 +734,37 @@ function ResumePreview({
 }) {
   function getBulletText(section: "experience" | "projects" | "activities", sectionIdx: number, bulletIdx: number, originalText: string): { text: string; status: "original" | "accepted" | "rejected" } {
     const target = `${section}[${sectionIdx}].bullets[${bulletIdx}]`;
-    const matched = edits.find((e) => e.target === target);
+    // 双轨 lookup(offer-1-sparkling-hippo P0-B):
+    //   1. 先按 target 字符串匹配(最快,绝大多数 case 走这里)
+    //   2. 再按 edit.bullet_id 匹配:lookup 当前 parsedResume 中相同 bullet_id 的 bullet 位置
+    //   3. 再按 edit.original_text 模糊匹配:LLM 偶尔写错 target 时的兜底
+    let matched = edits.find((e) => e.target === target);
+    if (!matched) {
+      // 解析当前位置的 bullet_id,再到 edits 里找 bullet_id 一致的
+      const currentBulletId = (() => {
+        const items = (parsedResume as Record<string, unknown>)?.[section];
+        if (!Array.isArray(items)) return null;
+        const it = items[sectionIdx] as { bullets?: Array<{ id?: string } | string> } | undefined;
+        const b = it?.bullets?.[bulletIdx];
+        if (!b || typeof b === "string") return null;
+        return b.id ?? null;
+      })();
+      if (currentBulletId) {
+        matched = edits.find((e) => e.bullet_id === currentBulletId);
+      }
+    }
+    if (!matched) {
+      // original_text 模糊匹配(70% 字符重叠)
+      matched = edits.find((e) => {
+        if (!e.original_text || e.original_text === "(新增)" || e.original_text === "(JD 缺口)") return false;
+        if (e.original_text.length < 10 || originalText.length < 10) return false;
+        const a = new Set(e.original_text.replace(/\s/g, ""));
+        const b = new Set(originalText.replace(/\s/g, ""));
+        const inter = [...a].filter((c) => b.has(c)).length;
+        const union = new Set([...a, ...b]).size;
+        return union > 0 && inter / union >= 0.7;
+      });
+    }
     if (!matched) return { text: originalText, status: "original" };
     const d = decisions[matched.id];
     if (d === "accept") return { text: rewritten[matched.id] ?? matched.suggested_text, status: "accepted" };

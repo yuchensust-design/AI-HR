@@ -21,6 +21,14 @@ export type ClaimType = "explicit" | "inferred" | "needs_confirmation" | "forbid
 export type EditSuggestion = {
   id: string;
   target: string;
+  /**
+   * 稳定 bullet ID(offer-1-sparkling-hippo P0-B) — server 端通过 target 反查 parsedResume
+   * 中对应 bullet 的稳定 id 后注入。Live Preview lookup 优先 by bullet_id,
+   * 简历重新解析章节顺序变化后仍能写回正确 bullet。
+   *
+   * 老数据可能没有,Live Preview fallback 走 target 字符串 + original_text 模糊匹配。
+   */
+  bullet_id?: string;
   original_text: string;
   suggested_text: string;
   /** 反编造风险分级(offer-1-sparkling-hippo) — 旧数据可能没有,UI 按 "needs_confirmation" 兜底 */

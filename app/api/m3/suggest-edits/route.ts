@@ -41,6 +41,11 @@ import {
   buildSourceCorpus,
   normalizeEditSuggestions,
 } from "@/lib/m3-normalize";
+import {
+  ensureResumeIds,
+  lookupBulletId,
+  parseBulletTarget,
+} from "@/lib/m3-id-helpers";
 import type { ClaimType, EditSuggestion } from "@/components/EditSuggestionCard";
 
 const PROMPT_MAIN = `你是「Offer 捕手」模块 3 简历整理 Phase 5 改动建议引擎。
@@ -186,6 +191,10 @@ export async function POST(request: NextRequest) {
     if (!parsedResume) {
       return NextResponse.json({ error: "parsedResume required" }, { status: 400 });
     }
+
+    // P0-B(offer-1-sparkling-hippo):server 端也做一次 ensureResumeIds,
+    // 即使前端老数据没 id 也能给 edits 注入 bullet_id。幂等,不破坏已有 id。
+    const parsedResumeWithIds = ensureResumeIds(parsedResume);
 
     // === Step 1: skill router 决定加载哪几段 ===
     const persona = inferPersona(parsedResume, jdContext ?? null);
@@ -357,10 +366,21 @@ ${JSON.stringify(fromDebriefHighlight ?? null, null, 2)}
 
         const claimType = inferClaimType(el.claim_type, fabWarning, confidence);
         const evidenceAudit = normalizeEvidenceAudit(el.evidence_audit, source, evidenceSource);
+        // P0-B(offer-1-sparkling-hippo):根据 target 反查 parsedResume 中对应 bullet 的稳定 id
+        const targetParts = parseBulletTarget(target);
+        const bulletId = targetParts
+          ? lookupBulletId(
+              parsedResumeWithIds,
+              targetParts.section,
+              targetParts.sectionIdx,
+              targetParts.bulletIdx,
+            )
+          : null;
 
         return {
           id: String(el.id ?? `edit-${String(i + 1).padStart(3, "0")}`),
           target,
+          bullet_id: bulletId ?? undefined,
           original_text: String(el.original_text ?? ""),
           suggested_text: suggestedText,
           evidence_source: evidenceSource,
