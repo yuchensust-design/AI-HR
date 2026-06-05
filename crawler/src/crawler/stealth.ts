@@ -82,7 +82,7 @@ export async function newStealthContext(
     const orig = navigator.permissions.query.bind(navigator.permissions);
     navigator.permissions.query = (params: PermissionDescriptor) =>
       params.name === "notifications"
-        ? Promise.resolve({ state: "default" } as PermissionStatus)
+        ? Promise.resolve({ state: "default" } as unknown as PermissionStatus)
         : orig(params);
   });
 
