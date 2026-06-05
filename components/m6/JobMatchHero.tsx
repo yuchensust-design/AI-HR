@@ -46,7 +46,7 @@ export function JobMatchHero() {
       <div className="max-w-[1100px] mx-auto px-6 py-14 relative">
         <div className="text-center mb-7">
           <p className="font-display italic text-sm text-esther-blue mb-2">
-            New · Multi-Agent powered
+            See real jobs
           </p>
           <h2 className="text-3xl md:text-4xl font-bold text-ink mb-3">
             🎯 看真实岗位 + AI 推荐最匹配的机会

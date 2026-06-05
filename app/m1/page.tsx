@@ -119,7 +119,7 @@ export default function Module1EntryPage() {
               先让我了解一下你
             </h1>
             <p className="text-base md:text-lg text-ink-soft leading-relaxed mb-8 max-w-2xl">
-              18 题 RIASEC 测评 + 1 题兴趣 tag · 3-4 分钟做完 · 然后给你
+              18 题职业兴趣测评 + 1 题兴趣选择 · 3-4 分钟做完 · 然后给你
               <span
                 className="bg-esther-yellow/40 mx-1"
                 style={{ padding: "0 0.15em" }}
@@ -209,10 +209,10 @@ export default function Module1EntryPage() {
               {/* 左:雷达图 */}
               <div className="bg-card rounded-3xl p-6 border-2 border-border shadow-sm">
                 <p className="font-display italic text-xs text-esther-blue mb-1 text-center">
-                  Your RIASEC Code
+                  你的职业兴趣画像
                 </p>
-                <p className="text-center text-lg font-bold text-ink mb-3 font-display italic">
-                  {SAMPLE.riasecCode}
+                <p className="text-center text-xs text-ink-muted mb-3">
+                  <span className="font-mono">{SAMPLE.riasecCode}</span>
                 </p>
                 <RIASECRadar scores={SAMPLE.riasec} />
                 <p className="text-[11px] text-ink-muted text-center mt-2">
