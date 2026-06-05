@@ -59,7 +59,15 @@ type ParsedResume = {
   skills?: Record<string, string[]>;
   meta?: { narrative_tag_distribution?: Record<string, number> };
 } | null;
-type JdCtx = { jd_summary?: string; must_have?: string[]; gaps?: { fixable?: string }[] } | null;
+type JdCtx = {
+  jd_summary?: string;
+  must_have?: string[];
+  gaps?: { fixable?: string }[];
+  /** plan offer-1-sparkling-hippo P1:M6 跳过来但没拿到 JD 全文 → true,UI 展示低置信提示 */
+  placeholder_mode?: boolean;
+  role_name?: string;
+  company?: string;
+} | null;
 type HiddenList = unknown[];
 type RejectionMap = Record<string, RejectReason>;
 type FromDebriefHighlight = { evidence: string; source_question?: string } | null;
@@ -541,6 +549,20 @@ function ResultContent() {
             <p className="text-xs text-ink-muted mt-3 leading-relaxed bg-warm-bg-deep/40 border border-border rounded-md px-3 py-2">
               ℹ️ Offer 捕手只重组你提供过的素材,不会替你发明经历。每条建议都标注来源(JD / 简历 / 经历挖掘 / 面试),你可以逐条拒绝、修改或覆盖。
             </p>
+            {/* placeholder_mode 提示(plan offer-1-sparkling-hippo P1):M6 跳过来但没拿到 JD 全文 */}
+            {jdContext?.placeholder_mode && (
+              <div className="mt-3 leading-relaxed bg-esther-yellow/15 border border-esther-yellow/50 rounded-md px-3 py-2">
+                <p className="text-xs text-ink">
+                  ⚠️ <strong>岗位摘要模式</strong>:当前 JD 全文未能从 M6 抓到(可能是平台反爬或岗位下架),仅基于
+                  <span className="font-medium"> {jdContext.role_name ?? "(岗位名)"}{jdContext.company ? ` @ ${jdContext.company}` : ""} </span>
+                  做岗位推断。
+                </p>
+                <p className="text-[11px] text-ink-soft mt-1">
+                  本次所有改写建议的 claim_type 已自动降级为 <code className="font-mono text-ink">inferred</code>(置信度 medium),
+                  建议你回 M6 点开原始岗位页面手动复制 JD 后回来重做一次。
+                </p>
+              </div>
+            )}
           </div>
         </section>
 
@@ -709,6 +731,30 @@ function ResultContent() {
                 );
               })()}
             </div>
+            </div>
+            {/* Tracker 前置入口(plan offer-1-sparkling-hippo P2):简历版本 → Tracker 闭环 */}
+            <div className="max-w-[1400px] mx-auto px-6 pb-12">
+              <Card className="p-5 border-2 border-esther-blue/30 bg-esther-blue/5">
+                <div className="flex items-start gap-4 flex-wrap">
+                  <div className="flex-1 min-w-[280px]">
+                    <p className="font-display italic text-xs text-esther-blue mb-1">
+                      Next loop · Tracker
+                    </p>
+                    <h3 className="text-base font-semibold text-ink mb-1">
+                      📊 改完简历就开始投递 — 投了什么、回了什么,一起跟踪
+                    </h3>
+                    <p className="text-xs text-ink-soft leading-relaxed">
+                      把这一版简历加进「投递追踪」,后续回复率 / 面试转化率自动算出来。10 条以上才出转化结论,样本不足时不乱给百分比。
+                    </p>
+                  </div>
+                  <Link
+                    href="/tracker"
+                    className="inline-flex items-center justify-center rounded-full bg-esther-blue text-white px-5 py-2.5 text-sm font-medium hover:bg-esther-blue-dark transition-colors"
+                  >
+                    去投递追踪 →
+                  </Link>
+                </div>
+              </Card>
             </div>
           </div>
         )}

@@ -493,6 +493,23 @@ ${JSON.stringify(fromDebriefHighlight ?? null, null, 2)}
     // gap-alert 不参与 normalize(它的 suggested_text 是 JD 缺口描述,不是简历改写)
     const gapAlerts = edits.filter((e) => e.category === "gap-alert");
     const writeableEdits = edits.filter((e) => e.category !== "gap-alert");
+
+    // placeholder_mode(plan offer-1-sparkling-hippo P1):
+    // M6 → M3 但 job-detail 503 没拿到 JD 全文 → 仅基于岗位摘要推断
+    // 在这个模式下,suggest-edits 输出的 claim_type 一律不允许是 explicit(降到 inferred)
+    const isPlaceholderMode = Boolean(
+      (jdContext as { placeholder_mode?: boolean } | null)?.placeholder_mode,
+    );
+    if (isPlaceholderMode) {
+      writeableEdits.forEach((e) => {
+        if (e.claim_type === "explicit") {
+          e.claim_type = "inferred";
+          e.fab_warning =
+            (e.fab_warning ?? "") +
+            "\n⚠ 当前为岗位摘要模式(M6 未拿到 JD 全文),所有改动建议降级为 inferred";
+        }
+      });
+    }
     const corpus = buildSourceCorpus({
       parsedResume,
       jdContext,

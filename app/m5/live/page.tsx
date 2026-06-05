@@ -460,6 +460,39 @@ function Module5LiveContent() {
     }
   }, [state.status, state.currentIdx, stream, asr, inputMode]);
 
+  // ASR 卡 init 兜底(plan offer-1-sparkling-hippo P1)
+  // listening 进入 6s 内如果 asr.mode 仍为 null(没建立任何 ASR 通道),提示用户可一键切文字模式
+  const [asrStuckOnInit, setAsrStuckOnInit] = useState(false);
+  useEffect(() => {
+    if (inputMode !== "voice") {
+      setAsrStuckOnInit(false);
+      return;
+    }
+    if (state.status !== "listening") {
+      setAsrStuckOnInit(false);
+      return;
+    }
+    // 已经听到声音,不再提示
+    if (state.currentTranscript || state.interimTranscript) {
+      setAsrStuckOnInit(false);
+      return;
+    }
+    const t = window.setTimeout(() => {
+      // 仍然没听到,且 ASR mode 没 ready
+      if (!state.currentTranscript && !state.interimTranscript && (!asr.mode || asr.mode === "text_input")) {
+        setAsrStuckOnInit(true);
+      }
+    }, 6000);
+    return () => window.clearTimeout(t);
+  }, [
+    state.status,
+    state.currentIdx,
+    state.currentTranscript,
+    state.interimTranscript,
+    asr.mode,
+    inputMode,
+  ]);
+
   // TTS:status === asking 时合成 + 播
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const ttsPlayedForIdx = useRef<number | null>(null);
@@ -1130,6 +1163,35 @@ function Module5LiveContent() {
           {mediaError && (
             <div className="absolute top-6 left-6 max-w-[300px] px-3 py-2 rounded-lg bg-esther-red/10 border border-esther-red/30 text-[11px] text-esther-red">
               ⚠️ {mediaError}
+            </div>
+          )}
+
+          {/* ASR 卡 init 兜底提示(plan offer-1-sparkling-hippo P1) */}
+          {asrStuckOnInit && (
+            <div className="absolute top-6 right-6 max-w-[340px] px-4 py-3 rounded-xl bg-esther-yellow/30 border border-esther-yellow text-xs text-ink">
+              <p className="font-medium mb-1">🎙 暂时没检测到语音</p>
+              <p className="text-[11px] text-ink-soft leading-relaxed mb-2">
+                麦克风可能没授权 / 浏览器不支持语音识别,你可以一键切换到文字答题继续。
+              </p>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setInputMode("text");
+                    setAsrStuckOnInit(false);
+                  }}
+                  className="inline-flex items-center justify-center rounded-full bg-esther-blue text-white px-3 py-1.5 text-[11px] font-medium hover:bg-esther-blue-dark transition-colors"
+                >
+                  ⌨ 切到文字模式
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAsrStuckOnInit(false)}
+                  className="text-[11px] text-ink-soft hover:text-ink"
+                >
+                  我再等等
+                </button>
+              </div>
             </div>
           )}
 

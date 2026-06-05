@@ -44,6 +44,12 @@ type JdContext = {
   raw_jd_text?: string;
   role_name?: string;
   company?: string;
+  /**
+   * placeholder 模式(plan offer-1-sparkling-hippo P1):
+   * M6 用户从岗位卡跳过来但 job-detail 503 拿不到 JD 全文 → 仅有岗位摘要(标题/公司/薪资/城市)
+   * suggest-edits 看到 placeholder_mode 时禁止 explicit claim_type;UI 提示"基于岗位摘要推断,置信度 medium"
+   */
+  placeholder_mode?: boolean;
 };
 
 export default function JdPage() {
@@ -213,11 +219,14 @@ function JdContent() {
         mode === "full"
           ? jdText.trim()
           : `【${roleName.trim()}】@ ${company.trim() || "(公司)"}\n\n（M3 走快速模式，未提供完整 JD 文本，下游模块按岗位名推断）`;
+      // placeholder_mode:M6 跳过来但无 JD 全文(role 模式 + from M6)→ 标记 placeholder,后续 suggest-edits 限制置信度
+      const isPlaceholderMode = mode === "role" && m6Source !== null;
       const enriched: JdContext = {
         ...parsed,
         raw_jd_text: rawForInherit,
         role_name: mode === "role" ? roleName.trim() : parsed.role_name,
         company: mode === "role" ? company.trim() || undefined : parsed.company,
+        placeholder_mode: isPlaceholderMode,
       };
       setJdContext(enriched);
       setResult(enriched);

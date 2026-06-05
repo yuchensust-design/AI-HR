@@ -493,6 +493,20 @@ function Module5DebriefContent() {
                         {s.evidence || "(本场未触发该维度)"}
                       </p>
                     </div>
+                    {/* 低分示范回答(plan offer-1-sparkling-hippo P1):仅 score ≤ 2 且 LLM 给了示范时显示 */}
+                    {s.score <= 2 && s.improvement_example && (
+                      <div className="mt-3 bg-esther-yellow/10 border border-esther-yellow/40 rounded-lg p-3">
+                        <p className="text-[10px] uppercase tracking-wider text-ink-muted font-display italic mb-1.5">
+                          可参考的改进示范
+                        </p>
+                        <p className="text-xs text-ink leading-relaxed">
+                          {s.improvement_example}
+                        </p>
+                        <p className="text-[10px] text-ink-muted mt-2 italic">
+                          ⚠️ 这是 AI 基于你的 transcript 改写的口语化示范,仅供参考练习,不代表标准答案
+                        </p>
+                      </div>
+                    )}
                   </Card>
                 ))}
               </div>

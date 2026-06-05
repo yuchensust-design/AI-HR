@@ -73,11 +73,21 @@ function DiscoverPageInner() {
   const autoSearchTriggered = useRouterAutoSearch(sp, setFilters);
 
   // ============ 搜索 ============
+  // 关键词搜索 4 阶段进度(plan offer-1-sparkling-hippo P1):抓取 → 去重 → 过滤 → 完成
+  type SearchStage = "scraping" | "dedup" | "filtering" | "done" | null;
+  const [searchStage, setSearchStage] = useState<SearchStage>(null);
+  const [searchAntiNoise, setSearchAntiNoise] = useState(0);
+
   const runSearch = useCallback(async () => {
     if (!filters.role.trim()) return;
     setSearchLoading(true);
     setSearchError(null);
     setSearchBlocked([]);
+    setSearchStage("scraping");
+    setSearchAntiNoise(0);
+    // 阶段计时(后端一次性返回,前端 timer 推动进度可视化)
+    const t1 = setTimeout(() => setSearchStage("dedup"), 8_000);
+    const t2 = setTimeout(() => setSearchStage("filtering"), 16_000);
     try {
       const res = await fetch("/api/m6/search-jobs", {
         method: "POST",
@@ -88,16 +98,24 @@ function DiscoverPageInner() {
           limit: 20,
         }),
       });
-      const data: SearchResponse & { error?: string } = await res.json();
+      clearTimeout(t1);
+      clearTimeout(t2);
+      const data: SearchResponse & { error?: string; anti_noise_filtered?: number } = await res.json();
       if (!res.ok) {
         setSearchError(data.error ?? `请求失败 ${res.status}`);
         setSearchJobs([]);
+        setSearchStage(null);
         return;
       }
       setSearchJobs(data.jobs ?? []);
       setSearchBlocked(data.blockedPlatforms ?? []);
+      setSearchAntiNoise(data.anti_noise_filtered ?? 0);
+      setSearchStage("done");
     } catch (err) {
+      clearTimeout(t1);
+      clearTimeout(t2);
       setSearchError(err instanceof Error ? err.message : "网络错误");
+      setSearchStage(null);
     } finally {
       setSearchLoading(false);
     }
@@ -276,7 +294,7 @@ function DiscoverPageInner() {
               🎯 智能岗位匹配
             </h1>
             <p className="text-ink-soft text-sm">
-              从前程无忧、猎聘、智联招聘三平台实时抓取真实在招岗位,4 阶段 AI Agent 流水线为你打分、解释、推荐
+              从 BOSS 直聘、前程无忧(51job)实时抓取真实在招岗位,4 阶段 AI Agent 流水线为你打分、解释、推荐
             </p>
           </header>
 
@@ -302,14 +320,24 @@ function DiscoverPageInner() {
 
           {/* Tab content */}
           {activeTab === "search" ? (
-            <SearchTab
-              filters={filters}
-              setFilters={setFilters}
-              runSearch={runSearch}
-              loading={searchLoading}
-              error={searchError}
-              blocked={searchBlocked}
-            />
+            <>
+              <SearchTab
+                filters={filters}
+                setFilters={setFilters}
+                runSearch={runSearch}
+                loading={searchLoading}
+                error={searchError}
+                blocked={searchBlocked}
+              />
+              {/* 4 阶段搜索进度(plan offer-1-sparkling-hippo P1) */}
+              {(searchStage || searchAntiNoise > 0) && (
+                <SearchStageProgress
+                  stage={searchStage}
+                  antiNoiseFiltered={searchAntiNoise}
+                  resultCount={searchJobs.length}
+                />
+              )}
+            </>
           ) : (
             <RecommendTab
               parsedResume={parsedResume}
@@ -596,5 +624,69 @@ export default function DiscoverPage() {
     <Suspense fallback={<div className="min-h-screen bg-warm-bg" />}>
       <DiscoverPageInner />
     </Suspense>
+  );
+}
+
+/**
+ * SearchStageProgress — 关键词搜索 4 阶段进度条(plan offer-1-sparkling-hippo P1)
+ * 抓取中 → 去重 → 过滤(标题/经验/城市) → 完成
+ * 让用户等 20-30s 时知道进度,不焦虑;完成后展示反噪过滤数字
+ */
+function SearchStageProgress({
+  stage,
+  antiNoiseFiltered,
+  resultCount,
+}: {
+  stage: "scraping" | "dedup" | "filtering" | "done" | null;
+  antiNoiseFiltered: number;
+  resultCount: number;
+}) {
+  if (!stage) return null;
+  const stages: Array<{ key: "scraping" | "dedup" | "filtering" | "done"; label: string; hint: string }> = [
+    { key: "scraping", label: "抓取中", hint: "BOSS 直聘 + 51job 并行" },
+    { key: "dedup", label: "去重中", hint: "同岗位多平台合并" },
+    { key: "filtering", label: "过滤中", hint: "标题 / 城市 / 经验匹配" },
+    { key: "done", label: "完成", hint: `${resultCount} 条相关岗位` },
+  ];
+  const currentIdx = stages.findIndex((s) => s.key === stage);
+
+  return (
+    <div className="mt-4 p-4 rounded-lg bg-card border border-border">
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        {stages.map((s, i) => {
+          const isDone = i < currentIdx || stage === "done";
+          const isActive = s.key === stage && stage !== "done";
+          return (
+            <div key={s.key} className="flex items-center gap-2 flex-1 min-w-0">
+              <span
+                className={`flex-shrink-0 inline-flex items-center justify-center w-6 h-6 rounded-full text-[10px] font-bold ${
+                  isDone
+                    ? "bg-esther-blue text-white"
+                    : isActive
+                      ? "bg-esther-yellow text-ink animate-pulse"
+                      : "bg-warm-bg-deep text-ink-muted"
+                }`}
+              >
+                {isDone ? "✓" : i + 1}
+              </span>
+              <div className="flex-1 min-w-0">
+                <p className={`text-xs font-medium truncate ${isDone || isActive ? "text-ink" : "text-ink-muted"}`}>
+                  {s.label}
+                </p>
+                <p className="text-[10px] text-ink-muted truncate">{s.hint}</p>
+              </div>
+              {i < stages.length - 1 && (
+                <span className="text-ink-muted text-xs hidden sm:inline">→</span>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      {stage === "done" && antiNoiseFiltered > 0 && (
+        <p className="text-[11px] text-ink-soft mt-3 leading-relaxed">
+          ℹ️ 反噪过滤生效:已过滤 <span className="font-medium text-ink">{antiNoiseFiltered}</span> 条不相关岗位(标题不匹配 / 经验过高 / 异地 / 资深岗位等)
+        </p>
+      )}
+    </div>
   );
 }

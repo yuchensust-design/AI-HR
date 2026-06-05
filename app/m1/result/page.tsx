@@ -33,12 +33,43 @@ import { M1_SAMPLE } from "@/lib/m1-sample";
  *   - 来源 = "api-error" → 顶部 banner 提示降级,可点重试
  */
 
+type Employability = "now" | "needs_project" | "long_term";
+
 type PositiveItem = {
   industry: string;
   role_type: string;
   why_fit: string;
   match: string;
   match_percentage?: number;
+  /** 可投性等级(plan offer-1-sparkling-hippo P1):
+   *   "now" — 应届可直接投递(Job Zone 1-2)
+   *   "needs_project" — 需要项目 / 经验补强后才可投(Job Zone 3)
+   *   "long_term" — 长期深造方向,适合规划但短期不投(Job Zone 4-5)
+   *
+   * 老数据无此字段时按 "needs_project" 兜底(中立分组,不进入"应届可投"也不进入"长期")。
+   */
+  employability_level?: Employability;
+};
+
+const EMPLOYABILITY_LABEL: Record<Employability, { tag: string; color: string; section: string; hint: string }> = {
+  now: {
+    tag: "应届可投",
+    color: "bg-esther-blue/15 text-esther-blue",
+    section: "✓ 现在就可以投",
+    hint: "Job Zone 1-2 · 应届可直接投递这类岗位",
+  },
+  needs_project: {
+    tag: "补项目可投",
+    color: "bg-esther-yellow/40 text-ink",
+    section: "⚙ 补一段项目再投",
+    hint: "Job Zone 3 · 适合在 M4 做一个补强项目后投递",
+  },
+  long_term: {
+    tag: "长期方向",
+    color: "bg-warm-bg-deep text-ink-soft",
+    section: "🧭 长期深造方向",
+    hint: "Job Zone 4-5 · 不适合短期投递,但可以作为长期规划",
+  },
 };
 
 type Scores = [number, number, number, number, number, number];
@@ -569,21 +600,44 @@ export default function Module1ResultPage() {
           </div>
         </section>
 
-        {/* 5 正向方向 — v4.1 按行业大类分组 */}
+        {/* 5 正向方向 — v7(plan offer-1-sparkling-hippo P1)按可投性等级分组 → 大类 → 职业 */}
         <section className="border-b border-border">
           <div className="max-w-[1100px] mx-auto px-6 py-14">
             <p className="font-display italic text-sm text-esther-blue mb-2">
               {result.positive.length} directions for you · across {new Set(result.positive.map((p) => p.industry)).size} industries
             </p>
             <h2 className="text-2xl md:text-3xl font-bold text-ink mb-3">
-              {result.positive.length} 个推荐方向 · 覆盖 {new Set(result.positive.map((p) => p.industry)).size} 个行业大类
+              {result.positive.length} 个探索方向 · 覆盖 {new Set(result.positive.map((p) => p.industry)).size} 个行业大类
             </h2>
+            <p className="text-sm text-ink-soft mb-3 max-w-2xl">
+              ⚠️ 这是基于 RIASEC + 兴趣的 <span className="font-medium text-ink">兴趣倾向</span>,不是"短期可投岗位"承诺。建议在 M3 / M6 中用真实 JD 验证后再决定投递。
+            </p>
             <p className="text-sm text-ink-soft mb-10 max-w-2xl">
-              下面按 <span className="font-medium text-ink">行业大类</span> 分组,每个大类下是具体职业方向 — 不再 5 个挤一类。
+              下面按 <span className="font-medium text-ink">可投性等级</span> 分组(应届可投 / 补项目可投 / 长期方向),同级内按行业再分组。
             </p>
 
-            {/* 按 industry 分组渲染 */}
-            <div className="space-y-8">
+            {/* 按 employability_level 分组(now → needs_project → long_term),long_term 默认折叠 */}
+            {(["now", "needs_project", "long_term"] as const).map((employ) => {
+              const inLevel = result.positive.filter(
+                (p) => (p.employability_level ?? "needs_project") === employ,
+              );
+              if (inLevel.length === 0) return null;
+              const meta = EMPLOYABILITY_LABEL[employ];
+              const isLongTerm = employ === "long_term";
+              return (
+                <PositiveLevelGroup
+                  key={employ}
+                  label={meta.section}
+                  hint={meta.hint}
+                  items={inLevel}
+                  defaultCollapsed={isLongTerm}
+                />
+              );
+            })}
+
+            {/* 旧版兼容:如果 positive 全部都没有 employability_level(老数据),退回到原"按 industry 分组"渲染 */}
+            {result.positive.every((p) => !p.employability_level) && (
+            <div className="space-y-8 mt-6">
               {Array.from(
                 result.positive.reduce<Map<string, typeof result.positive>>(
                   (map, item) => {
@@ -668,6 +722,7 @@ export default function Module1ResultPage() {
                 </div>
               ))}
             </div>
+            )}
 
             <p className="text-xs text-ink-muted mt-8 italic leading-relaxed max-w-2xl">
               ℹ️ {result.disclaimer}
@@ -762,5 +817,104 @@ export default function Module1ResultPage() {
         <BuerFloatingButton />
       </main>
     </>
+  );
+}
+
+/**
+ * PositiveLevelGroup — 按可投性等级分组的卡组(plan offer-1-sparkling-hippo P1)
+ *
+ * 渲染:level header + hint + collapse 按钮 + 子组内按 industry 二级分组 + Card 卡片
+ * long_term 默认 collapsed,避免迷茫学生看到教授/研究员这类长期职业误以为是短期推荐
+ */
+function PositiveLevelGroup({
+  label,
+  hint,
+  items,
+  defaultCollapsed,
+}: {
+  label: string;
+  hint: string;
+  items: PositiveItem[];
+  defaultCollapsed: boolean;
+}) {
+  const [collapsed, setCollapsed] = useState(defaultCollapsed);
+
+  // 二级分组:industry
+  const byIndustry = Array.from(
+    items.reduce<Map<string, PositiveItem[]>>((map, item) => {
+      const key = item.industry || "其他";
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(item);
+      return map;
+    }, new Map()),
+  );
+
+  return (
+    <div className="mb-8">
+      <button
+        type="button"
+        onClick={() => setCollapsed((v) => !v)}
+        className="w-full flex items-center justify-between gap-3 px-4 py-3 rounded-lg border-2 border-esther-blue/30 bg-esther-blue/5 hover:bg-esther-blue/10 transition-colors text-left"
+      >
+        <div className="flex-1 min-w-0">
+          <h3 className="text-base font-bold text-ink">
+            {label} <span className="text-xs text-ink-soft font-normal">· {items.length} 个职业方向</span>
+          </h3>
+          <p className="text-[11px] text-ink-soft mt-0.5">{hint}</p>
+        </div>
+        <span className="text-sm text-esther-blue font-mono">{collapsed ? "▾ 展开" : "▴ 收起"}</span>
+      </button>
+
+      {!collapsed && (
+        <div className="mt-4 space-y-6 pl-2">
+          {byIndustry.map(([industry, list]) => (
+            <div key={industry}>
+              <div className="flex items-baseline gap-3 mb-3 pb-1 border-b border-border">
+                <span className="font-display italic text-sm text-esther-blue/60">┌─</span>
+                <h4 className="text-sm font-semibold text-ink">{industry}</h4>
+                <span className="text-[11px] text-ink-muted">· {list.length} 个匹配</span>
+              </div>
+              <div className="space-y-3 pl-4 border-l-2 border-esther-blue/10">
+                {list.map((r, idx) => {
+                  const employMeta = EMPLOYABILITY_LABEL[r.employability_level ?? "needs_project"];
+                  return (
+                    <Card key={idx} className="p-5 border border-border">
+                      <div className="flex items-start justify-between gap-3 flex-wrap mb-2">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-[11px] text-ink-muted mb-0.5">{r.industry}</p>
+                          <h5 className="text-base font-semibold text-ink mb-1">🎯 {r.role_type}</h5>
+                          <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium ${employMeta.color}`}>
+                            {employMeta.tag}
+                          </span>
+                        </div>
+                        {typeof r.match_percentage === "number" && (
+                          <div className="flex items-center gap-2">
+                            <div className="w-20 h-1.5 rounded-full bg-warm-bg-deep overflow-hidden">
+                              <div
+                                className="h-full bg-esther-blue rounded-full"
+                                style={{ width: `${Math.min(100, Math.max(0, r.match_percentage))}%` }}
+                              />
+                            </div>
+                            <span className="font-display italic text-sm font-bold text-esther-blue">
+                              {r.match_percentage}%
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex items-start gap-3 p-3 rounded-lg bg-warm-bg-deep/50">
+                        <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-esther-blue text-white flex-shrink-0">
+                          why
+                        </span>
+                        <p className="text-sm text-ink leading-relaxed">{r.why_fit}</p>
+                      </div>
+                    </Card>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }

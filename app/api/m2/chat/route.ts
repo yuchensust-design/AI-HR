@@ -359,8 +359,18 @@ ${redFlags}
 - **delta_intake.roles** 只放本轮新增 / 修正的 role(完整字段:org_type, role, period, charter, scale?, excavation_depth)。org_type 抽象到行业(eg "互联网大厂" / "高校实验室" / "公益组织"),**不出公司名**
 - **delta_intake.stories** 只放本轮新增 / 修正的 story。id 用 S001/S002... 递增。category 必须是 Peak/Challenge/Impact/Failure/LearningSprint/Praise 之一
 - **delta_intake.skeptical_flags** 只在 skeptical 阶段非空,正好 3 项,每项 weak_spot 一句话 + story_id
-- **delta_bullets** 只在 synthesis 阶段非空,≥ 3 项,text 是可直接 copy 到简历的 STAR / X-Y-Z bullet(eg "通过 SQL+Python 自动化日报,将 PM 每日数据采集时间从 120 分钟压到 15 分钟")
+- **delta_bullets** 在 **每一轮**都尽可能产 1-2 条**草稿 bullet**(plan offer-1-sparkling-hippo P1 — 让用户看到即时产出,不要憋到 synthesis 才出):
+  · 1 轮后 / anchor 阶段:产 1 条"待补证据"的临时 bullet(text 用平实陈述,数字处用 【请补充】 占位符)
+  · 2-3 轮后 / per_role / hero_story:升级为带 STAR breakdown 的草稿
+  · synthesis 阶段:出 ≥ 3 条完整可用 bullet
+  · 每条带 anti_fab_note 字段说明这是草稿还是定稿
+- text 是可直接 copy 到简历的 STAR / X-Y-Z bullet(eg "通过 SQL+Python 自动化日报,将 PM 每日数据采集时间从 120 分钟压到 15 分钟")
 - 没新增就给空数组 / 空对象。**禁止编造字段值**
+
+【★ 已问主题去重(plan offer-1-sparkling-hippo P1)】
+- next_question 选题前,先看 current_intake.roles + stories 中已经覆盖过的话题(读 role.charter / story.title)
+- **不要重复问同一主题** — 如果某 role 已经讨论过 "数据工具" / "团队规模" / "用户访谈" / "成果数字"等,这一轮换一个角度问
+- 同一 role 内,优先级:scale → process → outcome → reflection;同一类主题最多重复 1 次
 `;
 }
 
