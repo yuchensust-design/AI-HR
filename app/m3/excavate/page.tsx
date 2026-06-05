@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { Suspense, useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Card } from "@/components/ui/card";
@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Nav } from "@/components/Nav";
 import { BuerFloatingButton } from "@/components/BuerFloatingButton";
 import { useLocalState, STORAGE_KEYS } from "@/lib/use-local-state";
+import { useM3DBSync } from "@/lib/sync/useM3DBSync";
 
 /**
  * 模块 3 / Phase 3 隐藏经验挖掘
@@ -52,12 +53,47 @@ const MAX_NONE_IN_ROW = 3; // 连续 3 次"都没有"自动结束
 const TARGET_HIDDEN = 5; // 收集到 5 个就鼓励结束
 
 export default function ExcavatePage() {
+  return (
+    <Suspense
+      fallback={
+        <>
+          <Nav />
+          <main className="min-h-screen bg-warm-bg">
+            <div className="h-20" />
+            <div className="text-center text-ink-muted py-20">加载中…</div>
+          </main>
+        </>
+      }
+    >
+      <ExcavateContent />
+    </Suspense>
+  );
+}
+
+function ExcavateContent() {
   const router = useRouter();
-  const [parsedResume] = useLocalState(STORAGE_KEYS.PARSED_RESUME, null);
-  const [jdContext] = useLocalState(STORAGE_KEYS.JD_CONTEXT, null);
-  const [hidden, setHidden] = useLocalState<HiddenExperience[]>(
+  const { isLoggedInWithConv, dbData, convQs, saveField } = useM3DBSync();
+
+  const [localParsedResume] = useLocalState(STORAGE_KEYS.PARSED_RESUME, null);
+  const [localJdContext] = useLocalState(STORAGE_KEYS.JD_CONTEXT, null);
+  const [localHidden, setLocalHidden] = useLocalState<HiddenExperience[]>(
     STORAGE_KEYS.HIDDEN_EXPERIENCES,
-    []
+    [],
+  );
+
+  const parsedResume = isLoggedInWithConv ? dbData?.parsed_resume_json ?? null : localParsedResume;
+  const jdContext = isLoggedInWithConv ? dbData?.jd_context_json ?? null : localJdContext;
+  const hidden = isLoggedInWithConv
+    ? (Array.isArray(dbData?.hidden_experience_json) ? (dbData!.hidden_experience_json as HiddenExperience[]) : [])
+    : localHidden;
+
+  const setHidden = useCallback(
+    async (next: HiddenExperience[] | ((prev: HiddenExperience[]) => HiddenExperience[])) => {
+      const resolved = typeof next === "function" ? next(hidden) : next;
+      setLocalHidden(resolved);
+      if (isLoggedInWithConv) await saveField("hidden_experience_json", resolved);
+    },
+    [hidden, isLoggedInWithConv, saveField, setLocalHidden],
   );
 
   const [history, setHistory] = useState<HistoryItem[]>([]);
@@ -443,7 +479,7 @@ export default function ExcavatePage() {
                     ← 回去改 JD
                   </Link>
                   <button
-                    onClick={() => router.push("/m3/result")}
+                    onClick={() => router.push(`/m3/result${convQs}`)}
                     className="inline-flex items-center justify-center rounded-full bg-esther-blue text-white px-6 py-2.5 text-sm font-medium hover:bg-esther-blue-dark transition-colors shadow-sm"
                   >
                     Phase 5 整理简历 →

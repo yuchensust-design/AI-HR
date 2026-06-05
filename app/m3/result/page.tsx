@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { Suspense, useState, useEffect, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Card } from "@/components/ui/card";
@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Nav } from "@/components/Nav";
 import { BuerFloatingButton } from "@/components/BuerFloatingButton";
 import { useLocalState, STORAGE_KEYS } from "@/lib/use-local-state";
+import { useM3DBSync } from "@/lib/sync/useM3DBSync";
 import { EditSuggestionCard, type EditSuggestion, type Decision, type GapAlertDecision } from "@/components/EditSuggestionCard";
 import { GapAlertCard } from "@/components/GapAlertCard";
 import { DiffMetricsTable, type LlmMetrics } from "@/components/DiffMetricsTable";
@@ -53,10 +54,45 @@ type JdCtx = { jd_summary?: string; must_have?: string[] } | null;
 type HiddenList = unknown[];
 
 export default function ResultPage() {
+  return (
+    <Suspense
+      fallback={
+        <>
+          <Nav />
+          <main className="min-h-screen bg-warm-bg">
+            <div className="h-20" />
+            <div className="text-center text-ink-muted py-20">加载中…</div>
+          </main>
+        </>
+      }
+    >
+      <ResultContent />
+    </Suspense>
+  );
+}
+
+function ResultContent() {
   const router = useRouter();
-  const [parsedResume] = useLocalState<ParsedResume>(STORAGE_KEYS.PARSED_RESUME, null);
-  const [jdContext] = useLocalState<JdCtx>(STORAGE_KEYS.JD_CONTEXT, null);
-  const [hiddenExperiences, setHiddenExperiences] = useLocalState<HiddenList>(STORAGE_KEYS.HIDDEN_EXPERIENCES, []);
+  const { isLoggedInWithConv, dbData, convQs, saveField } = useM3DBSync();
+
+  const [localParsedResume] = useLocalState<ParsedResume>(STORAGE_KEYS.PARSED_RESUME, null);
+  const [localJdContext] = useLocalState<JdCtx>(STORAGE_KEYS.JD_CONTEXT, null);
+  const [localHidden, setLocalHidden] = useLocalState<HiddenList>(STORAGE_KEYS.HIDDEN_EXPERIENCES, []);
+
+  const parsedResume = (isLoggedInWithConv ? dbData?.parsed_resume_json ?? null : localParsedResume) as ParsedResume;
+  const jdContext = (isLoggedInWithConv ? dbData?.jd_context_json ?? null : localJdContext) as JdCtx;
+  const hiddenExperiences = (isLoggedInWithConv
+    ? (Array.isArray(dbData?.hidden_experience_json) ? dbData!.hidden_experience_json : [])
+    : localHidden) as HiddenList;
+
+  const setHiddenExperiences = useCallback(
+    async (next: HiddenList | ((prev: HiddenList) => HiddenList)) => {
+      const resolved = typeof next === "function" ? (next as (p: HiddenList) => HiddenList)(hiddenExperiences) : next;
+      setLocalHidden(resolved);
+      if (isLoggedInWithConv) await saveField("hidden_experience_json", resolved);
+    },
+    [hiddenExperiences, isLoggedInWithConv, saveField, setLocalHidden],
+  );
 
   const [status, setStatus] = useState<Status>("loading");
   const [errorMsg, setErrorMsg] = useState("");
@@ -261,7 +297,7 @@ export default function ResultPage() {
 
   function handleGapRedirectProject(editId: string) {
     setGapDecisions((d) => ({ ...d, [editId]: { kind: "redirect-project" } }));
-    setTimeout(() => router.push("/m4"), 800);
+    setTimeout(() => router.push("/m4"), 800); // m4 是另一模块,不带 m3 convId
   }
 
   async function handleRegen(edit: EditSuggestion) {
