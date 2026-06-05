@@ -10,15 +10,16 @@ import UserMenu from "@/components/auth/UserMenu";
  * 默认透明(覆在 Hero 暖色上);滚动 > 50px 后白底 + backdrop-blur + border
  */
 
+// 主流程 1-2-3-4 暗示用户从左到右走完闭环;辅助模块在右侧无编号。
+// 评委一眼看出"完整闭环",新用户从左到右走即可。
 const NAV_ITEMS = [
-  { label: "求职定位", href: "/m1" },
-  { label: "经历挖掘", href: "/m2" },
-  { label: "简历优化", href: "/m3" },
-  { label: "项目陪练", href: "/m4" },
-  { label: "模拟面试", href: "/m5" },
-  { label: "🎯 岗位发现", href: "/m6/discover" },
-  { label: "📔 日记", href: "/diary" },
-  { label: "真实案例", href: "#case" },
+  { label: "1·找方向", href: "/m1" },
+  { label: "2·看岗位", href: "/m6/discover" },
+  { label: "3·改简历", href: "/m3" },
+  { label: "4·练面试", href: "/m5" },
+  { label: "经历", href: "/m2" },
+  { label: "项目", href: "/m4" },
+  { label: "日记", href: "/diary" },
 ];
 
 export function Nav() {

@@ -67,7 +67,7 @@ const CASES = [
     background: "大三,完全没方向",
     moduleNo: "01",
     moduleLabel: "兴趣测评",
-    outcome: "3 个推荐行业方向 + RIASEC 编码 + 经历交叉解释",
+    outcome: "3 个推荐行业方向 + 兴趣维度雷达图 + 经历交叉解释",
   },
   {
     color: "blue" as const,
@@ -172,19 +172,19 @@ export default function Home() {
                 <span className="text-esther-blue font-medium">可分析、可优化的路径</span>。
               </p>
 
-              {/* 数据条 — 3 个能力信号,对应一条 AI-HR 看得见的能力链 */}
+              {/* 数据条 — 3 个能力信号(用户语言版),对应一条评委看得见的能力链 */}
               <div className="flex flex-wrap items-center gap-2 mb-8">
                 <div className="inline-flex items-center gap-1.5 rounded-full bg-card border border-border px-3 py-1.5">
                   <span className="text-esther-blue text-sm leading-none">🧭</span>
-                  <span className="text-xs text-ink-soft">RIASEC 测评 + 经历信号交叉验证</span>
+                  <span className="text-xs text-ink-soft">职业兴趣测评 + 结合你的真实经历</span>
                 </div>
                 <div className="inline-flex items-center gap-1.5 rounded-full bg-card border border-border px-3 py-1.5">
                   <span className="text-esther-blue text-sm leading-none">🔎</span>
-                  <span className="text-xs text-ink-soft">JD 关键词命中 + Live Diff + 缺口映射</span>
+                  <span className="text-xs text-ink-soft">JD 拆解 · 简历命中度 · 改完跟原版对比</span>
                 </div>
                 <div className="inline-flex items-center gap-1.5 rounded-full bg-card border border-border px-3 py-1.5">
                   <span className="text-esther-blue text-sm leading-none">🎤</span>
-                  <span className="text-xs text-ink-soft">3 类面试 × 3 种面试官风格 × 4 维复盘</span>
+                  <span className="text-xs text-ink-soft">3 类面试 × 3 种风格 · 复盘给具体建议</span>
                 </div>
               </div>
 
