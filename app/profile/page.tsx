@@ -96,7 +96,7 @@ export default function ProfilePage() {
       <Nav />
       <div className="max-w-[1100px] mx-auto px-6 pt-28 pb-20">
         {/* Hero */}
-        <div className="mb-10">
+        <div className="mb-8">
           <h1 className="font-display italic text-4xl md:text-5xl text-esther-blue mb-2">
             你好,{name}
           </h1>
@@ -104,6 +104,13 @@ export default function ProfilePage() {
             数据加密存云,跨设备同步 · {user.email}
           </p>
         </div>
+
+        {/* 下一步推荐 — 根据完成度决定 */}
+        <NextStepCard
+          hasAssessment={counts.hasAssessment}
+          hasResume={convs.m3.length > 0}
+          hasInterview={convs.m5.length > 0}
+        />
 
         {/* 4 模块多会话 */}
         <section className="grid md:grid-cols-2 gap-5 mb-10">
@@ -209,5 +216,75 @@ export default function ProfilePage() {
         </div>
       </div>
     </main>
+  );
+}
+
+/**
+ * 下一步推荐卡 — 4 状态决策树:
+ *   1) 没测评 → 1·找方向(蓝大卡)
+ *   2) 测了但没简历 → 3·改简历
+ *   3) 有简历但没练面试 → 4·练面试
+ *   4) 三件都有 → 鼓励继续 / 看会话
+ */
+function NextStepCard({
+  hasAssessment,
+  hasResume,
+  hasInterview,
+}: {
+  hasAssessment: boolean;
+  hasResume: boolean;
+  hasInterview: boolean;
+}) {
+  let next: { icon: string; title: string; sub: string; href: string; cta: string };
+  if (!hasAssessment) {
+    next = {
+      icon: "🧭",
+      title: "先花 3 分钟找一下方向",
+      sub: "做一遍职业兴趣测评 → 看 3 个推荐方向",
+      href: "/m1",
+      cta: "去测评 →",
+    };
+  } else if (!hasResume) {
+    next = {
+      icon: "📄",
+      title: "把简历改成更能过筛的版本",
+      sub: "上传简历 + 粘 JD,AI 帮你逐条优化",
+      href: "/m3",
+      cta: "改简历 →",
+    };
+  } else if (!hasInterview) {
+    next = {
+      icon: "🎤",
+      title: "练一场面试,看实际能不能讲清楚",
+      sub: "3 类面试 × 3 种风格 + 4 维复盘",
+      href: "/m5",
+      cta: "练面试 →",
+    };
+  } else {
+    next = {
+      icon: "🚀",
+      title: "继续完善任意模块",
+      sub: "或者从左侧会话里继续上次进度",
+      href: "/m3",
+      cta: "去简历 →",
+    };
+  }
+  return (
+    <Link
+      href={next.href}
+      className="block mb-10 rounded-3xl bg-esther-blue text-white px-6 py-5 hover:bg-esther-blue-dark transition shadow-sm"
+    >
+      <div className="flex items-center gap-4">
+        <span className="text-3xl">{next.icon}</span>
+        <div className="flex-1 min-w-0">
+          <p className="font-display italic text-xs text-white/70 mb-1">Next step</p>
+          <p className="text-lg font-medium leading-tight">{next.title}</p>
+          <p className="text-sm text-white/80 mt-0.5">{next.sub}</p>
+        </div>
+        <span className="text-sm font-medium whitespace-nowrap hidden sm:inline">
+          {next.cta}
+        </span>
+      </div>
+    </Link>
   );
 }
