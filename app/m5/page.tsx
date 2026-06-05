@@ -370,6 +370,27 @@ function Module5ConfigContent() {
           </div>
         </section>
 
+        {/* 练完会得到什么 — 期望管理,降低用户焦虑 */}
+        <section className="bg-esther-yellow/15 border-y border-esther-yellow/40">
+          <div className="max-w-[1000px] mx-auto px-6 py-5">
+            <p className="font-display italic text-xs text-esther-blue mb-2">练完会得到什么</p>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs text-ink-soft">
+              <div className="flex items-start gap-2">
+                <span className="text-esther-blue text-sm">①</span>
+                <span><strong className="text-ink">4 维评分</strong> · 逻辑性 / 具体性 / 应答清晰度 / 口水话频次,每维 1-5 分 + 引用你的原话</span>
+              </div>
+              <div className="flex items-start gap-2">
+                <span className="text-esther-blue text-sm">②</span>
+                <span><strong className="text-ink">逐题摘要</strong> · 你答的核心点 + 该题得分 + 改进示范</span>
+              </div>
+              <div className="flex items-start gap-2">
+                <span className="text-esther-blue text-sm">③</span>
+                <span><strong className="text-ink">反哺简历</strong> · 答得好的亮点一键加进简历 bullet</span>
+              </div>
+            </div>
+          </div>
+        </section>
+
         <div className="max-w-[1000px] mx-auto px-6 py-10 space-y-6">
           <Card className="p-6 border-2 border-border">
             <div className="flex items-baseline gap-3 mb-2">
