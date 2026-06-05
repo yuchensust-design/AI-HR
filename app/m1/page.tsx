@@ -310,7 +310,7 @@ export default function Module1EntryPage() {
               准备好开始你自己的测评了吗?
             </h2>
             <p className="text-sm text-ink-soft mb-8 max-w-md mx-auto">
-              3-4 分钟 · 完成后给你 3-5 个推荐方向 · 数据存浏览器本地,不上传
+              3-4 分钟 · 完成后给你 3-5 个推荐方向 · 仅辅助探索方向,不作为筛选标准
             </p>
             <Link
               href="/m1/quiz"
@@ -319,7 +319,7 @@ export default function Module1EntryPage() {
               开始测评 → 看你自己的结果
             </Link>
             <p className="text-xs text-ink-muted mt-6 font-display italic leading-relaxed">
-              🔒 测评数据存浏览器本地 · 我们后端不存 · 你随时可以重测或清除
+              🔒 答题选项存浏览器本地 · 分析时发送到模型接口、不做账号级持久化 · 不因学校 / 专业 / 空窗判优劣
             </p>
           </div>
         </section>

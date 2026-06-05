@@ -6,6 +6,7 @@ import { PersonaSelector } from "@/components/PersonaSelector";
 import { SixCapabilities } from "@/components/SixCapabilities";
 import { StepsSection } from "@/components/StepsSection";
 import { BuerFloatingButton } from "@/components/BuerFloatingButton";
+import { JobMatchHero } from "@/components/m6/JobMatchHero";
 
 /**
  * Landing 首页 v4 — Offer 捕手学生求职智能体
@@ -19,25 +20,25 @@ import { BuerFloatingButton } from "@/components/BuerFloatingButton";
 const PRIVACY_PILLARS = [
   {
     glyph: "隐",
-    label: "隐私优先",
-    title: "少收集,多保护",
-    desc: "我们仅收集提供功能所需的最少数据。我们从不出售您的数据,也不会与第三方分享,除非为提供服务所必需。",
+    label: "数据边界",
+    title: "本地优先 · 不做账号级持久化",
+    desc: "游客模式 — 简历草稿 / 测评结果 / 投递记录 / 日记默认存浏览器 localStorage。涉及 AI 分析的文本会发送到国产大模型接口处理,但不做账号级持久化,也不与第三方做画像 / 二次训练。",
     badgeBg: "bg-esther-red",
     badgeText: "text-white",
   },
   {
-    glyph: "控",
-    label: "自主可控",
-    title: "随时导出与删除",
-    desc: "你拥有完全控制权。可随时导出简历和账户数据,或在账户设置中删除。非必要数据可按请求移除。",
+    glyph: "平",
+    label: "公平边界",
+    title: "辅助探索,不做筛选",
+    desc: "测评、推荐、诊断仅用于辅助你探索方向,不作为筛选标准。不因学校 / 专业 / 空窗 / 出身做负面判断。你可以随时清空浏览器数据重新开始。",
     badgeBg: "bg-esther-blue",
     badgeText: "text-white",
   },
   {
-    glyph: "安",
-    label: "安全",
-    title: "传输加密与最小权限访问",
-    desc: "你的数据在传输中使用现代 TLS 加密。对生产系统的访问严格受限并记录,遵循最小权限原则。",
+    glyph: "释",
+    label: "可解释 · 你说了算",
+    title: "建议有来源,你可拒绝",
+    desc: "每条 AI 建议都标注依据(来自 JD / 简历 / 面试回答 / sample)。Offer 捕手只重组你提供过的素材,不会替你发明经历。任何建议你都可以拒绝、修改、覆盖。",
     badgeBg: "bg-esther-yellow",
     badgeText: "text-ink",
   },
@@ -202,7 +203,7 @@ export default function Home() {
                 </Link>
               </div>
               <p className="text-xs text-ink-muted mt-6">
-                🔒 游客模式 · 数据存浏览器本地 · 视频流绝不上传
+                🔒 游客模式 · 数据默认存浏览器本地 · 文本仅在分析时发送到模型接口 · 不做账号级持久化
               </p>
             </div>
 
@@ -226,6 +227,11 @@ export default function Home() {
             </div>
           </div>
         </section>
+
+        {/* ============================================================
+            M6 Job Match Hero — 智能岗位匹配入口(首屏高位)
+            ============================================================ */}
+        <JobMatchHero />
 
         {/* ============================================================
             Pain Points — 学生求职 3 大痛点

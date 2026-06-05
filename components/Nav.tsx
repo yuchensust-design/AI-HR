@@ -16,6 +16,7 @@ const NAV_ITEMS = [
   { label: "简历优化", href: "/m3" },
   { label: "项目陪练", href: "/m4" },
   { label: "模拟面试", href: "/m5" },
+  { label: "🎯 岗位发现", href: "/m6/discover" },
   { label: "📔 日记", href: "/diary" },
   { label: "真实案例", href: "#case" },
 ];

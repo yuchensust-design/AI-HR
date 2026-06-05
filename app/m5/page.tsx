@@ -17,6 +17,8 @@ import {
   type InterviewType,
   type PersonaKey,
 } from "@/lib/interview-types";
+import { PERSONA_SPECS } from "@/lib/interviewer-personas";
+import { STORAGE_KEYS } from "@/lib/use-local-state";
 import {
   parseResumeFile,
   ResumeParseError,
@@ -41,25 +43,37 @@ const PERSONAS: Array<{
   key: PersonaKey;
   emoji: string;
   label: string;
-  desc: string;
+  tagline: string;
+  sampleOpener: string;
+  sampleFollowUp: string;
+  useCase: string;
 }> = [
   {
     key: "gentle",
     emoji: "🌸",
-    label: "亲切姐姐",
-    desc: "鼓励 + 给提示 + 不打断 · 适合第一次试",
+    label: PERSONA_SPECS.gentle.display_name,
+    tagline: PERSONA_SPECS.gentle.short_tagline,
+    sampleOpener: PERSONA_SPECS.gentle.sample_opener,
+    sampleFollowUp: PERSONA_SPECS.gentle.sample_follow_up,
+    useCase: PERSONA_SPECS.gentle.use_case,
   },
   {
     key: "strict",
     emoji: "⚡",
-    label: "严厉压力",
-    desc: "直接 + 追细节 + 不轻易点头 · 适合练抗压",
+    label: PERSONA_SPECS.strict.display_name,
+    tagline: PERSONA_SPECS.strict.short_tagline,
+    sampleOpener: PERSONA_SPECS.strict.sample_opener,
+    sampleFollowUp: PERSONA_SPECS.strict.sample_follow_up,
+    useCase: PERSONA_SPECS.strict.use_case,
   },
   {
     key: "rigor",
     emoji: "🔍",
-    label: "严谨技术",
-    desc: "抠技术细节 + 追原理 · 适合技术深面",
+    label: PERSONA_SPECS.rigor.display_name,
+    tagline: PERSONA_SPECS.rigor.short_tagline,
+    sampleOpener: PERSONA_SPECS.rigor.sample_opener,
+    sampleFollowUp: PERSONA_SPECS.rigor.sample_follow_up,
+    useCase: PERSONA_SPECS.rigor.use_case,
   },
 ];
 
@@ -149,6 +163,33 @@ function Module5ConfigContent() {
   const [cameraOn, setCameraOn] = useState(true);
   const [recordSession, setRecordSession] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+
+  // 从 M6 跳过来 → 读 m6_pending_jd 自动预填 JD,消费后清除
+  useEffect(() => {
+    /* eslint-disable react-hooks/set-state-in-effect */
+    try {
+      const raw = window.localStorage.getItem(STORAGE_KEYS.M6_PENDING_JD);
+      if (!raw) return;
+      const pending = JSON.parse(raw) as {
+        jdText?: string;
+        roleName?: string;
+        company?: string;
+        salary?: string;
+        city?: string;
+        from_m6?: boolean;
+      };
+      if (!pending.from_m6 || !pending.roleName) return;
+      const fallback = `【${pending.roleName}】@ ${pending.company ?? "(公司)"}\n${
+        pending.salary ?? ""
+      } · ${pending.city ?? ""}\n\n(完整 JD 暂未抓到,可手动补充)`;
+      setJdText(
+        pending.jdText && pending.jdText.length > 50 ? pending.jdText : fallback
+      );
+      window.localStorage.removeItem(STORAGE_KEYS.M6_PENDING_JD);
+    } catch {
+      /* ignore */
+    }
+  }, []);
 
   useEffect(() => {
     // 初始化:hydration 后从 localStorage 读简历快照,setState 是必要的副作用
@@ -484,7 +525,7 @@ function Module5ConfigContent() {
               </h3>
             </div>
             <p className="text-xs text-ink-soft mb-4 pl-10">
-              不同性格 = 不同提问风格 + 不同 TTS 音色
+              性格会影响出题语气、追问深度和 TTS 音色 — 下面 3 张卡片各给一句 sample 开场和一句追问感,挑你想练的
             </p>
             <div className="pl-10 grid grid-cols-1 md:grid-cols-3 gap-3">
               {PERSONAS.map((p) => (
@@ -492,22 +533,48 @@ function Module5ConfigContent() {
                   key={p.key}
                   type="button"
                   onClick={() => setPersona(p.key)}
-                  className={`p-4 rounded-xl border-2 text-left transition-all ${
+                  className={`p-4 rounded-xl border-2 text-left transition-all flex flex-col ${
                     persona === p.key
                       ? "border-esther-blue bg-esther-blue/5"
                       : "border-border bg-card hover:border-esther-blue/50"
                   }`}
                 >
-                  <div className="text-3xl mb-2">{p.emoji}</div>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-3xl">{p.emoji}</span>
+                    <span className="text-[10px] uppercase tracking-wider text-ink-muted font-display italic">
+                      {p.useCase}
+                    </span>
+                  </div>
                   <p className="text-sm font-medium text-ink mb-1">
                     {persona === p.key ? "✓ " : ""}{p.label}
                   </p>
-                  <p className="text-[11px] text-ink-soft leading-relaxed">
-                    {p.desc}
+                  <p className="text-[11px] text-ink-soft leading-relaxed mb-3">
+                    {p.tagline}
                   </p>
+                  <div className="mt-auto space-y-2">
+                    <div className="rounded-lg bg-warm-bg-deep/60 border border-border p-2">
+                      <p className="text-[10px] text-ink-muted font-display italic mb-0.5">
+                        sample 开场
+                      </p>
+                      <p className="text-[11px] text-ink leading-snug">
+                        “{p.sampleOpener}”
+                      </p>
+                    </div>
+                    <div className="rounded-lg bg-esther-yellow/10 border border-esther-yellow/40 p-2">
+                      <p className="text-[10px] text-ink-muted font-display italic mb-0.5">
+                        sample 追问
+                      </p>
+                      <p className="text-[11px] text-ink leading-snug">
+                        “{p.sampleFollowUp}”
+                      </p>
+                    </div>
+                  </div>
                 </button>
               ))}
             </div>
+            <p className="text-[11px] text-ink-muted mt-3 pl-10 leading-relaxed">
+              ⚠️ 严厉 / 严谨追问目的是让你讲清价值,不会贬低你。复盘里 AI 不会因为题目难就给低分,只看 STAR、数字、卡顿。
+            </p>
           </Card>
 
           <Card className="p-6 border-2 border-border">

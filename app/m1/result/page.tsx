@@ -747,6 +747,11 @@ export default function Module1ResultPage() {
               ℹ️ 测评仅供参考,愿你的热爱与擅长终在某处相逢
             </p>
             <p className="text-xs text-ink-muted mt-3 leading-relaxed">
+              本测评仅辅助你探索方向,不作为筛选标准;不因学校 / 专业 / 空窗判优劣。
+              <br />
+              推荐方向都能追溯到你的兴趣维度和经历信号,你可以拒绝或重测。
+            </p>
+            <p className="text-xs text-ink-muted mt-3 leading-relaxed">
               基于霍兰德 RIASEC 经典 6 维理论(Holland, 1997),
               <br />
               题面参考 Martins et al. (2024) 心理测量学修订项

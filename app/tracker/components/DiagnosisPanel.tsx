@@ -44,7 +44,8 @@ export function DiagnosisPanel({
         <div>
           <h3 className="font-heading text-lg text-ink">AI 诊断</h3>
           <p className="text-xs text-ink-muted mt-1 leading-snug max-w-md">
-            基于上面的指标做卡点判断 — 不是求职结果预测,只回答"问题大概率出在哪个环节"。
+            基于你录入的投递记录做卡点判断 — 不是求职结果预测,只回答"问题大概率出在哪个环节"。
+            示例数据会显式标记(参见上方),不影响真实指标。诊断结果有不确定性,你可以拒绝或修改建议。
           </p>
         </div>
         <button

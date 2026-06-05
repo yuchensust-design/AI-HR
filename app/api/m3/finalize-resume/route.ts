@@ -41,6 +41,9 @@ type EditApplied = {
   suggested_text: string;
   category: string;
   priority: string;
+  source?: "jd" | "resume" | "experience" | "interview";
+  confidence?: number;
+  linked_jd_keyword?: string | null;
 };
 
 function bulletText(b: Bullet): string {
@@ -181,13 +184,17 @@ export async function POST(request: NextRequest) {
     const markdown = lines.join("\n");
 
     // 改进 5: 收集 3-5 个 candidate bullets(从 high priority accepted edits)
+    // 06 §3.4 升级:每条 carry source + confidence + linked_jd_keyword,前端能继续展示能力证据
     const candidates = acceptedEdits
       .filter((e) => e.priority === "high")
       .slice(0, 5)
       .map((e) => ({
-        source: e.target.startsWith("new:") ? "hidden" : "original",
+        source: e.source ?? (e.target.startsWith("new:") ? "experience" : "resume"),
         text: e.suggested_text,
         category: e.category,
+        confidence: typeof e.confidence === "number" ? e.confidence : 0.78,
+        linked_jd_keyword: e.linked_jd_keyword ?? null,
+        origin_kind: e.target.startsWith("new:") ? "hidden" : "original",
       }));
 
     return NextResponse.json({
