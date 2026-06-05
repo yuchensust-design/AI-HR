@@ -113,10 +113,23 @@ fastify.post<{ Body: SearchBody }>("/search", async (request, reply) => {
   });
 
   if (jobs.length === 0) {
-    return reply.code(503).send({
-      error: "all platforms returned no jobs (likely blocked)",
+    // 反爬封锁 fallback — 返 mock 岗位让 demo 不挂(plan §8.24 / m6 决策)
+    const { generateMockJobs } = await import("./mock-jobs.js");
+    const mockJobs = generateMockJobs(role, city, limit);
+    fastify.log.warn(
+      { blockedPlatforms, mockCount: mockJobs.length },
+      "all platforms blocked, serving mock jobs",
+    );
+    return {
+      jobs: mockJobs,
       blockedPlatforms,
-    });
+      total: mockJobs.length,
+      hasNext: false,
+      cached: false,
+      isMock: true,
+      mockNotice:
+        "当前真实数据被反爬封锁,显示演示岗位。生产环境用代理 IP 池突破反爬。",
+    };
   }
 
   const payload = { jobs, blockedPlatforms };
