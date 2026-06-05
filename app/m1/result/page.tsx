@@ -390,7 +390,8 @@ export default function Module1ResultPage() {
               我们觉得你可能适合的方向
             </h1>
             <p className="text-ink-soft text-sm">
-              基于霍兰德 RIASEC 6 维(18 题)+ 兴趣 tag 综合判断
+              基于你的测评 + 兴趣偏好综合判断
+              <span className="text-ink-muted text-xs ml-2">· 测评采用霍兰德职业兴趣理论(RIASEC)</span>
             </p>
           </div>
         </section>
@@ -400,17 +401,17 @@ export default function Module1ResultPage() {
           <div className="max-w-[1100px] mx-auto px-6 py-12 grid grid-cols-1 lg:grid-cols-[1fr_1.2fr] gap-10 items-center">
             <div className="bg-card rounded-3xl p-6 border border-border shadow-sm">
               <p className="font-display italic text-xs text-esther-blue mb-1 text-center">
-                Your RIASEC Code
+                你的职业兴趣画像
               </p>
-              <p className="text-center text-lg font-bold text-ink mb-4 font-display italic">
-                {result.code}
+              <p className="text-center text-xs text-ink-muted mb-4">
+                <span className="font-mono text-ink-soft">{result.code}</span>
               </p>
               <RIASECRadar scores={result.scores} />
               <div className="flex justify-center mt-4">
                 <ConfidenceBadge confidence={result.confidence} />
               </div>
               <p className="text-[11px] text-ink-muted text-center mt-3 leading-relaxed">
-                每维 3-15 分(5 点 Likert × 3 题),数值越高表示倾向越强
+                数值越高表示倾向越强 · 共 6 维(实用 / 研究 / 艺术 / 社交 / 企业 / 常规)
               </p>
             </div>
 
@@ -517,7 +518,7 @@ export default function Module1ResultPage() {
               你是怎样的人 · 6 维深度解读
             </h2>
             <p className="text-sm text-ink-soft mb-8 max-w-2xl">
-              基于霍兰德 RIASEC 经典 6 维理论 — 不只是"推荐"标签,先理解你自己。
+              不只是"推荐"标签,先理解你自己。每个维度展开看你强在哪 / 注意哪。
             </p>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -610,7 +611,7 @@ export default function Module1ResultPage() {
               {result.positive.length} 个探索方向 · 覆盖 {new Set(result.positive.map((p) => p.industry)).size} 个行业大类
             </h2>
             <p className="text-sm text-ink-soft mb-3 max-w-2xl">
-              ⚠️ 这是基于 RIASEC + 兴趣的 <span className="font-medium text-ink">兴趣倾向</span>,不是"短期可投岗位"承诺。建议在 M3 / M6 中用真实 JD 验证后再决定投递。
+              ⚠️ 这是基于测评 + 兴趣推出来的 <span className="font-medium text-ink">兴趣倾向</span>,不是"短期可投岗位"承诺。建议先到「3·改简历」或「2·看岗位」用真实 JD 验证。
             </p>
             <p className="text-sm text-ink-soft mb-10 max-w-2xl">
               下面按 <span className="font-medium text-ink">可投性等级</span> 分组(应届可投 / 补项目可投 / 长期方向),同级内按行业再分组。
