@@ -12,9 +12,10 @@
  *   loading   — 初次加载中
  */
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { User } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
+import { hasMigrated, migrateGuestDataOnLogin } from "@/lib/sync/migrate-guest-data";
 
 export type Profile = {
   user_id: string;
@@ -28,6 +29,7 @@ export function useUser() {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
+  const migratingRef = useRef(false);
 
   useEffect(() => {
     const supabase = createClient();
@@ -41,20 +43,49 @@ export function useUser() {
       setProfile((data as Profile) ?? null);
     }
 
+    async function maybeMigrate(userId: string) {
+      if (hasMigrated() || migratingRef.current) return;
+      migratingRef.current = true;
+      try {
+        const report = await migrateGuestDataOnLogin(userId, supabase);
+        const totalCount =
+          (report.m1 ? 1 : 0) +
+          (report.m3 ? 1 : 0) +
+          report.m5 +
+          report.diary +
+          report.tracker;
+        if (totalCount > 0) {
+          console.info("[useUser] 游客数据已同步到云:", report);
+        }
+        if (report.errors.length > 0) {
+          console.warn("[useUser] 迁移部分错误:", report.errors);
+        }
+      } catch (err) {
+        console.error("[useUser] migrate failed:", err);
+      } finally {
+        migratingRef.current = false;
+      }
+    }
+
     // 初次拉取
     supabase.auth.getUser().then(({ data }) => {
       setUser(data.user);
       setLoading(false);
-      if (data.user) fetchProfile(data.user.id);
+      if (data.user) {
+        fetchProfile(data.user.id);
+        void maybeMigrate(data.user.id);
+      }
     });
 
     // 订阅 auth state 变化(登录 / 登出 / token 刷新)
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
+    } = supabase.auth.onAuthStateChange((event, session) => {
       setUser(session?.user ?? null);
-      if (session?.user) fetchProfile(session.user.id);
-      else setProfile(null);
+      if (session?.user) {
+        fetchProfile(session.user.id);
+        if (event === "SIGNED_IN") void maybeMigrate(session.user.id);
+      } else setProfile(null);
     });
 
     return () => subscription.unsubscribe();
