@@ -37,6 +37,11 @@ import {
   SKILL_SEGMENTS,
   type SkillSegmentKey,
 } from "@/lib/skill-router";
+import {
+  buildSourceCorpus,
+  normalizeEditSuggestions,
+} from "@/lib/m3-normalize";
+import type { ClaimType, EditSuggestion } from "@/components/EditSuggestionCard";
 
 const PROMPT_MAIN = `你是「Offer 捕手」模块 3 简历整理 Phase 5 改动建议引擎。
 
@@ -86,6 +91,18 @@ const PROMPT_MAIN = `你是「Offer 捕手」模块 3 简历整理 Phase 5 改�
      · 关键词从你自己识别的 JD 关键词里挑(jd_summary / must_have / jd_requirements_parsed)
      · 不能编造 — 只挑 JD 文本里真有的
 
+8. **(offer-1-sparkling-hippo v4 新增)每条 edit 必填 claim_type**(反编造风险分级,UI 决定要不要默认采纳):
+   - **"explicit"**:原文 / 简历已经显式给出该信息(数字也已经在原文里),可以默认 accept
+   - **"inferred"**:基于现有素材合理推断(如把"参与"改"主导",但用户没显式说),默认待确认
+   - **"needs_confirmation"**:建议里有数字 / 成果需要用户确认(eg "回收 86 份问卷" 但原文只说"做了问卷"),写法上保留事实描述但用 【请补充】 占位符代替未确认数字
+   - **"forbidden"**:你**不要输出 forbidden 的 edit** — 如果你判断这条改动会编造未提供的信息,直接降级为 needs_confirmation 并把数字换成 【请补充】
+   - **判定原则**:宁可降为 needs_confirmation 也不要冒险标 explicit。explicit 等价于"我担保这是原文已有的事实"
+
+9. **(offer-1-sparkling-hippo v4 新增)每条 edit 必填 evidence_audit**(可展开的证据审计 — 让评委/用户看到反编造工程):
+   - 数组,1-3 条,每条 { "source": "jd"|"resume"|"experience"|"interview", "excerpt": "原文片段 ≤ 120 字" }
+   - excerpt 必须**直接复制**自相应来源的实际文本(parsed_resume / hidden_experiences / jd_context / from_debrief_highlight),不要改写
+   - 这是 evidence_source 字符串字段的结构化升级版,字符串版仍兼容保留
+
 【category 分类(枚举)】
 - "narrative-tools": 责任→成就重写(必须改原文 bullet)
 - "ats-keyword": 加 JD must_have 关键词(只能在原文 bullet 里加,不新建)
@@ -129,6 +146,11 @@ const PROMPT_MAIN = `你是「Offer 捕手」模块 3 简历整理 Phase 5 改�
       "source": "jd" | "resume" | "experience" | "interview",
       "confidence": 0.85,
       "linked_jd_keyword": "数据分析" 或 null,
+      "claim_type": "explicit" | "inferred" | "needs_confirmation",
+      "evidence_audit": [
+        { "source": "resume", "excerpt": "原文片段 ≤ 120 字" },
+        { "source": "experience", "excerpt": "..." }
+      ],
       "reason": "1-2 句为什么 — 引用 narrative_tag / JD 关键词 / 隐藏经验 / Phase 3 你说没",
       "category": "narrative-tools" | "ats-keyword" | "gap-alert" | ...,
       "priority": "high" | "medium" | "low",
@@ -151,6 +173,8 @@ const PROMPT_MAIN = `你是「Offer 捕手」模块 3 简历整理 Phase 5 改�
 □ source / confidence / linked_jd_keyword 三字段都填,confidence ∈ [0, 1]
 □ gap-alert 的 source 必须 = "jd";hidden-experience-add 的 source 必须 = "experience"
 □ confidence < 0.7 的 edit 必须 fab_warning != null 且 priority = "low"
+□ **每条 edit 都填 claim_type**(explicit/inferred/needs_confirmation 三选一,不要输出 forbidden);宁可降级为 needs_confirmation
+□ **每条 edit 都填 evidence_audit**(数组,1-3 条,excerpt 必须是真实原文片段,不要改写)
 
 数量:**8-15 条建议**。high priority 占 30-50%。`;
 
@@ -235,7 +259,52 @@ ${JSON.stringify(fromDebriefHighlight ?? null, null, 2)}
     const VALID_PRIORITY = ["high", "medium", "low"];
     const VALID_FIXABLE = ["易补<2周", "中等1-2月", "难补≥3月"];
     const VALID_SOURCE = ["jd", "resume", "experience", "interview"] as const;
+    const VALID_CLAIM_TYPE: readonly ClaimType[] = [
+      "explicit",
+      "inferred",
+      "needs_confirmation",
+      "forbidden",
+    ] as const;
     type SourceTag = (typeof VALID_SOURCE)[number];
+
+    function inferClaimType(rawClaim: unknown, fabWarning: string | null, confidence: number): ClaimType {
+      if (
+        typeof rawClaim === "string" &&
+        (VALID_CLAIM_TYPE as readonly string[]).includes(rawClaim)
+      ) {
+        return rawClaim as ClaimType;
+      }
+      if (fabWarning) return "needs_confirmation";
+      if (confidence >= 0.9) return "explicit";
+      if (confidence >= 0.75) return "inferred";
+      return "needs_confirmation";
+    }
+
+    function normalizeEvidenceAudit(
+      rawAudit: unknown,
+      sourceTag: SourceTag,
+      evidenceSource: string,
+    ): Array<{ source: SourceTag; excerpt: string }> {
+      if (!Array.isArray(rawAudit)) {
+        // 兜底:从 evidence_source 字符串构造一条
+        if (evidenceSource) {
+          return [{ source: sourceTag, excerpt: evidenceSource.slice(0, 120) }];
+        }
+        return [];
+      }
+      return rawAudit
+        .map((it) => {
+          const obj = it as Record<string, unknown>;
+          const src =
+            typeof obj.source === "string" && (VALID_SOURCE as readonly string[]).includes(obj.source)
+              ? (obj.source as SourceTag)
+              : sourceTag;
+          const ex = typeof obj.excerpt === "string" ? obj.excerpt.slice(0, 200) : "";
+          return { source: src, excerpt: ex };
+        })
+        .filter((it) => it.excerpt.length > 0)
+        .slice(0, 3);
+    }
 
     // 兜底:从 category + evidence_source 推断 source
     function inferSource(cat: string, evidenceSource: string, raw: unknown): SourceTag {
@@ -286,12 +355,17 @@ ${JSON.stringify(fromDebriefHighlight ?? null, null, 2)}
             ? el.linked_jd_keyword.trim()
             : null;
 
+        const claimType = inferClaimType(el.claim_type, fabWarning, confidence);
+        const evidenceAudit = normalizeEvidenceAudit(el.evidence_audit, source, evidenceSource);
+
         return {
           id: String(el.id ?? `edit-${String(i + 1).padStart(3, "0")}`),
           target,
           original_text: String(el.original_text ?? ""),
           suggested_text: suggestedText,
           evidence_source: evidenceSource,
+          evidence_audit: evidenceAudit,
+          claim_type: claimType,
           source,
           confidence,
           linked_jd_keyword: linkedKeyword,
@@ -301,7 +375,7 @@ ${JSON.stringify(fromDebriefHighlight ?? null, null, 2)}
           fab_warning: fabWarning,
           jd_requirement_text: jdReqText,
           fixable,
-        };
+        } as EditSuggestion;
       })
       .filter((e) => {
         if (!e.suggested_text) {
@@ -318,7 +392,7 @@ ${JSON.stringify(fromDebriefHighlight ?? null, null, 2)}
             return false;
           }
           // gap-alert 必须 evidence_source 指 jd_context.gaps
-          if (!e.evidence_source.toLowerCase().includes("jd_context.gaps")) {
+          if (!(e.evidence_source ?? "").toLowerCase().includes("jd_context.gaps")) {
             filteredOutCount++;
             filterReasons.push(`${e.id}: gap-alert 但 evidence_source 不指 jd_context.gaps[N]`);
             return false;
@@ -395,14 +469,48 @@ ${JSON.stringify(fromDebriefHighlight ?? null, null, 2)}
       );
     }
 
+    // === Step 4: m3-normalize 数字 / 强承诺词溯源校验(offer-1-sparkling-hippo)===
+    // gap-alert 不参与 normalize(它的 suggested_text 是 JD 缺口描述,不是简历改写)
+    const gapAlerts = edits.filter((e) => e.category === "gap-alert");
+    const writeableEdits = edits.filter((e) => e.category !== "gap-alert");
+    const corpus = buildSourceCorpus({
+      parsedResume,
+      jdContext,
+      hiddenExperiences,
+      fromDebriefHighlight,
+    });
+    const normalized = normalizeEditSuggestions(writeableEdits as EditSuggestion[], corpus);
+    const allEdits = [...normalized, ...gapAlerts];
+
+    // 统计 normalize 战果
+    let normalizedCount = 0;
+    let downgradedCount = 0;
+    normalized.forEach((e, i) => {
+      const original = writeableEdits[i];
+      if (e.suggested_text !== original.suggested_text) normalizedCount++;
+      if (
+        original.claim_type !== "needs_confirmation" &&
+        e.claim_type === "needs_confirmation"
+      ) {
+        downgradedCount++;
+      }
+    });
+    if (normalizedCount > 0 || downgradedCount > 0) {
+      console.warn(
+        `[suggest-edits] normalize: ${normalizedCount} 处数字替换为占位符,${downgradedCount} 条 claim_type 被降级`,
+      );
+    }
+
     return NextResponse.json({
-      edits,
+      edits: allEdits,
       default_accept_count: Number(parsed.default_accept_count ?? 3),
-      optimization_summary: String(parsed.optimization_summary ?? `本次找了 ${edits.length} 处可改`),
+      optimization_summary: String(parsed.optimization_summary ?? `本次找了 ${allEdits.length} 处可改`),
       used_supplements: route,
       inferred_persona: persona,
       anti_fab_filtered: filteredOutCount,
       anti_fab_filter_reasons: filterReasons,
+      anti_fab_normalized: normalizedCount,
+      anti_fab_downgraded: downgradedCount,
       generated_at: new Date().toISOString(),
     });
   } catch (err) {

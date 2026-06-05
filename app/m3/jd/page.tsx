@@ -40,6 +40,10 @@ type JdContext = {
   gaps?: { jd_requirement: string; why_gap: string; fixable: string }[];
   priority_score?: number;
   meta?: { mode: string; confidence: string };
+  // M5 / M4 跨模块继承用：原始 JD 文本（full 模式下是用户粘贴的 JD，role 模式下是岗位名 fallback）
+  raw_jd_text?: string;
+  role_name?: string;
+  company?: string;
 };
 
 export default function JdPage() {
@@ -204,8 +208,19 @@ function JdContent() {
         throw new Error(j.error ?? `HTTP ${res.status}`);
       }
       const parsed = (await res.json()) as JdContext;
-      setJdContext(parsed);
-      setResult(parsed);
+      // 写入 raw 字段供 M5 / M4 继承上下文用
+      const rawForInherit =
+        mode === "full"
+          ? jdText.trim()
+          : `【${roleName.trim()}】@ ${company.trim() || "(公司)"}\n\n（M3 走快速模式，未提供完整 JD 文本，下游模块按岗位名推断）`;
+      const enriched: JdContext = {
+        ...parsed,
+        raw_jd_text: rawForInherit,
+        role_name: mode === "role" ? roleName.trim() : parsed.role_name,
+        company: mode === "role" ? company.trim() || undefined : parsed.company,
+      };
+      setJdContext(enriched);
+      setResult(enriched);
       setStatus("done");
       setTimeout(() => {
         document.getElementById("result-card")?.scrollIntoView({ behavior: "smooth", block: "start" });

@@ -157,6 +157,8 @@ function Module5ConfigContent() {
   const [uploadWarnings, setUploadWarnings] = useState<string[]>([]);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [jdText, setJdText] = useState(SAMPLE_JD);
+  // JD 来源标签:"M3" 表示来自简历优化的目标岗位,"M6" 表示来自岗位发现,null 表示未继承(默认示例 / 用户手动改)
+  const [jdSource, setJdSource] = useState<"m3" | "m6" | null>(null);
   const [type, setType] = useState<InterviewType | null>(null);
   const [persona, setPersona] = useState<PersonaKey | null>(null);
   const [numQuestions, setNumQuestions] = useState<5 | 10 | 15>(10);
@@ -164,30 +166,54 @@ function Module5ConfigContent() {
   const [recordSession, setRecordSession] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
-  // 从 M6 跳过来 → 读 m6_pending_jd 自动预填 JD,消费后清除
+  // 跨模块 JD 继承,优先级:M6_PENDING_JD > JD_CONTEXT > SAMPLE_JD
+  // M6_PENDING_JD:用户从 M6 岗位发现跳过来,带最新岗位信息(消费后清除)
+  // JD_CONTEXT:用户在 M3 简历优化中刚刚拆解过的目标岗位(不消费,保留供后续模块复用)
   useEffect(() => {
     /* eslint-disable react-hooks/set-state-in-effect */
+    // 1. 先尝试 M6_PENDING_JD
     try {
       const raw = window.localStorage.getItem(STORAGE_KEYS.M6_PENDING_JD);
-      if (!raw) return;
-      const pending = JSON.parse(raw) as {
-        jdText?: string;
-        roleName?: string;
-        company?: string;
-        salary?: string;
-        city?: string;
-        from_m6?: boolean;
-      };
-      if (!pending.from_m6 || !pending.roleName) return;
-      const fallback = `【${pending.roleName}】@ ${pending.company ?? "(公司)"}\n${
-        pending.salary ?? ""
-      } · ${pending.city ?? ""}\n\n(完整 JD 暂未抓到,可手动补充)`;
-      setJdText(
-        pending.jdText && pending.jdText.length > 50 ? pending.jdText : fallback
-      );
-      window.localStorage.removeItem(STORAGE_KEYS.M6_PENDING_JD);
+      if (raw) {
+        const pending = JSON.parse(raw) as {
+          jdText?: string;
+          roleName?: string;
+          company?: string;
+          salary?: string;
+          city?: string;
+          from_m6?: boolean;
+        };
+        if (pending.from_m6 && pending.roleName) {
+          const fallback = `【${pending.roleName}】@ ${pending.company ?? "(公司)"}\n${
+            pending.salary ?? ""
+          } · ${pending.city ?? ""}\n\n(完整 JD 暂未抓到,可手动补充)`;
+          setJdText(
+            pending.jdText && pending.jdText.length > 50 ? pending.jdText : fallback
+          );
+          setJdSource("m6");
+          window.localStorage.removeItem(STORAGE_KEYS.M6_PENDING_JD);
+          return;
+        }
+      }
     } catch {
-      /* ignore */
+      /* fall through to JD_CONTEXT */
+    }
+
+    // 2. M6 没命中 → 尝试 JD_CONTEXT (M3 刚拆解的目标岗位)
+    try {
+      const raw = window.localStorage.getItem(STORAGE_KEYS.JD_CONTEXT);
+      if (!raw) return;
+      const ctx = JSON.parse(raw) as {
+        raw_jd_text?: string;
+        role_name?: string;
+        company?: string;
+      } | null;
+      if (ctx?.raw_jd_text && ctx.raw_jd_text.trim().length > 20) {
+        setJdText(ctx.raw_jd_text);
+        setJdSource("m3");
+      }
+    } catch {
+      /* keep SAMPLE_JD */
     }
   }, []);
 
@@ -453,20 +479,38 @@ function Module5ConfigContent() {
           </Card>
 
           <Card className="p-6 border-2 border-border">
-            <div className="flex items-baseline gap-3 mb-2">
+            <div className="flex items-baseline gap-3 mb-2 flex-wrap">
               <span className="font-display italic text-2xl font-bold text-esther-blue">
                 02
               </span>
               <h3 className="text-lg font-semibold text-ink">
                 目标岗位 JD <span className="text-esther-red">*</span>
               </h3>
+              {jdSource === "m3" && (
+                <Badge className="bg-esther-blue/15 text-esther-blue hover:bg-esther-blue/15 text-[11px] font-normal px-2 py-0.5">
+                  来自 M3 的目标岗位
+                </Badge>
+              )}
+              {jdSource === "m6" && (
+                <Badge className="bg-esther-yellow/30 text-ink hover:bg-esther-yellow/30 text-[11px] font-normal px-2 py-0.5">
+                  来自 M6 的岗位发现
+                </Badge>
+              )}
             </div>
             <p className="text-xs text-ink-soft mb-4 pl-10">
-              粘贴 JD 文本 · 越完整出题越准
+              {jdSource === "m3"
+                ? "已自动继承你在 M3 拆解过的目标岗位 JD,可继续修改"
+                : jdSource === "m6"
+                  ? "已自动继承你在 M6 选择的岗位,可继续修改"
+                  : "粘贴 JD 文本 · 越完整出题越准"}
             </p>
             <textarea
               value={jdText}
-              onChange={(e) => setJdText(e.target.value)}
+              onChange={(e) => {
+                setJdText(e.target.value);
+                // 用户手动改动后,来源标签失效(避免误导)
+                if (jdSource !== null) setJdSource(null);
+              }}
               className="w-full ml-0 md:ml-10 md:w-[calc(100%-2.5rem)] min-h-[140px] px-4 py-3 rounded-xl border-2 border-border bg-card text-sm text-ink placeholder-ink-muted focus:outline-none focus:border-esther-blue resize-y"
             />
           </Card>

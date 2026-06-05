@@ -163,15 +163,20 @@ function ResultContent() {
       const parsed = (await res.json()) as SuggestEditsResult;
       setData(parsed);
 
-      // Auto-accept top high-priority edits per default_accept_count
+      // Auto-accept 风险分级(offer-1-sparkling-hippo):
+      // 仅放行 claim_type === "explicit" && priority === "high" 的 edit。
+      // inferred / needs_confirmation / forbidden 一律保持待确认,由用户手动决策。
+      // 老数据没 claim_type 时按 needs_confirmation 兜底,因此老 demo 也会变成"保守模式"。
       const initialDecisions: DecisionsMap = {};
-      const highPriorityEdits = parsed.edits.filter((e) => e.priority === "high");
+      const safeAutoAcceptable = parsed.edits.filter(
+        (e) => e.priority === "high" && e.claim_type === "explicit",
+      );
       const autoAcceptCount = Math.min(
         parsed.default_accept_count ?? 3,
-        highPriorityEdits.length
+        safeAutoAcceptable.length,
       );
       for (let i = 0; i < autoAcceptCount; i++) {
-        initialDecisions[highPriorityEdits[i].id] = "accept";
+        initialDecisions[safeAutoAcceptable[i].id] = "accept";
       }
       setDecisions(initialDecisions);
       setStatus("ready");

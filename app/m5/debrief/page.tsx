@@ -14,8 +14,39 @@ import {
   type FromDebriefHighlight,
   type InterviewSession,
 } from "@/lib/interview-types";
+import { STORAGE_KEYS } from "@/lib/use-local-state";
 import { useUser } from "@/lib/auth/useUser";
 import { createClient } from "@/lib/supabase/client";
+
+/**
+ * 把 M5 复盘 highlight 映射成 HiddenExperience(M3 素材池统一格式)。
+ * M3 result 页会读 HIDDEN_EXPERIENCES + 把它们当 "可直接整理成 bullet 的素材" 喂给 suggest-edits。
+ * 这样 M5 → M3 的回写就走统一通道,不再覆盖式单条。
+ */
+function highlightToHiddenExperience(
+  h: DebriefHighlight,
+  sessionId: string,
+): {
+  question_id: string;
+  topic_name: string;
+  raw_user_material: string;
+  star_breakdown: null;
+  candidate_bullets: { text: string; anti_fab_note: string | null }[];
+} {
+  const date = new Date().toISOString().slice(0, 10);
+  return {
+    question_id: `m5-debrief-${sessionId}-${h.excerpt.slice(0, 16).replace(/\s+/g, "-")}`,
+    topic_name: `M5 复盘亮点 · ${h.question.slice(0, 30)} · ${date}`,
+    raw_user_material: h.excerpt,
+    star_breakdown: null,
+    candidate_bullets: [
+      {
+        text: h.suggestedBullet,
+        anti_fab_note: "来自 M5 复盘,引用本场面试 transcript",
+      },
+    ],
+  };
+}
 
 /**
  * 模块 5 · 模拟面试 复盘报告
@@ -185,6 +216,39 @@ function Module5DebriefContent() {
     /* eslint-enable react-hooks/set-state-in-effect */
   }, [user, convId]);
 
+  /**
+   * 把 highlight 追加到 HIDDEN_EXPERIENCES(M3 素材池统一通道)。
+   * 同时写 from_debrief_highlight 单条作为"最近一条提示"供 M3 显式展示用。
+   * 防重:用 question_id 去重,同一 highlight 重复采纳不会插入两次。
+   */
+  function appendHiddenExperiences(highlights: DebriefHighlight[]) {
+    if (!session) return false;
+    try {
+      const raw = window.localStorage.getItem(STORAGE_KEYS.HIDDEN_EXPERIENCES);
+      const existing = (() => {
+        try {
+          const arr = raw ? JSON.parse(raw) : [];
+          return Array.isArray(arr) ? arr : [];
+        } catch {
+          return [];
+        }
+      })();
+      const existingIds = new Set(
+        existing.map((x: { question_id?: string }) => x.question_id).filter(Boolean),
+      );
+      const toAdd = highlights
+        .map((h) => highlightToHiddenExperience(h, session.id))
+        .filter((he) => !existingIds.has(he.question_id));
+      if (toAdd.length === 0) return true;
+      const next = [...existing, ...toAdd];
+      window.localStorage.setItem(STORAGE_KEYS.HIDDEN_EXPERIENCES, JSON.stringify(next));
+      return true;
+    } catch (e) {
+      console.error("[m5/debrief] hidden_experiences append failed", e);
+      return false;
+    }
+  }
+
   function handleAdopt(h: DebriefHighlight) {
     if (!session) return;
     if (adopted.has(h.excerpt)) return;
@@ -197,15 +261,55 @@ function Module5DebriefContent() {
       sent_at: new Date().toISOString(),
     };
     try {
+      // 1. 写最近一条 from_debrief_highlight(M3 result 用来展示"刚从面试来"提示 + 触发 suggest-edits 的 source=interview)
       window.localStorage.setItem(
         M5_STORAGE_KEYS.FROM_DEBRIEF_HIGHLIGHT,
-        JSON.stringify(payload)
+        JSON.stringify(payload),
       );
+      // 2. 追加到统一素材池 HIDDEN_EXPERIENCES — 多次采纳不互相覆盖
+      appendHiddenExperiences([h]);
       setAdopted((s) => new Set(s).add(h.excerpt));
       router.push("/m3?from=debrief");
     } catch (e) {
       console.error("[m5/debrief] adopt write failed", e);
       alert("浏览器存储不可用,无法采纳");
+    }
+  }
+
+  function handleAdoptAll() {
+    if (!session) return;
+    const toAdopt = backfillCandidates.filter((h) => !adopted.has(h.excerpt));
+    if (toAdopt.length === 0) return;
+    try {
+      // 1. 批量追加到 HIDDEN_EXPERIENCES
+      const ok = appendHiddenExperiences(toAdopt);
+      if (!ok) {
+        alert("浏览器存储不可用,无法批量采纳");
+        return;
+      }
+      // 2. 写最近一条 from_debrief_highlight(取第一条作为"最近一条提示")
+      const head = toAdopt[0];
+      const payload: FromDebriefHighlight = {
+        source_session_id: session.id,
+        question: head.question,
+        excerpt: head.excerpt,
+        why: head.why,
+        suggestedBullet: head.suggestedBullet,
+        sent_at: new Date().toISOString(),
+      };
+      window.localStorage.setItem(
+        M5_STORAGE_KEYS.FROM_DEBRIEF_HIGHLIGHT,
+        JSON.stringify(payload),
+      );
+      setAdopted((s) => {
+        const next = new Set(s);
+        toAdopt.forEach((h) => next.add(h.excerpt));
+        return next;
+      });
+      router.push("/m3?from=debrief");
+    } catch (e) {
+      console.error("[m5/debrief] adopt-all failed", e);
+      alert("批量采纳失败");
     }
   }
 
@@ -432,17 +536,41 @@ function Module5DebriefContent() {
         {backfillCandidates.length > 0 && (
           <section className="border-b border-border">
             <div className="max-w-[1100px] mx-auto px-6 py-12">
-              <div className="mb-8">
-                <p className="font-display italic text-xs text-esther-blue mb-1">
-                  Resume backfill ★
-                </p>
-                <h2 className="text-xl md:text-2xl font-bold text-ink mb-2">
-                  💡 这 {backfillCandidates.length} 段你答得特别好 — 要不要写进简历?
-                </h2>
-                <p className="text-sm text-ink-soft">
-                  AI 从 transcript 里识别出可以反哺简历的答案 · 两种用法:一键跳简历优化 / 复制 bullet 文本手动粘贴
-                </p>
+              <div className="mb-6 flex items-start justify-between flex-wrap gap-4">
+                <div className="flex-1 min-w-[280px]">
+                  <p className="font-display italic text-xs text-esther-blue mb-1">
+                    Resume backfill ★
+                  </p>
+                  <h2 className="text-xl md:text-2xl font-bold text-ink mb-2">
+                    💡 这 {backfillCandidates.length} 段你答得特别好 — 要不要写进简历?
+                  </h2>
+                  <p className="text-sm text-ink-soft">
+                    AI 从 transcript 里识别出可以反哺简历的答案 · 三种用法:一键全部采纳 / 单条采纳 / 复制 bullet 手动粘贴
+                  </p>
+                </div>
+                {(() => {
+                  const pendingCount = backfillCandidates.filter((h) => !adopted.has(h.excerpt)).length;
+                  if (pendingCount === 0) {
+                    return (
+                      <span className="inline-flex items-center px-3 py-1.5 rounded-full bg-esther-blue/10 text-esther-blue text-xs font-medium">
+                        ✓ 已全部送入素材池
+                      </span>
+                    );
+                  }
+                  return (
+                    <button
+                      type="button"
+                      onClick={handleAdoptAll}
+                      className="inline-flex items-center justify-center rounded-full bg-esther-blue text-white px-5 py-2.5 text-sm font-medium hover:bg-esther-blue-dark transition-colors shadow-sm"
+                    >
+                      ✓ 一键全部采纳({pendingCount}条) → 跳简历优化
+                    </button>
+                  );
+                })()}
               </div>
+              <p className="text-[11px] text-ink-muted mb-6 leading-relaxed">
+                采纳后这些 bullet 草稿会进入简历优化的素材池(hidden_experiences),M3 会基于它们生成 source=「面试」的改写建议;不会编造没说过的数字,所有 bullet 都引用本场 transcript。
+              </p>
 
               <div className="space-y-5">
                 {backfillCandidates.map((h) => {
@@ -523,15 +651,15 @@ function Module5DebriefContent() {
           </section>
         )}
 
-        {/* transcript 摘要 */}
-        {debrief.transcript_summary.length > 0 && (
+        {/* transcript 摘要 — 只在可评估时渲染,避免 N/A 状态下与"未完成任何回答"提示矛盾 */}
+        {isEvaluable && debrief.transcript_summary.length > 0 && (
           <section className="border-b border-border bg-warm-bg-deep/30">
             <div className="max-w-[1100px] mx-auto px-6 py-10">
               <h2 className="text-xl md:text-2xl font-bold text-ink mb-2">
                 {session.config.num_questions} 题完整摘要
               </h2>
               <p className="text-sm text-ink-soft mb-6">
-                每题展示问题 + 你答的核心点 + 该题得分
+                每题展示问题 + 你答的核心点 + 该题得分(N/A = 跳过或未答,不参与维度统计)
               </p>
 
               <Card className="border-2 border-border divide-y divide-border overflow-hidden">

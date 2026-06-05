@@ -86,4 +86,9 @@ export const STORAGE_KEYS = {
    * Schema: { jdText?, roleName, company, salary?, city?, jdUrl, from_m6: true, sourceJobId, platform }
    */
   M6_PENDING_JD: "m6_pending_jd",
+  /**
+   * M4 项目陪练 — 用户已经生成 / 在做的项目集合。
+   * Schema: M4Project[],见 lib/m4-types.ts。
+   */
+  M4_PROJECTS: "m4_projects",
 } as const;
