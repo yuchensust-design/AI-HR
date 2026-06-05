@@ -74,6 +74,12 @@ export async function POST(request: NextRequest) {
 
       // ==== Post-filter(plan offer-1-sparkling-hippo P1)====
       // 减少"搜 AI 产品实习出现总账会计"这类不相关结果
+      // Mock fallback 数据已保证 role 匹配 + 经验合适,跳过 filter 避免误杀(如 "产品经理" 命中 /经理/ 正则)
+      if (data.isMock) {
+        data.total = data.jobs.length;
+        data.anti_noise_filtered = 0;
+        return NextResponse.json(data);
+      }
       const roleKw = role.toLowerCase();
       const wantsIntern = /实习|intern/.test(roleKw);
       const wantsGraduate = /校招|应届|graduate/.test(roleKw);
