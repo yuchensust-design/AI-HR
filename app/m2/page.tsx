@@ -10,12 +10,13 @@
  */
 
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Nav } from "@/components/Nav";
 import { BuerFloatingButton } from "@/components/BuerFloatingButton";
 import { useLocalState, STORAGE_KEYS } from "@/lib/use-local-state";
+import ConversationSwitcher from "@/components/conversations/ConversationSwitcher";
 
 type Phase =
   | "anchor"
@@ -396,6 +397,12 @@ export default function Module2Page() {
       <Nav />
       <main className="min-h-screen bg-warm-bg" id="top">
         <div className="h-20" />
+
+        <div className="flex">
+          <Suspense fallback={<aside className="w-60 flex-shrink-0" />}>
+            <ConversationSwitcher module="m2" basePath="/m2" defaultTitle="经历" />
+          </Suspense>
+          <div className="flex-1 min-w-0">
 
         <section className="border-b border-border">
           <div className="max-w-[1100px] mx-auto px-6 py-8">
@@ -833,6 +840,9 @@ export default function Module2Page() {
                 </p>
               </Link>
             </div>
+          </div>
+        </div>
+
           </div>
         </div>
 

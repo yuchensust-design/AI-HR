@@ -3,6 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import UserMenu from "@/components/auth/UserMenu";
 
 /**
  * Sticky 顶部导航 — Landing v4
@@ -77,13 +78,16 @@ export function Nav() {
           )}
         </div>
 
-        {/* CTA */}
-        <Link
-          href="/m1"
-          className="inline-flex items-center justify-center rounded-full bg-esther-blue text-white px-6 py-2.5 text-sm font-medium hover:bg-esther-blue-dark transition-colors flex-shrink-0 shadow-sm"
-        >
-          开始使用 →
-        </Link>
+        {/* Right cluster: CTA + UserMenu */}
+        <div className="flex items-center gap-3 flex-shrink-0">
+          <Link
+            href="/m1"
+            className="hidden sm:inline-flex items-center justify-center rounded-full bg-esther-blue text-white px-5 py-2.5 text-sm font-medium hover:bg-esther-blue-dark transition-colors shadow-sm"
+          >
+            开始使用 →
+          </Link>
+          <UserMenu />
+        </div>
       </div>
     </nav>
   );

@@ -1,12 +1,17 @@
+import { Suspense } from "react";
 import Link from "next/link";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Nav } from "@/components/Nav";
 import { BuerFloatingButton } from "@/components/BuerFloatingButton";
+import ConversationSwitcher from "@/components/conversations/ConversationSwitcher";
 
 /**
  * 模块 4 · 项目设计 + 学习卡组(P1 stub)
  * 路由 /m4
+ *
+ * v1.5(plan §8.24):加左侧 ConversationSwitcher sidebar。
+ * 数据隔离仍是 P1 stub(WEEK1_TASKS hardcode),v2 接 m4_projects 表实做多会话。
  */
 
 const PROJECT = {
@@ -38,6 +43,12 @@ export default function Module4Page() {
       <Nav />
       <main className="min-h-screen bg-warm-bg" id="top">
         <div className="h-20" />
+
+        <div className="flex">
+          <Suspense fallback={<aside className="w-60 flex-shrink-0" />}>
+            <ConversationSwitcher module="m4" basePath="/m4" defaultTitle="项目" />
+          </Suspense>
+          <div className="flex-1 min-w-0">
 
         <section className="border-b border-border">
           <div className="max-w-[1100px] mx-auto px-6 py-8">
@@ -224,6 +235,9 @@ export default function Module4Page() {
               v1 P1 stub · 完整卡组(Week 2-4 / 自动 reminder)v2 上线
             </p>
           </aside>
+        </div>
+
+          </div>
         </div>
 
         <BuerFloatingButton />

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { Suspense, useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Card } from "@/components/ui/card";
@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Nav } from "@/components/Nav";
 import { BuerFloatingButton } from "@/components/BuerFloatingButton";
 import { useLocalState, STORAGE_KEYS } from "@/lib/use-local-state";
+import { useM3DBSync } from "@/lib/sync/useM3DBSync";
 
 /**
  * 模块 3 / Phase 2 JD 匹配
@@ -42,15 +43,45 @@ type JdContext = {
 };
 
 export default function JdPage() {
+  return (
+    <Suspense
+      fallback={
+        <>
+          <Nav />
+          <main className="min-h-screen bg-warm-bg">
+            <div className="h-20" />
+            <div className="text-center text-ink-muted py-20">加载中…</div>
+          </main>
+        </>
+      }
+    >
+      <JdContent />
+    </Suspense>
+  );
+}
+
+function JdContent() {
   const router = useRouter();
-  const [parsedResume] = useLocalState<ParsedResume | null>(
+  const { isLoggedInWithConv, dbData, convQs, saveField } = useM3DBSync();
+
+  const [localParsedResume] = useLocalState<ParsedResume | null>(
     STORAGE_KEYS.PARSED_RESUME,
-    null
+    null,
   );
-  const [, setJdContext] = useLocalState<JdContext | null>(
+  const [, setLocalJdContext] = useLocalState<JdContext | null>(
     STORAGE_KEYS.JD_CONTEXT,
-    null
+    null,
   );
+
+  // 数据来源:登录优先 DB,游客 localStorage
+  const parsedResume = isLoggedInWithConv
+    ? (dbData?.parsed_resume_json as ParsedResume | null) ?? null
+    : localParsedResume;
+
+  async function setJdContext(jd: JdContext | null) {
+    setLocalJdContext(jd);
+    if (isLoggedInWithConv) await saveField("jd_context_json", jd);
+  }
 
   const [mode, setMode] = useState<Mode>("full");
   const [jdText, setJdText] = useState("");
@@ -87,7 +118,7 @@ export default function JdPage() {
         setJdContext(null); // 快速模式 = null
         setStatus("done");
         setResult(null);
-        setTimeout(() => router.push("/m3/result"), 800);
+        setTimeout(() => router.push(`/m3/result${convQs}`), 800);
       } catch (err) {
         const message = err instanceof Error ? err.message : "失败";
         setErrorMsg(message);
@@ -145,9 +176,9 @@ export default function JdPage() {
 
   function handleNextPhase() {
     if (mode === "quick") {
-      router.push("/m3/result");
+      router.push(`/m3/result${convQs}`);
     } else {
-      router.push("/m3/excavate");
+      router.push(`/m3/excavate${convQs}`);
     }
   }
 

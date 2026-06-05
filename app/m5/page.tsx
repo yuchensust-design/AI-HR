@@ -2,11 +2,12 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Nav } from "@/components/Nav";
 import { BuerFloatingButton } from "@/components/BuerFloatingButton";
+import ConversationSwitcher from "@/components/conversations/ConversationSwitcher";
 import {
   M5_STORAGE_KEYS,
   type InterviewSessionConfig,
@@ -211,6 +212,12 @@ export default function Module5ConfigPage() {
       <Nav />
       <main className="min-h-screen bg-warm-bg" id="top">
         <div className="h-20" />
+
+        <div className="flex">
+          <Suspense fallback={<aside className="w-60 flex-shrink-0" />}>
+            <ConversationSwitcher module="m5" basePath="/m5" defaultTitle="面试" />
+          </Suspense>
+          <div className="flex-1 min-w-0">
 
         <section className="border-b border-border">
           <div className="max-w-[1000px] mx-auto px-6 py-8">
@@ -548,6 +555,9 @@ export default function Module5ConfigPage() {
                 开始后中途可以暂停 / 跳过 / 结束 · 刷新会丢失答案
               </p>
             )}
+          </div>
+        </div>
+
           </div>
         </div>
 

@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -10,6 +10,8 @@ import { BuerFloatingButton } from "@/components/BuerFloatingButton";
 import { useLocalState, STORAGE_KEYS } from "@/lib/use-local-state";
 import { extractTextFromPdf } from "@/lib/pdf-extract";
 import { extractTextFromDocx } from "@/lib/docx-extract";
+import { useUser } from "@/lib/auth/useUser";
+import { createClient } from "@/lib/supabase/client";
 
 /**
  * 模块 3 / Phase 1 简历上传 + 解析
@@ -41,8 +43,49 @@ type ParsedSummary = {
 };
 
 export default function UploadPage() {
+  return (
+    <Suspense
+      fallback={
+        <>
+          <Nav />
+          <main className="min-h-screen bg-warm-bg">
+            <div className="h-20" />
+            <div className="text-center text-ink-muted py-20">加载中…</div>
+          </main>
+        </>
+      }
+    >
+      <UploadContent />
+    </Suspense>
+  );
+}
+
+function UploadContent() {
   const router = useRouter();
-  const [, setParsedResume] = useLocalState(STORAGE_KEYS.PARSED_RESUME, null);
+  const sp = useSearchParams();
+  const convId = sp.get("c");
+  const { user, loading: userLoading } = useUser();
+  const convQs = convId ? `?c=${convId}` : "";
+  const [, setLocalParsed] = useLocalState(STORAGE_KEYS.PARSED_RESUME, null);
+
+  // 登录但没选 conv → 回 /m3 让用户选/新建
+  useEffect(() => {
+    if (!userLoading && user && !convId) {
+      router.replace("/m3");
+    }
+  }, [user, userLoading, convId, router]);
+
+  // 双轨保存:游客 → localStorage;登录 + convId → DB
+  async function setParsedResume(parsed: unknown) {
+    setLocalParsed(parsed as never);
+    if (user && convId) {
+      const supabase = createClient();
+      await supabase
+        .from("m3_resumes")
+        .update({ parsed_resume_json: parsed })
+        .eq("conversation_id", convId);
+    }
+  }
 
   const [pastedText, setPastedText] = useState("");
   const [extractedText, setExtractedText] = useState("");
@@ -127,7 +170,7 @@ export default function UploadPage() {
   }
 
   function handleNextPhase() {
-    router.push("/m3/jd");
+    router.push(`/m3/jd${convQs}`);
   }
 
   // 算 tag 分布的可读 count(从 ratio × total)
