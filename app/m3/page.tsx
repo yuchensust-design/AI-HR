@@ -98,11 +98,11 @@ function Module3Content() {
   }
 
   const phaseLabels = [
-    { no: "1", title: "简历解析", desc: "PDF/Word/MD 转结构化 + Anti-fab 诊断" },
-    { no: "2", title: "JD 匹配", desc: "拆 JD + 找命中亮点 + gaps" },
-    { no: "3", title: "隐藏经验挖掘", desc: "选择题挖你没写的素材 + R1 Skeptical 评估" },
-    { no: "4", title: "学习计划", desc: "(按需 unlock,可选)" },
-    { no: "5", title: "整理 + 下载", desc: "逐条确认改动 + Live Diff 6 维表 + Word" },
+    { no: "1", title: "简历解析", desc: "PDF/Word/MD 自动结构化,AI 推测处标记给你确认" },
+    { no: "2", title: "JD 匹配", desc: "拆 JD · 找你已有的亮点 · 列差距" },
+    { no: "3", title: "挖隐藏经验", desc: "选择题挖你简历没写的素材 + 真实性追问" },
+    { no: "4", title: "学习计划", desc: "(按需展开,补差距用)" },
+    { no: "5", title: "整理 + 下载", desc: "逐条 accept/reject + 跟原版对比 + 下载 Word" },
   ];
 
   // 登录但没选 conv → 空状态
@@ -288,29 +288,39 @@ function Module3Content() {
                 {/* 右:特性 + 下一模块跳转 */}
                 <aside className="space-y-5">
                   <Card className="p-5 border-2 border-esther-yellow/40 bg-esther-yellow/10">
-                    <p className="font-display italic text-xs text-esther-blue mb-2">How AI helps</p>
+                    <p className="font-display italic text-xs text-esther-blue mb-2">为什么这次改的简历可靠</p>
                     <ul className="text-xs text-ink-soft space-y-2 leading-relaxed">
                       <li>
-                        <strong className="text-ink">Anti-fabrication 3 层防御</strong>
+                        <strong className="text-ink">AI 推测的会标出来</strong>
                         <br />
-                        prompt 硬约束 + normalize 校验 + UI 显示 evidence_source
+                        如果是 AI 推测的内容,会标"待你确认",不会偷偷塞进最终简历
                       </li>
                       <li>
-                        <strong className="text-ink">动态 skill routing</strong>
+                        <strong className="text-ink">每条建议你来拍板</strong>
                         <br />
-                        按 persona / role / state 路由 1-3 段补充 skill
+                        AI 给 N 条建议,你逐条 ✓ 采纳 / ✗ 跳过 / ↻ 重生 — 不替你决定
                       </li>
                       <li>
-                        <strong className="text-ink">Live Diff 6 维客观差异表</strong>
+                        <strong className="text-ink">改完跟原版对比</strong>
                         <br />
-                        顶部永久区,4 维实时 + 2 维 LLM,用户可 audit
+                        JD 关键词命中数 / 量化 bullet 数 / 字数 实时显示,看进步
                       </li>
                       <li>
-                        <strong className="text-ink">逐条确认改动</strong>
+                        <strong className="text-ink">根据你的目标推内容</strong>
                         <br />
-                        AI 出 N 条建议,你 accept/reject/regen,不替你决定
+                        不是套模板 — 按你的 JD / 经历组合给针对性建议
                       </li>
                     </ul>
+                    <details className="mt-3">
+                      <summary className="text-[10px] text-ink-muted cursor-pointer hover:text-ink-soft">
+                        ▸ 技术细节(给评委看)
+                      </summary>
+                      <ul className="text-[10px] text-ink-muted space-y-1 mt-2 pl-3">
+                        <li>· Anti-fabrication 3 层:prompt 硬约束 + normalize 校验 + UI 标 evidence_source</li>
+                        <li>· Live Diff 6 维表:4 维规则实时计算 + 2 维 LLM 评估</li>
+                        <li>· 动态 skill routing:按 persona / role / state 路由 1-3 段补充 skill</li>
+                      </ul>
+                    </details>
                   </Card>
 
                   <Card className="p-5 border-2 border-border">
