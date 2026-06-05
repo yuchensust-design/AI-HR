@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Nav } from "@/components/Nav";
@@ -14,6 +14,8 @@ import {
   type FromDebriefHighlight,
   type InterviewSession,
 } from "@/lib/interview-types";
+import { useUser } from "@/lib/auth/useUser";
+import { createClient } from "@/lib/supabase/client";
 
 /**
  * 模块 5 · 模拟面试 复盘报告
@@ -60,7 +62,18 @@ function ScoreBar({ score }: { score: number }) {
 }
 
 export default function Module5DebriefPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-warm-bg pt-32 text-center text-ink-muted">加载中…</div>}>
+      <Module5DebriefContent />
+    </Suspense>
+  );
+}
+
+function Module5DebriefContent() {
   const router = useRouter();
+  const sp = useSearchParams();
+  const convId = sp.get("c");
+  const { user } = useUser();
   const [session, setSession] = useState<InterviewSession | null>(null);
   const [debrief, setDebrief] = useState<DebriefResult | null>(null);
   const [loading, setLoading] = useState(true);
@@ -68,19 +81,50 @@ export default function Module5DebriefPage() {
   const [adopted, setAdopted] = useState<Set<string>>(new Set());
 
   useEffect(() => {
-    // hydration 后从 localStorage 读 session + 异步调 debrief endpoint,setState 必要
     /* eslint-disable react-hooks/set-state-in-effect */
-    try {
-      const raw = window.localStorage.getItem(M5_STORAGE_KEYS.SESSIONS);
-      if (!raw) {
-        setErr("没有面试记录 — 先去面试一场");
-        setLoading(false);
-        return;
+    (async () => {
+      let last: InterviewSession | null = null;
+
+      // 登录 + 有 convId → 从 DB 重建 session
+      if (user && convId) {
+        const supabase = createClient();
+        const { data } = await supabase
+          .from("m5_interviews")
+          .select("config_json, turns_json, debrief_md")
+          .eq("conversation_id", convId)
+          .maybeSingle();
+        if (data?.config_json && data?.turns_json) {
+          const turns = data.turns_json as {
+            questions?: InterviewSession["questions"];
+            answers?: InterviewSession["answers"];
+            turn_evaluations?: InterviewSession["turn_evaluations"];
+          };
+          last = {
+            id: convId,
+            config: data.config_json as InterviewSession["config"],
+            questions: turns.questions ?? [],
+            answers: turns.answers ?? [],
+            turn_evaluations: turns.turn_evaluations ?? [],
+            debrief: data.debrief_md ? (JSON.parse(data.debrief_md) as DebriefResult) : undefined,
+          };
+        }
       }
-      const sessions = JSON.parse(raw) as InterviewSession[];
-      const last = sessions[sessions.length - 1];
+
+      // Fallback localStorage
       if (!last) {
-        setErr("面试记录为空");
+        try {
+          const raw = window.localStorage.getItem(M5_STORAGE_KEYS.SESSIONS);
+          if (raw) {
+            const sessions = JSON.parse(raw) as InterviewSession[];
+            last = sessions[sessions.length - 1] ?? null;
+          }
+        } catch {
+          // ignore
+        }
+      }
+
+      if (!last) {
+        setErr("没有面试记录 — 先去面试一场");
         setLoading(false);
         return;
       }
@@ -106,6 +150,13 @@ export default function Module5DebriefPage() {
           }
           const j = (await res.json()) as { debrief: DebriefResult };
           setDebrief(j.debrief);
+          // 登录用户回写 DB
+          if (user && convId) {
+            await createClient()
+              .from("m5_interviews")
+              .update({ debrief_md: JSON.stringify(j.debrief) })
+              .eq("conversation_id", convId);
+          }
           // 回写 session.debrief 到 localStorage
           try {
             const exist = JSON.parse(
@@ -128,13 +179,9 @@ export default function Module5DebriefPage() {
           setLoading(false);
         }
       })();
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : "读取面试记录失败";
-      setErr(msg);
-      setLoading(false);
-    }
+    })();
     /* eslint-enable react-hooks/set-state-in-effect */
-  }, []);
+  }, [user, convId]);
 
   function handleAdopt(h: DebriefHighlight) {
     if (!session) return;

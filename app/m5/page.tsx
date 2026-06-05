@@ -1,13 +1,16 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useRef, useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Nav } from "@/components/Nav";
 import { BuerFloatingButton } from "@/components/BuerFloatingButton";
 import ConversationSwitcher from "@/components/conversations/ConversationSwitcher";
+import { useUser } from "@/lib/auth/useUser";
+import { createClient } from "@/lib/supabase/client";
+import { createConversation } from "@/lib/conversations";
 import {
   M5_STORAGE_KEYS,
   type InterviewSessionConfig,
@@ -82,7 +85,51 @@ const SAMPLE_JD = `【某互联网大厂 · AI 产品经理实习生】
 4. 有 0 → 1 项目经历优先`;
 
 export default function Module5ConfigPage() {
+  return (
+    <Suspense
+      fallback={
+        <>
+          <Nav />
+          <main className="min-h-screen bg-warm-bg">
+            <div className="h-20" />
+            <div className="text-center text-ink-muted py-20">加载中…</div>
+          </main>
+        </>
+      }
+    >
+      <Module5ConfigContent />
+    </Suspense>
+  );
+}
+
+function Module5ConfigContent() {
   const router = useRouter();
+  const sp = useSearchParams();
+  const convId = sp.get("c");
+  const { user, loading: userLoading } = useUser();
+
+  // 登录用户带 conv id 进来:如果该 conv 已有 config(老面试)→ 跳 /m5/live;
+  // 没 config(新建会话)→ 显示当前配置表单,提交时 update 此 conv
+  useEffect(() => {
+    if (userLoading || !user || !convId) return;
+    let cancelled = false;
+    const supabase = createClient();
+    supabase
+      .from("m5_interviews")
+      .select("config_json")
+      .eq("conversation_id", convId)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (cancelled) return;
+        const cfg = (data?.config_json as Record<string, unknown> | undefined) ?? null;
+        if (cfg && Object.keys(cfg).length > 0) {
+          router.replace(`/m5/live?c=${convId}`);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [user, userLoading, convId, router]);
 
   const [resumeSource, setResumeSource] = useState<ResumeSource | null>(null);
   const [savedResumeText, setSavedResumeText] = useState<string>("");
@@ -181,7 +228,7 @@ export default function Module5ConfigPage() {
     persona !== null &&
     !submitting;
 
-  function handleSubmit() {
+  async function handleSubmit() {
     if (!canSubmit) return;
     setSubmitting(true);
     const config: InterviewSessionConfig = {
@@ -195,13 +242,30 @@ export default function Module5ConfigPage() {
       started_at: new Date().toISOString(),
     };
     try {
+      // 1. 始终写 localStorage(游客 + 登录 fallback)
       window.localStorage.setItem(
         M5_STORAGE_KEYS.SESSION_CONFIG,
-        JSON.stringify(config)
+        JSON.stringify(config),
       );
+
+      // 2. 登录用户:写 DB(create conv if 无 / update if 已有)
+      if (user) {
+        const supabase = createClient();
+        const title = `${(type ?? "面试").slice(0, 8)} · ${jdText.trim().slice(0, 12) || "新会话"}`;
+        const targetConvId = convId ?? (await createConversation("m5", title));
+        if (targetConvId) {
+          await supabase
+            .from("m5_interviews")
+            .update({ config_json: config })
+            .eq("conversation_id", targetConvId);
+          router.push(`/m5/live?c=${targetConvId}`);
+          return;
+        }
+      }
+
       router.push("/m5/live");
     } catch (err) {
-      console.error("[m5/config] localStorage write failed", err);
+      console.error("[m5/config] save failed", err);
       alert("浏览器存储不可用,无法开始面试");
       setSubmitting(false);
     }

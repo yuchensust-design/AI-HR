@@ -3,6 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import {
+  Suspense,
   useCallback,
   useEffect,
   useMemo,
@@ -10,7 +11,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   M5_STORAGE_KEYS,
   SESSIONS_MAX,
@@ -22,6 +23,8 @@ import {
 } from "@/lib/interview-types";
 import { useASR } from "@/lib/use-asr";
 import { useMediaStream } from "@/lib/use-media-stream";
+import { useUser } from "@/lib/auth/useUser";
+import { createClient } from "@/lib/supabase/client";
 
 /**
  * 模块 5 · 模拟面试 进行中
@@ -239,7 +242,19 @@ const TYPE_LABEL: Record<string, string> = {
 };
 
 export default function Module5LivePage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-warm-bg pt-32 text-center text-ink-muted">加载中…</div>}>
+      <Module5LiveContent />
+    </Suspense>
+  );
+}
+
+function Module5LiveContent() {
   const router = useRouter();
+  const sp = useSearchParams();
+  const convId = sp.get("c");
+  const { user } = useUser();
+  const convQs = convId ? `?c=${convId}` : "";
   const [state, dispatch] = useReducer(reducer, initial);
   const [config, setConfig] = useState<InterviewSessionConfig | null>(null);
   const [recordDownloadUrl, setRecordDownloadUrl] = useState<string | null>(
@@ -249,9 +264,31 @@ export default function Module5LivePage() {
   const [silenceMs, setSilenceMs] = useState(0);
   const [recordingActive, setRecordingActive] = useState(false);
 
-  // 从 localStorage 读 config
+  // 加载 config:登录 + 有 convId → DB;否则 localStorage
   useEffect(() => {
-    // hydration 后必须 setState 把外部 storage 拉进 React 状态
+    if (user && convId) {
+      let cancelled = false;
+      const supabase = createClient();
+      supabase
+        .from("m5_interviews")
+        .select("config_json")
+        .eq("conversation_id", convId)
+        .maybeSingle()
+        .then(({ data }) => {
+          if (cancelled) return;
+          const cfg = data?.config_json as InterviewSessionConfig | undefined;
+          if (!cfg || !cfg.jd_text) {
+            dispatch({ type: "ERROR", msg: "该会话还没填配置 — 请回 /m5 配置" });
+            return;
+          }
+          // eslint-disable-next-line react-hooks/set-state-in-effect
+          setConfig(cfg);
+        });
+      return () => {
+        cancelled = true;
+      };
+    }
+    // 游客或登录无 convId → localStorage fallback
     try {
       const raw = window.localStorage.getItem(M5_STORAGE_KEYS.SESSION_CONFIG);
       if (!raw) {
@@ -554,7 +591,23 @@ export default function Module5LivePage() {
     } catch (err) {
       console.error("[m5/live] save session failed", err);
     }
-  }, [state.status, state.sessionId, state.questions, state.answers, state.turnEvaluations, config]);
+    // 登录 + 有 convId → 写 m5_interviews.turns_json
+    if (user && convId) {
+      createClient()
+        .from("m5_interviews")
+        .update({
+          turns_json: {
+            questions: state.questions,
+            answers: state.answers,
+            turn_evaluations: state.turnEvaluations,
+          },
+        })
+        .eq("conversation_id", convId)
+        .then(({ error }) => {
+          if (error) console.error("[m5/live] DB save failed:", error);
+        });
+    }
+  }, [state.status, state.sessionId, state.questions, state.answers, state.turnEvaluations, config, user, convId]);
 
   // "💡 查看回答思路" - 复用 /api/chat
   const handleTipsOpen = useCallback(async () => {
@@ -599,8 +652,8 @@ export default function Module5LivePage() {
   }, [currentQuestion]);
 
   const goDebrief = useCallback(() => {
-    router.push("/m5/debrief");
-  }, [router]);
+    router.push(`/m5/debrief${convQs}`);
+  }, [router, convQs]);
 
   const personaLabel = config ? PERSONA_LABEL[config.persona] : "";
   const typeLabel = config ? TYPE_LABEL[config.type] : "";
