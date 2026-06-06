@@ -37,6 +37,18 @@ export const SAMPLE_APPLICATIONS: Application[] = [
     statusUpdatedAt: "2026-05-02",
     notes: "笔试 SQL 题答完进了一面,被反馈缺少 A/B test 项目经验。",
     isSample: true,
+    rounds: [
+      { id: "r-002-1", type: "written_test", outcome: "passed", date: "2026-04-18" },
+      {
+        id: "r-002-2",
+        type: "first_round",
+        outcome: "failed",
+        failReason: "tech_depth",
+        note: "A/B test 实验设计没做过,被追问统计显著性卡住",
+        date: "2026-05-02",
+      },
+    ],
+    finalFailReason: "tech_depth",
   },
   {
     id: "sample-003",
@@ -49,6 +61,16 @@ export const SAMPLE_APPLICATIONS: Application[] = [
     statusUpdatedAt: "2026-05-25",
     notes: "投完一直没有反馈,简历未读。",
     isSample: true,
+    rounds: [
+      {
+        id: "r-003-1",
+        type: "written_test",
+        outcome: "failed",
+        failReason: "no_response",
+        note: "简历投了 5 周没动静,推测初筛挂",
+      },
+    ],
+    finalFailReason: "no_response",
   },
   {
     id: "sample-004",
@@ -97,6 +119,16 @@ export const SAMPLE_APPLICATIONS: Application[] = [
     statusUpdatedAt: "2026-06-01",
     notes: "面向应届的 JD,基本要求重合,但未收到笔试通知。",
     isSample: true,
+    rounds: [
+      {
+        id: "r-007-1",
+        type: "written_test",
+        outcome: "failed",
+        failReason: "no_response",
+        note: "JD 要求 LLM 应用经验,简历项目偏前端,可能没过初筛",
+      },
+    ],
+    finalFailReason: "no_response",
   },
   {
     id: "sample-008",

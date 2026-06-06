@@ -5,8 +5,16 @@ import {
   Application,
   ApplicationStatus,
   DIRECTION_LABELS,
+  FAIL_REASON_LABELS,
+  FailReason,
+  InterviewRound,
+  InterviewRoundType,
+  OUTCOME_LABELS,
   RoleDirection,
+  ROUND_TYPE_LABELS,
+  RoundOutcome,
   STATUS_LABELS,
+  genRoundId,
 } from "@/lib/tracker-types";
 
 type Props = {
@@ -25,6 +33,9 @@ function genId(): string {
 
 const STATUS_KEYS = Object.keys(STATUS_LABELS) as ApplicationStatus[];
 const DIRECTION_KEYS = Object.keys(DIRECTION_LABELS) as RoleDirection[];
+const ROUND_TYPE_KEYS = Object.keys(ROUND_TYPE_LABELS) as InterviewRoundType[];
+const OUTCOME_KEYS = Object.keys(OUTCOME_LABELS) as RoundOutcome[];
+const FAIL_REASON_KEYS = Object.keys(FAIL_REASON_LABELS) as FailReason[];
 
 export function ApplicationForm({ initial, onCancel, onSubmit }: Props) {
   const [form, setForm] = useState<Application>(
@@ -199,6 +210,158 @@ export function ApplicationForm({ initial, onCancel, onSubmit }: Props) {
             className="mt-1 w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-ink"
           />
         </label>
+
+        {/* 面试轮次链 — §8.28 Wave 3 投递复盘补完 */}
+        <div className="border-t border-border pt-4">
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-sm font-medium text-ink">
+              📊 面试轮次复盘(可选)
+            </p>
+            <button
+              type="button"
+              onClick={() => {
+                const newRound: InterviewRound = {
+                  id: genRoundId(),
+                  type: "first_round",
+                  outcome: "pending",
+                };
+                setForm({
+                  ...form,
+                  rounds: [...(form.rounds ?? []), newRound],
+                });
+              }}
+              className="text-xs text-esther-blue hover:text-esther-blue-dark"
+            >
+              + 添加一轮
+            </button>
+          </div>
+          <p className="text-[11px] text-ink-muted mb-3">
+            笔试 → 一面 → 二面 → HR 面 — 挂在哪一步、什么原因,后面 AI 帮你找规律
+          </p>
+
+          {!form.rounds?.length ? (
+            <p className="text-xs text-ink-muted italic px-3 py-2 rounded bg-warm-bg/40">
+              还没添加任何轮次
+            </p>
+          ) : (
+            <ul className="space-y-3">
+              {form.rounds.map((r, idx) => (
+                <li
+                  key={r.id}
+                  className="rounded-lg border border-border bg-warm-bg/30 p-3 space-y-2"
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-ink-muted">第 {idx + 1} 轮</span>
+                    <select
+                      value={r.type}
+                      onChange={(e) => {
+                        const next = [...(form.rounds ?? [])];
+                        next[idx] = {
+                          ...r,
+                          type: e.target.value as InterviewRoundType,
+                        };
+                        setForm({ ...form, rounds: next });
+                      }}
+                      className="rounded border border-border bg-card px-2 py-1 text-xs"
+                    >
+                      {ROUND_TYPE_KEYS.map((t) => (
+                        <option key={t} value={t}>
+                          {ROUND_TYPE_LABELS[t]}
+                        </option>
+                      ))}
+                    </select>
+                    <select
+                      value={r.outcome}
+                      onChange={(e) => {
+                        const next = [...(form.rounds ?? [])];
+                        next[idx] = {
+                          ...r,
+                          outcome: e.target.value as RoundOutcome,
+                          failReason:
+                            e.target.value === "failed" ? r.failReason : undefined,
+                        };
+                        setForm({ ...form, rounds: next });
+                      }}
+                      className={`rounded border px-2 py-1 text-xs ${
+                        r.outcome === "passed"
+                          ? "border-emerald-300 bg-emerald-50 text-emerald-800"
+                          : r.outcome === "failed"
+                            ? "border-rose-300 bg-rose-50 text-rose-800"
+                            : "border-border bg-card"
+                      }`}
+                    >
+                      {OUTCOME_KEYS.map((o) => (
+                        <option key={o} value={o}>
+                          {OUTCOME_LABELS[o]}
+                        </option>
+                      ))}
+                    </select>
+                    <input
+                      type="date"
+                      value={r.date ?? ""}
+                      onChange={(e) => {
+                        const next = [...(form.rounds ?? [])];
+                        next[idx] = { ...r, date: e.target.value };
+                        setForm({ ...form, rounds: next });
+                      }}
+                      className="rounded border border-border bg-card px-2 py-1 text-xs"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const next = (form.rounds ?? []).filter(
+                          (_, i) => i !== idx
+                        );
+                        setForm({ ...form, rounds: next });
+                      }}
+                      className="ml-auto text-xs text-rose-500 hover:text-rose-700"
+                      aria-label="删除这一轮"
+                    >
+                      ✕
+                    </button>
+                  </div>
+
+                  {r.outcome === "failed" && (
+                    <div className="space-y-2 pl-2 border-l-2 border-rose-200">
+                      <select
+                        value={r.failReason ?? ""}
+                        onChange={(e) => {
+                          const next = [...(form.rounds ?? [])];
+                          next[idx] = {
+                            ...r,
+                            failReason: (e.target.value || undefined) as
+                              | FailReason
+                              | undefined,
+                          };
+                          setForm({ ...form, rounds: next });
+                        }}
+                        className="rounded border border-border bg-card px-2 py-1 text-xs w-full"
+                      >
+                        <option value="">挂的原因…</option>
+                        {FAIL_REASON_KEYS.map((k) => (
+                          <option key={k} value={k}>
+                            {FAIL_REASON_LABELS[k]}
+                          </option>
+                        ))}
+                      </select>
+                      <input
+                        type="text"
+                        value={r.note ?? ""}
+                        onChange={(e) => {
+                          const next = [...(form.rounds ?? [])];
+                          next[idx] = { ...r, note: e.target.value };
+                          setForm({ ...form, rounds: next });
+                        }}
+                        placeholder="比如:Transformer 原理答不上 / JD 强调 SQL 我不会"
+                        className="w-full rounded border border-border bg-card px-2 py-1 text-xs"
+                      />
+                    </div>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
 
         <div className="flex justify-end gap-2 pt-2">
           <button

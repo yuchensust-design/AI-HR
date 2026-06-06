@@ -19,6 +19,7 @@ import { ApplicationTable } from "./components/ApplicationTable";
 import { ApplicationForm } from "./components/ApplicationForm";
 import { DiagnosisPanel } from "./components/DiagnosisPanel";
 import { NextActions } from "./components/NextActions";
+import { TrackerInsights } from "./components/TrackerInsights";
 
 export default function TrackerPage() {
   const [applications, setApplications] = useLocalState<Application[]>(
@@ -199,6 +200,17 @@ export default function TrackerPage() {
             }}
             onDelete={handleDelete}
           />
+        </section>
+
+        {/* 复盘 Insights — §8.28 Wave 3 投递复盘补完 */}
+        <section className="space-y-3">
+          <div className="flex items-baseline justify-between">
+            <h2 className="font-heading text-xl text-ink">复盘卡点</h2>
+            <span className="text-xs text-ink-muted">
+              基于你填的"挂了 + 原因"自动聚合
+            </span>
+          </div>
+          <TrackerInsights applications={applications} />
         </section>
 
         {/* 诊断 */}

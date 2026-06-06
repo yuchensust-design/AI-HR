@@ -69,6 +69,66 @@ export const DIRECTION_LABELS: Record<RoleDirection, string> = {
   other: "其它",
 };
 
+/** 面试轮次类型 (§8.28 Wave 3 — 投递复盘补完) */
+export type InterviewRoundType =
+  | "written_test"
+  | "first_round"
+  | "second_round"
+  | "third_round"
+  | "hr_round"
+  | "final_round";
+
+export const ROUND_TYPE_LABELS: Record<InterviewRoundType, string> = {
+  written_test: "笔试",
+  first_round: "一面",
+  second_round: "二面",
+  third_round: "三面",
+  hr_round: "HR 面",
+  final_round: "终面",
+};
+
+export type RoundOutcome = "passed" | "failed" | "pending" | "skipped";
+
+export const OUTCOME_LABELS: Record<RoundOutcome, string> = {
+  passed: "通过",
+  failed: "挂了",
+  pending: "等通知",
+  skipped: "跳过",
+};
+
+/** 挂的原因 — 用于按原因聚合做 Insights */
+export type FailReason =
+  | "tech_depth"
+  | "project_detail"
+  | "jd_mismatch"
+  | "expression"
+  | "personality_fit"
+  | "no_response"
+  | "other";
+
+export const FAIL_REASON_LABELS: Record<FailReason, string> = {
+  tech_depth: "技术深度不够",
+  project_detail: "项目细节答不上",
+  jd_mismatch: "JD 与经历错配",
+  expression: "表达不清 / 卡顿",
+  personality_fit: "性格 / 文化不 fit",
+  no_response: "石沉大海",
+  other: "其它",
+};
+
+export type InterviewRound = {
+  /** 唯一 id,前端用 */
+  id: string;
+  type: InterviewRoundType;
+  outcome: RoundOutcome;
+  /** outcome = failed 时必填,其它可空 */
+  failReason?: FailReason;
+  /** 自由文本备注,失败原因细节 */
+  note?: string;
+  /** 这一轮发生的日期 YYYY-MM-DD */
+  date?: string;
+};
+
 export type Application = {
   id: string;
   /** 行业 + 职位类型;严格不写公司名(plan 硬约束) */
@@ -86,7 +146,16 @@ export type Application = {
   notes: string;
   /** 是否 sample;sample 数据在指标卡和诊断里都会标记来源 */
   isSample?: boolean;
+  /** 面试轮次链(§8.28 Wave 3),可空(老数据兼容) */
+  rounds?: InterviewRound[];
+  /** 最终挂的根因(可选;如果填了 outcome=failed 的某轮 reason 会自动取最后一条) */
+  finalFailReason?: FailReason;
 };
+
+/** 生成轮次 id */
+export function genRoundId(): string {
+  return `r-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+}
 
 export type Metrics = {
   total: number;

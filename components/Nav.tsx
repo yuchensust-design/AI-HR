@@ -17,6 +17,7 @@ const NAV_ITEMS = [
   { label: "2·看岗位", href: "/m6/discover" },
   { label: "3·改简历", href: "/m3" },
   { label: "4·练面试", href: "/m5" },
+  { label: "5·复盘投递", href: "/tracker" },
   { label: "经历", href: "/m2" },
   { label: "项目", href: "/m4" },
   { label: "日记", href: "/diary" },
