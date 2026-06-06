@@ -92,7 +92,7 @@ export default function ResultPage() {
 
 function ResultContent() {
   const router = useRouter();
-  const { isLoggedInWithConv, dbData, convQs, saveField } = useM3DBSync();
+  const { isLoggedInWithConv, dbData, convQs, saveField, loading: dbLoading } = useM3DBSync();
 
   const [localParsedResume, setLocalParsedResume] = useLocalState<ParsedResume>(STORAGE_KEYS.PARSED_RESUME, null);
   const [localJdContext] = useLocalState<JdCtx>(STORAGE_KEYS.JD_CONTEXT, null);
@@ -482,6 +482,22 @@ function ResultContent() {
       ? llmGapBreakdown
       : gapBreakdownFallback;
 
+  // 登录用户 DB 还在 fetch → 显示 loading,别闪 "还没读到你的简历"
+  if (isLoggedInWithConv && dbLoading) {
+    return (
+      <>
+        <Nav />
+        <main className="min-h-screen bg-warm-bg">
+          <div className="h-20" />
+          <div className="max-w-[600px] mx-auto px-6 py-20 text-center">
+            <div className="inline-block animate-spin w-8 h-8 border-2 border-esther-blue border-t-transparent rounded-full mb-4" />
+            <p className="text-sm text-ink-soft">正在读取你的简历…</p>
+          </div>
+        </main>
+      </>
+    );
+  }
+
   if (!parsedResume) {
     return (
       <>
@@ -490,10 +506,10 @@ function ResultContent() {
           <Card className="p-6 max-w-md">
             <p className="text-sm text-ink mb-3">⚠️ 还没读到你的简历</p>
             <Link
-              href="/m3/upload"
+              href={`/m3${convQs}`}
               className="inline-flex items-center justify-center rounded-full bg-esther-blue text-white px-5 py-2 text-sm font-medium hover:bg-esther-blue-dark transition-colors"
             >
-              先去上传 →
+              ← 回 Step 1 上传简历
             </Link>
           </Card>
         </main>

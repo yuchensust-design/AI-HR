@@ -1,16 +1,22 @@
 "use client";
 
-import { Suspense, useState, useEffect } from "react";
+import { Suspense, useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { Card } from "@/components/ui/card";
 import { Nav } from "@/components/Nav";
 import { BuerFloatingButton } from "@/components/BuerFloatingButton";
 import ConversationSwitcher from "@/components/conversations/ConversationSwitcher";
-import { DiaryMiningCard } from "@/components/DiaryMiningCard";
-import { ResumePromiseChips } from "@/components/m3/ResumePromiseChips";
-import { useM3Data } from "@/lib/sync/useM3Data";
+import { useM3Data, type ParsedResume, type JdCtx } from "@/lib/sync/useM3Data";
 import { useUser } from "@/lib/auth/useUser";
+import { useLocalState, STORAGE_KEYS } from "@/lib/use-local-state";
+import { createClient } from "@/lib/supabase/client";
+import { extractTextFromPdf } from "@/lib/pdf-extract";
+import { extractTextFromDocx } from "@/lib/docx-extract";
+import {
+  M3_OPTIMIZATION_GOALS,
+  M3_DEFAULT_GOALS,
+  type M3OptimizationGoalKey,
+} from "@/lib/m3-optimization-goals";
 
 /**
  * 模块 3 · 简历整理 — 多会话版(plan §8.24)
@@ -57,57 +63,194 @@ function Module3Content() {
 
   const parsedResume = data.parsed;
   const jdContext = data.jd;
-  const hiddenExperiences = data.hidden;
   const finalResume = data.final;
 
-  const hasParsed = !!parsedResume?.basic;
-  const hasJd = !!jdContext?.jd_summary;
-  const isQuickMode = jdContext?.meta?.mode === "quick";
-  const hasHidden = Array.isArray(hiddenExperiences) && hiddenExperiences.length > 0;
+  // 旧的 hasParsed/hasJd 用 useM3Data 静态读;
+  // 下方 inline 操作完会 setLocalParsedRaw/setLocalJdRaw → effectiveHasParsed/effectiveHasJd 取代
   const hasFinal = !!finalResume?.markdown;
 
-  const phaseStatus: ("done" | "current" | "pending")[] = [
-    hasParsed ? "done" : "current",
-    hasJd ? "done" : hasParsed ? "current" : "pending",
-    isQuickMode ? "done" : hasHidden ? "done" : hasJd ? "current" : "pending",
-    "pending",
-    hasFinal ? "done" : hasJd && (hasHidden || isQuickMode) ? "current" : "pending",
-  ];
-
-  type Cta = { label: string; href: string };
   const convQs = convId ? `?c=${convId}` : "";
-  let mainCta: Cta;
-  let secondaryCta: Cta | null = null;
 
-  if (!hasParsed) {
-    mainCta = { label: "开始 → 上传 / 粘贴简历", href: `/m3/upload${convQs}` };
-  } else if (!hasJd) {
-    mainCta = { label: "继续 → Phase 2 JD 匹配", href: `/m3/jd${convQs}` };
-    secondaryCta = { label: "回去改简历", href: `/m3/upload${convQs}` };
-  } else if (!isQuickMode && !hasHidden) {
-    mainCta = { label: "继续 → Phase 3 隐藏经验挖掘", href: `/m3/excavate${convQs}` };
-    secondaryCta = { label: "改 JD", href: `/m3/jd${convQs}` };
-  } else if (!hasFinal) {
-    mainCta = { label: "Phase 5 → 看 AI 改动建议 + 下载 Word", href: `/m3/result${convQs}` };
-    secondaryCta = isQuickMode
-      ? { label: "想加 JD?", href: `/m3/jd${convQs}` }
-      : { label: "再挖几个经验", href: `/m3/excavate${convQs}` };
-  } else {
-    mainCta = { label: "查看你的简历 + 下载 Word", href: `/m3/result${convQs}` };
-    secondaryCta = { label: "重新走一遍", href: `/m3/upload${convQs}` };
+  // §8.28 step 3 — 优化目标多选 chip(localStorage,跨 conv 用户偏好)
+  const [optimizationGoals, setOptimizationGoals] = useLocalState<M3OptimizationGoalKey[]>(
+    STORAGE_KEYS.M3_OPTIMIZATION_GOALS,
+    M3_DEFAULT_GOALS,
+  );
+
+  function toggleGoal(key: M3OptimizationGoalKey) {
+    setOptimizationGoals((prev) =>
+      prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key],
+    );
   }
 
-  const phaseLabels = [
-    { no: "1", title: "简历解析", desc: "PDF/Word/MD 自动结构化,AI 推测处标记给你确认" },
-    { no: "2", title: "JD 匹配", desc: "拆 JD · 找你已有的亮点 · 列差距" },
-    { no: "3", title: "挖隐藏经验", desc: "选择题挖你简历没写的素材 + 真实性追问" },
-    { no: "4", title: "学习计划", desc: "(按需展开,补差距用)" },
-    { no: "5", title: "整理 + 下载", desc: "逐条 accept/reject + 跟原版对比 + 下载 Word" },
-  ];
+  // ============ §8.28 inline 解析:文件 + JD ============
+  // 本地副本 + 双轨保存(localStorage 游客;DB 登录)
+  const [localParsed, setLocalParsedRaw] = useState<ParsedResume | null>(null);
+  const [localJd, setLocalJdRaw] = useState<JdCtx | null>(null);
+  // 用 data 初始化本地副本,后续 inline 操作覆盖
+  useEffect(() => {
+    if (data.parsed) setLocalParsedRaw(data.parsed);
+  }, [data.parsed]);
+  useEffect(() => {
+    if (data.jd) setLocalJdRaw(data.jd);
+  }, [data.jd]);
+
+  const effectiveParsed = localParsed ?? parsedResume;
+  const effectiveJd = localJd ?? jdContext;
+  const effectiveHasParsed = !!effectiveParsed?.basic;
+  const effectiveHasJd = !!effectiveJd?.jd_summary;
+
+  async function persistParsed(parsed: unknown) {
+    setLocalParsedRaw(parsed as ParsedResume);
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(STORAGE_KEYS.PARSED_RESUME, JSON.stringify(parsed));
+    }
+    if (user && convId) {
+      await createClient()
+        .from("m3_resumes")
+        .update({ parsed_resume_json: parsed })
+        .eq("conversation_id", convId);
+    }
+  }
+  async function persistJd(jd: unknown) {
+    setLocalJdRaw(jd as JdCtx);
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(STORAGE_KEYS.JD_CONTEXT, JSON.stringify(jd));
+    }
+    if (user && convId) {
+      await createClient()
+        .from("m3_resumes")
+        .update({ jd_context_json: jd })
+        .eq("conversation_id", convId);
+    }
+  }
+
+  // Step 1 file picker state
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [parsingResume, setParsingResume] = useState(false);
+  const [resumeErr, setResumeErr] = useState<string | null>(null);
+
+  async function handleFileSelected(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // reset 让同一文件能再选
+    if (!file) return;
+    setParsingResume(true);
+    setResumeErr(null);
+    try {
+      const lower = file.name.toLowerCase();
+      let text = "";
+      if (lower.endsWith(".pdf")) {
+        const r = await extractTextFromPdf(file);
+        text = r.text;
+      } else if (lower.endsWith(".docx") || lower.endsWith(".doc")) {
+        const r = await extractTextFromDocx(file);
+        text = r.text;
+      } else if (lower.endsWith(".md") || lower.endsWith(".txt")) {
+        text = await file.text();
+      } else {
+        throw new Error("仅支持 PDF / Word / Markdown / TXT");
+      }
+      if (!text.trim() || text.trim().length < 50) {
+        throw new Error("文件内容太短或提取失败,请换一份或粘贴文字");
+      }
+      const res = await fetch("/api/m3/parse-resume", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ resumeText: text.trim() }),
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        throw new Error(j.error ?? `解析失败 (${res.status})`);
+      }
+      const parsed = await res.json();
+      await persistParsed(parsed);
+    } catch (err) {
+      setResumeErr(err instanceof Error ? err.message : "解析失败");
+    } finally {
+      setParsingResume(false);
+    }
+  }
+
+  // Step 2 JD inline state — 永远展开,不切换摘要/编辑态
+  const [jdRoleName, setJdRoleName] = useState("");
+  const [jdText, setJdText] = useState("");
+  const [jdAutoSaved, setJdAutoSaved] = useState(false);
+  // 页面加载时,从 effectiveJd 灌一次初始值(只跑一次,后续用户编辑)
+  const [jdHydrated, setJdHydrated] = useState(false);
+  useEffect(() => {
+    if (jdHydrated) return;
+    if (effectiveJd) {
+      const ej = effectiveJd as { role_name?: string; rawJdText?: string };
+      setJdRoleName(ej.role_name ?? "");
+      setJdText(ej.rawJdText ?? "");
+      setJdAutoSaved(true);
+      setJdHydrated(true);
+    } else if (!dataLoading) {
+      // data 加载完仍是 null → 标记 hydrated,允许用户开始填
+      setJdHydrated(true);
+    }
+  }, [effectiveJd, jdHydrated, dataLoading]);
+
+  // 从 m6 跳过来 → 自动预填 jdText + 展开 Step 2
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const raw = window.localStorage.getItem(STORAGE_KEYS.M6_PENDING_JD);
+      if (!raw) return;
+      const pending = JSON.parse(raw) as {
+        jdText?: string;
+        roleName?: string;
+        company?: string;
+        from_m6?: boolean;
+      };
+      if (pending.from_m6 && pending.jdText && pending.jdText.length > 50) {
+        setJdText(pending.jdText);
+        if (pending.roleName) setJdRoleName(pending.roleName);
+        window.localStorage.removeItem(STORAGE_KEYS.M6_PENDING_JD);
+      }
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  /** auto save:用户填 input/textarea → debounce 800ms → 自动 persist,不需点按钮 */
+  useEffect(() => {
+    if (!jdHydrated) return; // 还在从 effectiveJd 灌初值时,跳过
+    const role = jdRoleName.trim();
+    const text = jdText.trim();
+    // 都没填 → 跳过
+    if (!role && text.length < 30) return;
+    // 跟当前已存的相同 → 跳过(避免重复 save)
+    const ej = (effectiveJd ?? {}) as { role_name?: string; rawJdText?: string };
+    if (role === (ej.role_name ?? "") && text === (ej.rawJdText ?? "")) return;
+
+    const t = setTimeout(async () => {
+      setJdAutoSaved(false);
+      const summary = role
+        ? text
+          ? `${role} · ${text.slice(0, 24)}${text.length > 24 ? "…" : ""}`
+          : role
+        : text.length > 40
+          ? text.slice(0, 40) + "…"
+          : text;
+      await persistJd({
+        role_name: role || undefined,
+        jd_summary: summary,
+        rawJdText: text || undefined,
+        meta: { mode: "raw" },
+      });
+      setJdAutoSaved(true);
+    }, 800);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jdRoleName, jdText, jdHydrated]);
 
   // 登录但没选 conv → 空状态
   const needPickConv = !userLoading && !!user && !hasConv;
   const isLoadingAll = userLoading || (!isGuest && hasConv && dataLoading);
+
+  // Step 4 enable 条件:有简历 + 至少勾 1 个 goal
+  const canSubmit = effectiveHasParsed && optimizationGoals.length > 0;
 
   return (
     <>
@@ -136,179 +279,248 @@ function Module3Content() {
           <ConversationSwitcher module="m3" basePath="/m3" defaultTitle="简历" />
 
           <div className="flex-1 min-w-0">
-            {/* 模块顶部 */}
+            {/* Hero — 学竞品极简风 */}
             <section className="border-b border-border">
-              <div className="max-w-[1100px] mx-auto px-6 py-8">
+              <div className="max-w-[900px] mx-auto px-6 py-10">
                 <Link
                   href="/"
-                  className="inline-flex items-center gap-1 text-sm text-ink-soft hover:text-esther-blue transition-colors mb-5"
+                  className="inline-flex items-center gap-1 text-sm text-ink-soft hover:text-esther-blue transition-colors mb-4"
                 >
                   ← 回首页
                 </Link>
-                <h1 className="text-3xl md:text-4xl font-bold text-ink mb-2 leading-tight">
-                  把简历改成能过筛的版本
+                <h1 className="text-2xl md:text-3xl font-bold text-ink mb-1.5 leading-tight">
+                  AI 简历优化
                 </h1>
                 <p className="text-ink-soft text-sm">
-                  5 phase:解析 → JD 匹配 → 挖隐藏经验 → 学习计划(选) → 逐条确认 + Word 下载
+                  基于 ATS 与目标岗位进行关键词与结构优化
                 </p>
               </div>
             </section>
 
             {/* 主内容 */}
             {needPickConv ? (
-              <div className="max-w-[1100px] mx-auto px-6 py-20 text-center">
-                <p className="font-display italic text-esther-blue text-sm mb-3">
-                  Pick a conversation
-                </p>
-                <h2 className="text-2xl font-bold text-ink mb-3">
+              <div className="max-w-[900px] mx-auto px-6 py-20 text-center">
+                <h2 className="text-xl font-semibold text-ink mb-3">
                   选择左侧会话,或新建一份简历
                 </h2>
-                <p className="text-sm text-ink-soft max-w-md mx-auto leading-relaxed">
-                  每份简历独立保存,数据互不影响。
-                  <br />
-                  你可以同时投不同公司、不同岗位,各自调整。
+                <p className="text-sm text-ink-soft max-w-md mx-auto">
+                  每份简历独立保存,可同时投不同公司、不同岗位
                 </p>
               </div>
-            ) : isLoadingAll ? (
-              <div className="max-w-[1100px] mx-auto px-6 py-20 text-center text-ink-muted">
+            ) : isLoadingAll || !hydrated ? (
+              <div className="max-w-[900px] mx-auto px-6 py-20 text-center text-ink-muted">
                 加载中…
               </div>
             ) : (
-              <div className="max-w-[1100px] mx-auto px-6 py-10 grid grid-cols-1 lg:grid-cols-[1.4fr_1fr] gap-8">
-                {/* 左:主 CTA + 5 phase 进度 */}
-                <div className="space-y-6">
-                  <Card className="p-6 border-2 border-esther-blue bg-esther-blue/5">
-                    <p className="font-display italic text-xs text-esther-blue mb-2">Next step</p>
-                    {!hydrated ? (
-                      <p className="text-sm text-ink-soft">加载中...</p>
-                    ) : (
-                      <>
-                        <h2 className="text-xl font-semibold text-ink mb-2">
-                          {hasParsed ? (
-                            <>
-                              ✓ 我从你简历读到{" "}
-                              <span className="text-esther-blue">
-                                {parsedResume?.basic?.name ?? "?"} ·{" "}
-                                {parsedResume?.basic?.major ?? "?"}
-                                {parsedResume?.basic?.year_level
-                                  ? ` · ${parsedResume.basic.year_level}`
-                                  : ""}
-                              </span>
-                            </>
-                          ) : (
-                            "你还没上传简历"
-                          )}
-                        </h2>
-                        {hasJd && (
-                          <p className="text-sm text-ink-soft mb-3">
-                            目标:{jdContext?.jd_summary ?? ""}
-                            {jdContext?.priority_score
-                              ? ` · 匹配 ${jdContext.priority_score}/5`
-                              : ""}
-                            {isQuickMode && (
-                              <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded bg-esther-yellow text-ink text-[10px]">
-                                快速模式
-                              </span>
-                            )}
-                          </p>
-                        )}
-                        {hasHidden && (
-                          <p className="text-sm text-ink-soft mb-3">
-                            Phase 3 挖到 {hiddenExperiences.length} 个隐藏经验
-                          </p>
-                        )}
-                        <div className="flex items-center gap-3 flex-wrap mt-4">
-                          <Link
-                            href={mainCta.href}
-                            className="inline-flex items-center justify-center rounded-full bg-esther-blue text-white px-6 py-2.5 text-sm font-medium hover:bg-esther-blue-dark transition-colors shadow-sm"
-                          >
-                            {mainCta.label} →
-                          </Link>
-                          {secondaryCta && (
-                            <Link
-                              href={secondaryCta.href}
-                              className="text-xs text-ink-muted hover:text-esther-blue transition-colors px-2"
-                            >
-                              {secondaryCta.label}
-                            </Link>
-                          )}
-                        </div>
-                      </>
-                    )}
-                  </Card>
-
-                  <DiaryMiningCard
-                    targetRole={jdContext?.jd_summary ?? null}
-                    jdSummary={jdContext?.jd_summary ?? null}
+              <div className="max-w-[900px] mx-auto px-6 py-10 space-y-8">
+                {/* ============ Step 1 · 选简历(inline file picker) ============ */}
+                <Step
+                  no="1"
+                  title="选一份简历"
+                  required
+                  hint="选择需要优化的简历"
+                >
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".pdf,.doc,.docx,.md,.txt"
+                    onChange={handleFileSelected}
+                    className="hidden"
                   />
+                  {effectiveHasParsed ? (
+                    <div className="flex items-center justify-between gap-3 flex-wrap rounded-xl border border-esther-blue/30 bg-esther-blue/[0.04] px-4 py-3">
+                      <div className="text-sm text-ink leading-snug">
+                        <span className="text-esther-blue font-semibold">✓ 已读到</span>{" "}
+                        <span className="font-medium">
+                          {effectiveParsed?.basic?.name ?? "?"}
+                          {effectiveParsed?.basic?.major
+                            ? ` · ${effectiveParsed.basic.major}`
+                            : ""}
+                          {effectiveParsed?.basic?.year_level
+                            ? ` · ${effectiveParsed.basic.year_level}`
+                            : ""}
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => fileInputRef.current?.click()}
+                        disabled={parsingResume}
+                        className="text-xs text-ink-muted hover:text-esther-blue transition-colors disabled:opacity-40"
+                      >
+                        {parsingResume ? "解析中…" : "换一份 →"}
+                      </button>
+                    </div>
+                  ) : parsingResume ? (
+                    <div className="rounded-xl border border-esther-blue/30 bg-esther-blue/[0.04] px-4 py-6 text-center">
+                      <div className="inline-block animate-spin w-6 h-6 border-2 border-esther-blue border-t-transparent rounded-full mb-2" />
+                      <p className="text-sm text-ink-soft">解析中,约 5-10 秒…</p>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <button
+                          type="button"
+                          onClick={() => fileInputRef.current?.click()}
+                          className="text-left rounded-xl border-2 border-esther-blue/30 bg-card hover:border-esther-blue hover:bg-esther-blue/[0.04] transition-all p-4"
+                        >
+                          <p className="text-base mb-1.5">📎</p>
+                          <p className="text-sm font-semibold text-ink mb-1">
+                            上传现有简历
+                          </p>
+                          <p className="text-xs text-ink-soft">
+                            PDF / Word / Markdown 浏览器本地解析
+                          </p>
+                        </button>
+                        <Link
+                          href="/m2"
+                          className="text-left rounded-xl border-2 border-esther-yellow/50 bg-esther-yellow/[0.06] hover:border-esther-yellow hover:bg-esther-yellow/[0.12] transition-all p-4 relative"
+                        >
+                          <span className="absolute top-3 right-3 text-[10px] text-ink-muted font-display italic">
+                            ⭐ 差异化
+                          </span>
+                          <p className="text-base mb-1.5">💬</p>
+                          <p className="text-sm font-semibold text-ink mb-1">
+                            从我的经历挖一份
+                          </p>
+                          <p className="text-xs text-ink-soft">
+                            还没简历?跟 AI 聊聊就能整理出来
+                          </p>
+                        </Link>
+                      </div>
+                      <p className="text-[11px] text-ink-muted mt-2">
+                        也可以
+                        <Link
+                          href={`/m3/upload${convQs}`}
+                          className="text-esther-blue hover:underline ml-1"
+                        >
+                          粘贴简历文字 →
+                        </Link>
+                      </p>
+                    </>
+                  )}
+                  {resumeErr && (
+                    <p className="text-xs text-esther-red mt-2">⚠️ {resumeErr}</p>
+                  )}
+                </Step>
 
-                  <Card className="p-5 border-2 border-border">
-                    <p className="font-display italic text-xs text-esther-blue mb-3">Process</p>
-                    <h3 className="text-base font-semibold text-ink mb-4">5 个 phase 进度</h3>
-                    <ul className="space-y-3">
-                      {phaseLabels.map((p, idx) => {
-                        const status = phaseStatus[idx];
-                        return (
-                          <li key={p.no} className="flex items-start gap-3">
-                            <span
-                              className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold ${
-                                status === "current"
-                                  ? "bg-esther-blue text-white animate-pulse"
-                                  : status === "done"
-                                    ? "bg-esther-yellow text-ink"
-                                    : "bg-warm-bg-deep text-ink-muted border border-border"
-                              }`}
-                            >
-                              {status === "done" ? "✓" : p.no}
+                {/* ============ Step 2 · 目标岗位(input + textarea 永远展开,自动保存) ============ */}
+                <Step no="2" title="目标岗位 JD" hint="填岗位名 + 可选粘 JD 全文,自动保存 — AI 会按 JD 关键词做针对性优化">
+                  <div className="rounded-xl border border-esther-blue/30 bg-card p-4 space-y-3">
+                    {/* 岗位名称 */}
+                    <div>
+                      <label className="block text-xs text-ink-soft mb-1.5">
+                        岗位名称 <span className="text-ink-muted">(必填一个 — 跟下方 JD 全文至少有一个)</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={jdRoleName}
+                        onChange={(e) => setJdRoleName(e.target.value)}
+                        placeholder="例如:产品经理 / 前端开发 / 数据分析师 / 用户研究员"
+                        maxLength={40}
+                        className="w-full px-3 py-2 rounded-lg border border-border bg-warm-bg/40 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-esther-blue/40"
+                      />
+                    </div>
+                    {/* JD 全文 textarea */}
+                    <div>
+                      <label className="block text-xs text-ink-soft mb-1.5">
+                        JD 全文 <span className="text-ink-muted">(可选,越完整 AI 越准 — 字数 {jdText.length})</span>
+                      </label>
+                      <textarea
+                        value={jdText}
+                        onChange={(e) => setJdText(e.target.value)}
+                        rows={6}
+                        placeholder="粘贴 JD 全文 — 岗位职责 / 任职要求 / 加分项,越完整越准"
+                        className="w-full px-3 py-2 rounded-lg border border-border bg-warm-bg/40 text-sm text-ink leading-relaxed resize-y focus:outline-none focus:ring-2 focus:ring-esther-blue/40"
+                      />
+                      {jdText.length > 0 && jdText.length < 30 && (
+                        <p className="text-xs text-esther-red mt-1">JD 全文太短,要么补完整 ≥30 字,要么留空只靠岗位名</p>
+                      )}
+                    </div>
+                    {/* 自动保存状态 */}
+                    <p className="text-xs">
+                      {(jdRoleName.trim() || jdText.trim().length >= 30)
+                        ? jdAutoSaved
+                          ? <span className="text-esther-blue">✓ 已自动保存</span>
+                          : <span className="text-ink-soft">输入完会自动保存…</span>
+                        : <span className="text-ink-muted">填岗位名或粘贴 JD 全文,会自动保存</span>}
+                    </p>
+                  </div>
+                </Step>
+
+                {/* ============ Step 3 · 优化目标(6 chip 多选) ============ */}
+                <Step
+                  no="3"
+                  title="优化目标"
+                  required
+                  hint="请选择希望重点优化的方向(可多选)"
+                >
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+                    {M3_OPTIMIZATION_GOALS.map((g) => {
+                      const selected = optimizationGoals.includes(g.key);
+                      return (
+                        <button
+                          key={g.key}
+                          type="button"
+                          onClick={() => toggleGoal(g.key)}
+                          className={`relative text-left rounded-xl border-2 px-4 py-3 transition-all ${
+                            selected
+                              ? "border-esther-blue bg-esther-blue/[0.04]"
+                              : "border-border bg-card hover:border-esther-blue/40"
+                          }`}
+                        >
+                          <span
+                            className={`absolute top-3 right-3 w-5 h-5 rounded flex items-center justify-center text-[11px] font-bold ${
+                              selected
+                                ? "bg-esther-blue text-white"
+                                : "border border-border bg-card"
+                            }`}
+                          >
+                            {selected ? "✓" : ""}
+                          </span>
+                          <div className="flex items-center gap-2 mb-1 pr-7">
+                            <span className="text-base">{g.emoji}</span>
+                            <span className="text-sm font-semibold text-ink leading-snug">
+                              {g.title}
                             </span>
-                            <div className="flex-1 pt-1">
-                              <p
-                                className={`text-sm font-medium leading-snug ${
-                                  status === "current"
-                                    ? "text-esther-blue"
-                                    : status === "done"
-                                      ? "text-ink"
-                                      : "text-ink-muted"
-                                }`}
-                              >
-                                {p.title}
-                              </p>
-                              <p className="text-xs text-ink-soft mt-0.5">{p.desc}</p>
-                            </div>
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  </Card>
+                          </div>
+                          <p className="text-xs text-ink-soft pr-7">
+                            {g.desc}
+                          </p>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <p className="text-[11px] text-ink-muted mt-2">
+                    选中的方向会作为 AI 生成建议的优先级提示 · 全选 = 默认全做
+                  </p>
+                </Step>
+
+                {/* ============ Step 4 · 开始优化 ============ */}
+                <div className="pt-2">
+                  {canSubmit ? (
+                    <Link
+                      href={`/m3/result${convQs}`}
+                      className="w-full inline-flex items-center justify-center rounded-xl bg-esther-blue text-white px-6 py-3.5 text-base font-medium hover:bg-esther-blue-dark transition-colors shadow-sm"
+                    >
+                      {hasFinal ? "看你的简历 + 下载 Word →" : "开始优化 →"}
+                    </Link>
+                  ) : (
+                    <button
+                      type="button"
+                      disabled
+                      className="w-full inline-flex items-center justify-center rounded-xl bg-esther-blue/40 text-white px-6 py-3.5 text-base font-medium cursor-not-allowed"
+                    >
+                      {!effectiveHasParsed
+                        ? "请先在 Step 1 选简历"
+                        : "请先在 Step 3 至少勾 1 个优化方向"}
+                    </button>
+                  )}
+                  <p className="text-xs text-ink-muted mt-3 text-center">
+                    {hasFinal
+                      ? "已生成建议 · 点开看逐条采纳"
+                      : "AI 根据你勾选的方向生成针对性建议"}
+                  </p>
                 </div>
-
-                {/* 右:承诺 + 下一模块跳转 */}
-                <aside className="space-y-5">
-                  <ResumePromiseChips />
-
-                  <Card className="p-5 border-2 border-border">
-                    <p className="font-display italic text-xs text-esther-blue mb-2">Next 模块</p>
-                    <h3 className="text-sm font-semibold text-ink mb-3">改完之后...</h3>
-                    <Link
-                      href="/m5"
-                      className="block p-3 rounded-lg bg-warm-bg-deep/30 border border-border hover:border-esther-blue transition-colors mb-2"
-                    >
-                      <p className="text-sm font-medium text-esther-blue">练一场模拟面试 →</p>
-                      <p className="text-xs text-ink-soft mt-0.5">
-                        用同一份 JD 跑 1 场,看能不能讲清楚
-                      </p>
-                    </Link>
-                    <Link
-                      href="/m4"
-                      className="block p-3 rounded-lg bg-warm-bg-deep/30 border border-border hover:border-esther-blue transition-colors"
-                    >
-                      <p className="text-sm font-medium text-esther-blue">补一段项目 →</p>
-                      <p className="text-xs text-ink-soft mt-0.5">
-                        gap 难补 ≥ 3 月?2-4 周做一个项目
-                      </p>
-                    </Link>
-                  </Card>
-                </aside>
               </div>
             )}
           </div>
@@ -317,5 +529,40 @@ function Module3Content() {
         <BuerFloatingButton />
       </main>
     </>
+  );
+}
+
+/** §8.28 — 竞品式 step 块:编号圆圈 + 标题(*必填)+ 小副标题 + 内容 */
+function Step({
+  no,
+  title,
+  required,
+  hint,
+  children,
+}: {
+  no: string;
+  title: string;
+  required?: boolean;
+  hint?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section>
+      <div className="flex items-center gap-2.5 mb-2">
+        <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-esther-blue text-white text-xs font-bold">
+          {no}
+        </span>
+        <h2 className="text-base md:text-lg font-semibold text-ink">
+          {title}
+          {required && <span className="text-esther-red ml-1">*</span>}
+        </h2>
+      </div>
+      {hint && (
+        <p className="text-xs text-ink-soft mb-4 pl-9 leading-relaxed">
+          {hint}
+        </p>
+      )}
+      <div className="pl-9">{children}</div>
+    </section>
   );
 }

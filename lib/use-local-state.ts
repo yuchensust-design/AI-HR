@@ -103,4 +103,8 @@ export const STORAGE_KEYS = {
    * Schema: { role_type, industry, employability_level, saved_at }
    */
   M1_TARGET_ROLE: "m1_target_role",
+  /**
+   * M3 优化目标多选 chip — M3OptimizationGoalKey[]
+   */
+  M3_OPTIMIZATION_GOALS: "m3_optimization_goals",
 } as const;
