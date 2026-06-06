@@ -93,7 +93,7 @@ export default function M1EvidenceUploadPage() {
     setStep("submitting");
     setSubmitErr(null);
     try {
-      // 1. 调 evidence-parse 拿 summary + tags
+      // 1. 调 evidence-parse(后端已三层兜底,极少 502)
       const resParse = await fetch("/api/m1/evidence-parse", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -102,10 +102,12 @@ export default function M1EvidenceUploadPage() {
       if (!resParse.ok) {
         const errBody = await resParse.json().catch(() => ({}));
         throw new Error(
-          errBody.error || `evidence-parse 失败: ${resParse.status}`
+          errBody.error || `简历解析暂时不可用 (${resParse.status})`
         );
       }
-      const ep = (await resParse.json()) as EvidenceParseResponse;
+      const ep = (await resParse.json()) as EvidenceParseResponse & {
+        mode?: "llm" | "llm-retry" | "fallback";
+      };
 
       const evidence: M1Evidence = {
         source: "resume",
@@ -118,11 +120,32 @@ export default function M1EvidenceUploadPage() {
 
       // 2. 调 recommend 三段融合
       const sub = await submitM1Recommendation({ evidence });
-      if (sub.ok) {
+      if (sub.ok || sub.fellBackToSample) {
         router.push("/m1/result");
         return;
       }
-      if (sub.fellBackToSample) {
+      throw new Error(sub.error);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setSubmitErr(msg);
+      setStep("preview");
+    }
+  };
+
+  /** §8.28 C — 跳过简历:遇到 AI 异常时,evidence.source=skip,后端只用测评推荐 */
+  const handleSkip = async () => {
+    setStep("submitting");
+    setSubmitErr(null);
+    try {
+      const sub = await submitM1Recommendation({
+        evidence: {
+          source: "skip",
+          summary: "",
+          tags: [],
+          createdAt: new Date().toISOString(),
+        },
+      });
+      if (sub.ok || sub.fellBackToSample) {
         router.push("/m1/result");
         return;
       }
@@ -326,8 +349,13 @@ export default function M1EvidenceUploadPage() {
               </Card>
 
               {submitErr && (
-                <div className="mb-6 p-4 rounded-xl bg-esther-red/5 border border-esther-red/30 text-sm text-esther-red">
-                  ⚠️ {submitErr}
+                <div className="mb-6 p-4 rounded-xl bg-esther-red/5 border border-esther-red/30">
+                  <p className="text-sm text-esther-red mb-3">
+                    ⚠️ {submitErr}
+                  </p>
+                  <p className="text-xs text-ink-soft leading-relaxed">
+                    你可以「再试一次」(AI 可能临时繁忙),或者「跳过简历环节」直接看推荐 — 不会卡在这里。
+                  </p>
                 </div>
               )}
 
@@ -341,12 +369,22 @@ export default function M1EvidenceUploadPage() {
                 >
                   ← 换一份 / 重贴
                 </button>
-                <button
-                  onClick={handleConfirm}
-                  className="inline-flex items-center justify-center rounded-full bg-esther-blue text-white px-6 py-2.5 text-sm font-medium hover:bg-esther-blue-dark transition-colors"
-                >
-                  就用这份 → 看推荐
-                </button>
+                <div className="flex items-center gap-3 flex-wrap">
+                  {submitErr && (
+                    <button
+                      onClick={handleSkip}
+                      className="inline-flex items-center justify-center rounded-full border border-esther-yellow/60 bg-esther-yellow/15 text-ink px-5 py-2.5 text-sm font-medium hover:bg-esther-yellow/30 transition-colors"
+                    >
+                      跳过简历 → 直接看推荐
+                    </button>
+                  )}
+                  <button
+                    onClick={handleConfirm}
+                    className="inline-flex items-center justify-center rounded-full bg-esther-blue text-white px-6 py-2.5 text-sm font-medium hover:bg-esther-blue-dark transition-colors"
+                  >
+                    {submitErr ? "再试一次" : "就用这份 → 看推荐"}
+                  </button>
+                </div>
               </div>
             </>
           )}

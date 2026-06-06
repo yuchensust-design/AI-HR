@@ -12,6 +12,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { generateMockJobs } from "@/lib/m6-mock-fallback";
 
 const CRAWLER_BASE_URL = process.env.CRAWLER_BASE_URL ?? "http://localhost:3030";
 const CRAWLER_API_KEY = process.env.CRAWLER_API_KEY ?? "dev-secret-change-me";
@@ -19,11 +20,25 @@ const CRAWLER_API_KEY = process.env.CRAWLER_API_KEY ?? "dev-secret-change-me";
 export const dynamic = "force-dynamic"; // 不缓存
 export const maxDuration = 60; // Vercel 60s 上限,刚好够爬虫慢响应
 
+/** §8.28 — 本地 mock 兜底:构造跟爬虫一致的 response shape */
+function buildLocalMockResponse(role: string, city: string, limit: number) {
+  const jobs = generateMockJobs(role, city, Math.min(limit, 6));
+  return {
+    jobs,
+    blockedPlatforms: ["51job", "liepin", "zhilian"],
+    total: jobs.length,
+    hasNext: false,
+    cached: false,
+    isMock: true,
+    mockReason: "crawler-unreachable",
+  };
+}
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const role = typeof body.role === "string" ? body.role.trim() : "";
-    const city = typeof body.city === "string" ? body.city.trim() : undefined;
+    const city = typeof body.city === "string" ? body.city.trim() : "上海";
     const page = Number(body.page ?? 1);
     const limit = Number(body.limit ?? 20);
 
@@ -31,30 +46,35 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "role required" }, { status: 400 });
     }
 
-    const upstream = await fetch(`${CRAWLER_BASE_URL}/search`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-API-Key": CRAWLER_API_KEY,
-      },
-      body: JSON.stringify({ role, city, page, limit }),
-      // crawler 端可能慢,内部 ~25-30s
-      signal: AbortSignal.timeout(55_000),
-    }).catch((err) => {
-      throw new Error(`crawler unreachable: ${String(err)}`);
-    });
+    // ===== Layer 1: 调真爬虫,失败兜底本地 mock =====
+    let upstream: Response;
+    try {
+      upstream = await fetch(`${CRAWLER_BASE_URL}/search`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-API-Key": CRAWLER_API_KEY,
+        },
+        body: JSON.stringify({ role, city, page, limit }),
+        // crawler 端可能慢,内部 ~25-30s
+        signal: AbortSignal.timeout(55_000),
+      });
+    } catch (err) {
+      // 爬虫服务整个不可达(腾讯云挂 / 本地没起 / 网络断)→ 本地 mock 兜底
+      console.warn(
+        `[m6/search-jobs] crawler unreachable → local mock fallback:`,
+        String(err)
+      );
+      return NextResponse.json(buildLocalMockResponse(role, city, limit));
+    }
 
     if (!upstream.ok) {
       const text = await upstream.text();
-      console.warn(`/api/m6/search-jobs crawler returned ${upstream.status}:`, text.slice(0, 500));
-      return NextResponse.json(
-        {
-          error: "crawler unavailable",
-          status: upstream.status,
-          detail: text.slice(0, 500),
-        },
-        { status: 503 }
+      console.warn(
+        `[m6/search-jobs] crawler returned ${upstream.status} → local mock fallback:`,
+        text.slice(0, 200)
       );
+      return NextResponse.json(buildLocalMockResponse(role, city, limit));
     }
 
     const data = await upstream.json();

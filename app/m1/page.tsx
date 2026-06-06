@@ -17,27 +17,22 @@ import { RIASECRadar } from "@/components/RIASECRadar";
  *   - 无 → 显示 entry 长页(入口 + 测评特点 + sample inline 案例 + 二次 CTA)
  */
 
-// 测评特点
+// 测评特点 — 为什么这个结果值得参考(全部正向陈述,不贬低任何同类工具)
 const FEATURES = [
   {
-    emoji: "⏱️",
-    title: "3-4 分钟做完",
-    desc: "19 题 · 每题 4 选项 · 可跳过 · 零打字,不耽误你时间",
-  },
-  {
     emoji: "🧭",
-    title: "霍兰德 RIASEC",
-    desc: "国际经典职业兴趣理论 · 6 维度科学拆解 · 不是网上随便凑的题",
+    title: "霍兰德 RIASEC · 50 年学术理论",
+    desc: "由美国心理学家 Holland 于 1959 年提出,被 O*NET 等国际职业指导系统采用至今。6 维度(实用/研究/艺术/社交/企业/常规)从职业兴趣偏好层面拆解你。",
   },
   {
     emoji: "🎯",
-    title: "测评 + 经历 双信号",
-    desc: "不只看测评 — 也问你做过什么、喜不喜欢做,两个信号交叉判断更准",
+    title: "测评 + 你的经历 交叉验证",
+    desc: "单一测评容易判断片面 — 我们让你同时补一段简历或经历;两个信号交叉,推荐更贴你做过什么、喜不喜欢做。",
   },
   {
     emoji: "💬",
-    title: "永远说人话",
-    desc: "每条推荐都给「为什么觉得你可能适合」,不当 black box,你能判断对不对",
+    title: "每条推荐都给「为什么」",
+    desc: "每个方向都会告诉你 RIASEC 哪几维支撑 + 哪段经历呼应。你可以拒绝任何一条,可以随时重测。",
   },
 ];
 
@@ -105,28 +100,25 @@ export default function Module1EntryPage() {
             Section 1: Hero / 测评入口
             ========================================================== */}
         <section className="border-b border-border">
-          <div className="max-w-[1100px] mx-auto px-6 py-12">
+          <div className="max-w-[1300px] mx-auto px-6 py-12">
             <Link
               href="/"
               className="inline-flex items-center gap-1 text-sm text-ink-soft hover:text-esther-blue transition-colors mb-6"
             >
               ← 回首页
             </Link>
-            <Badge className="bg-esther-yellow text-ink hover:bg-esther-yellow/90 mb-4 px-3 py-1 text-xs font-medium">
-              模块 01 · 兴趣岗位发现
-            </Badge>
             <h1 className="text-3xl md:text-5xl font-bold text-ink mb-4 leading-tight">
               先让我了解一下你
             </h1>
             <p className="text-base md:text-lg text-ink-soft leading-relaxed mb-8 max-w-2xl">
-              18 题职业兴趣测评 + 1 题兴趣选择 · 3-4 分钟做完 · 然后给你
+              这是一次轻松的{" "}
               <span
-                className="bg-esther-yellow/40 mx-1"
+                className="bg-esther-yellow/40"
                 style={{ padding: "0 0.15em" }}
               >
-                3-5 个可能适合的方向
-              </span>
-              + 每条都告诉你「为什么」。
+                自我对话
+              </span>{" "}
+              — 愿你的热爱与擅长终在某处相逢。
             </p>
             <div className="flex flex-wrap items-center gap-4">
               <Link
@@ -146,34 +138,18 @@ export default function Module1EntryPage() {
         </section>
 
         {/* ==========================================================
-            Section 2: 测评特点
+            Section 1.5: 你会拿到什么 + How it works (借鉴原型布局)
+            ========================================================== */}
+        {/* ==========================================================
+            Section 2: 流程图 — 测评 + 经历 → 推荐方向(体现融合 + 创新)
             ========================================================== */}
         <section className="bg-warm-bg-deep/40 border-b border-border">
-          <div className="max-w-[1100px] mx-auto px-6 py-14">
-            <h2 className="text-xl md:text-2xl font-semibold text-ink mb-8">
-              4 件事让结果不只是性格 quiz
+          <div className="max-w-[1300px] mx-auto px-6 py-16">
+            <h2 className="text-2xl md:text-3xl font-bold text-ink mb-10 text-center">
+              测评 + 经历 → 推荐方向
             </h2>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {FEATURES.map((f, i) => (
-                <Card
-                  key={i}
-                  className="p-6 border-2 border-border bg-card hover:border-esther-blue transition-colors"
-                >
-                  <div className="flex items-start gap-4">
-                    <span className="text-3xl flex-shrink-0">{f.emoji}</span>
-                    <div className="flex-1">
-                      <h3 className="text-base font-semibold text-ink mb-2 leading-snug">
-                        {f.title}
-                      </h3>
-                      <p className="text-sm text-ink-soft leading-relaxed">
-                        {f.desc}
-                      </p>
-                    </div>
-                  </div>
-                </Card>
-              ))}
-            </div>
+            <FusionDiagram />
           </div>
         </section>
 
@@ -186,7 +162,7 @@ export default function Module1EntryPage() {
             Sample
           </div>
 
-          <div className="max-w-[1100px] mx-auto px-6 py-16 relative">
+          <div className="max-w-[1300px] mx-auto px-6 py-16 relative">
             <p className="font-display italic text-sm text-esther-blue mb-2">
               See it in action
             </p>
@@ -321,5 +297,195 @@ export default function Module1EntryPage() {
         <BuerFloatingButton />
       </main>
     </>
+  );
+}
+
+/**
+ * FusionDiagram — 测评 + 经历 → 推荐方向 融合示意图
+ * 用 SVG + Tailwind 实现:
+ *   左上 信号 A:RIASEC 测评(blue)
+ *   左下 信号 B:你做过的事(yellow)
+ *   中 汇流 SVG 弧线
+ *   右 输出:3 类推荐方向 + 配「为什么」(card)
+ */
+function FusionDiagram() {
+  return (
+    <div className="relative">
+      {/* Desktop: 3 列布局 */}
+      <div className="hidden md:grid grid-cols-[1fr_auto_1.2fr] items-center gap-6 lg:gap-10">
+        {/* 左:2 个信号源 — 白底 + 左侧 accent bar */}
+        <div className="space-y-5">
+          {/* 信号 A */}
+          <div className="group relative rounded-3xl bg-card border border-border shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all p-5 overflow-hidden">
+            <div className="absolute left-0 top-0 bottom-0 w-1 bg-esther-blue" />
+            <div className="flex items-center gap-3 mb-2 pl-2">
+              <span className="text-2xl">🧭</span>
+              <p className="text-sm font-semibold text-ink leading-snug">
+                信号 A · 霍兰德 RIASEC · 50 年学术理论
+              </p>
+            </div>
+            <p className="text-xs text-ink-soft leading-relaxed pl-2">
+              <span className="font-semibold text-ink">国际职业指导通用框架</span>,6 维(R/I/A/S/E/C)拆解你的兴趣偏好
+            </p>
+          </div>
+
+          {/* 信号 B */}
+          <div className="group relative rounded-3xl bg-card border border-border shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all p-5 overflow-hidden">
+            <div className="absolute left-0 top-0 bottom-0 w-1 bg-esther-yellow" />
+            <div className="flex items-center gap-3 mb-2 pl-2">
+              <span className="text-2xl">🎯</span>
+              <p className="text-sm font-semibold text-ink leading-snug">
+                信号 B · 你真做过的事
+              </p>
+            </div>
+            <p className="text-xs text-ink-soft leading-relaxed pl-2">
+              上传简历或聊 1-2 段经历,看你实际<span className="font-medium text-ink">做过什么</span>、做得<span className="font-medium text-ink">喜不喜欢</span>
+            </p>
+          </div>
+        </div>
+
+        {/* 中:汇流 SVG — 优雅曲线 + 双色渐变光晕 */}
+        <div className="flex items-center justify-center" aria-hidden>
+          <svg width="140" height="180" viewBox="0 0 140 180">
+            <defs>
+              {/* 中心光晕渐变 */}
+              <radialGradient id="centerGlow" cx="50%" cy="50%" r="50%">
+                <stop offset="0%" stopColor="rgb(43,127,216)" stopOpacity="0.35" />
+                <stop offset="60%" stopColor="rgb(218,180,56)" stopOpacity="0.15" />
+                <stop offset="100%" stopColor="rgb(218,180,56)" stopOpacity="0" />
+              </radialGradient>
+              {/* 蓝线渐变 */}
+              <linearGradient id="blueLine" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stopColor="rgb(43,127,216)" stopOpacity="0.3" />
+                <stop offset="100%" stopColor="rgb(43,127,216)" stopOpacity="0.9" />
+              </linearGradient>
+              {/* 黄线渐变 */}
+              <linearGradient id="yellowLine" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stopColor="rgb(218,180,56)" stopOpacity="0.3" />
+                <stop offset="100%" stopColor="rgb(218,180,56)" stopOpacity="0.9" />
+              </linearGradient>
+            </defs>
+
+            {/* 中心光晕 */}
+            <circle cx="80" cy="90" r="32" fill="url(#centerGlow)" />
+
+            {/* 上半曲线(blue) — 优雅 Bezier */}
+            <path
+              d="M 0 30 C 40 30, 55 60, 78 86"
+              fill="none"
+              stroke="url(#blueLine)"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+            />
+            {/* 下半曲线(yellow) */}
+            <path
+              d="M 0 150 C 40 150, 55 120, 78 94"
+              fill="none"
+              stroke="url(#yellowLine)"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+            />
+
+            {/* 中心汇合点 — 双层圆 */}
+            <circle
+              cx="80"
+              cy="90"
+              r="9"
+              fill="white"
+              stroke="rgb(43,127,216)"
+              strokeWidth="1.5"
+            />
+            <circle cx="80" cy="90" r="3.5" fill="rgb(43,127,216)" />
+
+            {/* 出口曲线 + 三角箭头 */}
+            <path
+              d="M 89 90 C 105 90, 115 90, 126 90"
+              fill="none"
+              stroke="rgb(43,127,216)"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+            />
+            <polygon
+              points="126,86 134,90 126,94"
+              fill="rgb(43,127,216)"
+            />
+          </svg>
+        </div>
+
+        {/* 右:推荐方向 — 白底 + esther-blue 装饰角 */}
+        <div className="relative rounded-3xl bg-card border border-border shadow-sm p-6 md:p-7 overflow-hidden">
+          {/* 角落装饰大字 */}
+          <div className="pointer-events-none absolute -right-2 -bottom-2 select-none leading-none font-display italic text-[clamp(4rem,7vw,6rem)] text-esther-blue/[0.06] font-bold">
+            3
+          </div>
+          <ul className="space-y-4 relative">
+            <li className="flex items-center gap-3">
+              <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-esther-blue/[0.08] text-esther-blue border border-esther-blue/25 flex-shrink-0 whitespace-nowrap">
+                短期可投
+              </span>
+              <span className="text-sm text-ink">
+                2-3 个本季可投的实习 / 校招方向
+              </span>
+            </li>
+            <li className="flex items-center gap-3">
+              <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-esther-yellow/[0.18] text-ink border border-esther-yellow/50 flex-shrink-0 whitespace-nowrap">
+                可探索
+              </span>
+              <span className="text-sm text-ink">
+                值得花 1-2 个月试一试的方向
+              </span>
+            </li>
+            <li className="flex items-center gap-3">
+              <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-esther-red/[0.08] text-esther-red border border-esther-red/25 flex-shrink-0 whitespace-nowrap">
+                长期可培养
+              </span>
+              <span className="text-sm text-ink">
+                需要补能力、但跟你性格匹配的方向
+              </span>
+            </li>
+          </ul>
+        </div>
+      </div>
+
+      {/* Mobile: 纵向 */}
+      <div className="md:hidden space-y-4">
+        <div className="rounded-2xl border-2 border-esther-blue/40 bg-esther-blue/[0.06] p-4">
+          <div className="flex items-center gap-2 mb-1.5">
+            <span className="text-xl">🧭</span>
+            <p className="text-sm font-semibold text-ink">信号 A · RIASEC 测评</p>
+          </div>
+          <p className="text-xs text-ink-soft">19 题量化职业兴趣 → 6 维分布</p>
+        </div>
+        <p className="text-center text-esther-blue/60 text-xl leading-none">+</p>
+        <div className="rounded-2xl border-2 border-esther-yellow/60 bg-esther-yellow/[0.12] p-4">
+          <div className="flex items-center gap-2 mb-1.5">
+            <span className="text-xl">🎯</span>
+            <p className="text-sm font-semibold text-ink">信号 B · 你真做过的事</p>
+          </div>
+          <p className="text-xs text-ink-soft">上传简历或聊经历 → 看你做过什么</p>
+        </div>
+        <p className="text-center text-esther-blue/60 text-xl leading-none">↓ 交叉验证</p>
+        <div className="rounded-2xl bg-card border border-border p-5 space-y-3">
+          <div className="flex items-center gap-2.5">
+            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-esther-blue/[0.08] text-esther-blue border border-esther-blue/25 whitespace-nowrap">
+              短期可投
+            </span>
+            <span className="text-xs text-ink">本季实习 / 校招方向</span>
+          </div>
+          <div className="flex items-center gap-2.5">
+            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-esther-yellow/[0.18] text-ink border border-esther-yellow/50 whitespace-nowrap">
+              可探索
+            </span>
+            <span className="text-xs text-ink">1-2 个月试一试</span>
+          </div>
+          <div className="flex items-center gap-2.5">
+            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-esther-red/[0.08] text-esther-red border border-esther-red/25 whitespace-nowrap">
+              长期可培养
+            </span>
+            <span className="text-xs text-ink">性格匹配但要补能力</span>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }

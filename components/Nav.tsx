@@ -2,29 +2,37 @@
 
 import Image from "next/image";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import UserMenu from "@/components/auth/UserMenu";
 
 /**
  * Sticky 顶部导航 — Landing v4
  * 默认透明(覆在 Hero 暖色上);滚动 > 50px 后白底 + backdrop-blur + border
+ *
+ * §8.28 fix: 去掉 1·2·3·4 编号前缀 + active item 底部 esther-blue 下划线
  */
 
-// 主流程 1-2-3-4 暗示用户从左到右走完闭环;辅助模块在右侧无编号。
-// 评委一眼看出"完整闭环",新用户从左到右走即可。
 const NAV_ITEMS = [
-  { label: "1·找方向", href: "/m1" },
-  { label: "2·看岗位", href: "/m6/discover" },
-  { label: "3·改简历", href: "/m3" },
-  { label: "4·练面试", href: "/m5" },
-  { label: "5·复盘投递", href: "/tracker" },
+  { label: "找方向", href: "/m1" },
+  { label: "看岗位", href: "/m6/discover" },
+  { label: "改简历", href: "/m3" },
+  { label: "练面试", href: "/m5" },
+  { label: "复盘投递", href: "/tracker" },
   { label: "经历", href: "/m2" },
   { label: "项目", href: "/m4" },
   { label: "日记", href: "/diary" },
 ];
 
+/** 判断当前 path 是否在某个 nav item 的子树下 — eg /m3/result 命中 /m3 */
+function isNavActive(pathname: string, href: string): boolean {
+  if (href === pathname) return true;
+  return pathname.startsWith(href + "/");
+}
+
 export function Nav() {
   const [scrolled, setScrolled] = useState(false);
+  const pathname = usePathname() ?? "/";
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 50);
@@ -43,7 +51,7 @@ export function Nav() {
     >
       <div className="max-w-[1300px] mx-auto px-6 h-20 flex items-center justify-between gap-6">
         {/* Logo */}
-        <Link href="#top" className="flex items-center gap-3 flex-shrink-0">
+        <Link href="/" className="flex items-center gap-3 flex-shrink-0">
           <div className="w-11 h-11 rounded-full overflow-hidden ring-2 ring-esther-yellow">
             <Image
               src="/esther-assets/avatar.jpg"
@@ -59,36 +67,36 @@ export function Nav() {
         </Link>
 
         {/* Center nav */}
-        <div className="hidden md:flex items-center gap-5 lg:gap-6 text-sm lg:text-base text-ink-soft">
-          {NAV_ITEMS.map((n) =>
-            n.href.startsWith("#") ? (
-              <a
-                key={n.href}
-                href={n.href}
-                className="hover:text-esther-blue transition-colors whitespace-nowrap"
-              >
+        <div className="hidden md:flex items-center gap-5 lg:gap-6 text-sm lg:text-base">
+          {NAV_ITEMS.map((n) => {
+            const active = isNavActive(pathname, n.href);
+            const cls = `relative pb-1 transition-colors whitespace-nowrap ${
+              active
+                ? "text-esther-blue font-medium"
+                : "text-ink-soft hover:text-esther-blue"
+            }`;
+            const underline = active ? (
+              <span
+                aria-hidden
+                className="pointer-events-none absolute left-0 right-0 -bottom-0.5 h-0.5 rounded-full bg-esther-blue"
+              />
+            ) : null;
+            return n.href.startsWith("#") ? (
+              <a key={n.href} href={n.href} className={cls}>
                 {n.label}
+                {underline}
               </a>
             ) : (
-              <Link
-                key={n.href}
-                href={n.href}
-                className="hover:text-esther-blue transition-colors whitespace-nowrap"
-              >
+              <Link key={n.href} href={n.href} className={cls}>
                 {n.label}
+                {underline}
               </Link>
-            )
-          )}
+            );
+          })}
         </div>
 
-        {/* Right cluster: CTA + UserMenu */}
+        {/* Right cluster: UserMenu */}
         <div className="flex items-center gap-3 flex-shrink-0">
-          <Link
-            href="/m1"
-            className="hidden sm:inline-flex items-center justify-center rounded-full bg-esther-blue text-white px-5 py-2.5 text-sm font-medium hover:bg-esther-blue-dark transition-colors shadow-sm"
-          >
-            开始使用 →
-          </Link>
           <UserMenu />
         </div>
       </div>

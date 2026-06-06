@@ -99,10 +99,11 @@ async function runSplitter(parsedResume: unknown, cityOverride?: string): Promis
   return { keywords, city, reasoning };
 }
 
-// ============ 调爬虫 ============
+// ============ 调爬虫(失败兜底本地 mock,§8.28) ============
 async function fetchCrawler(role: string, city: string, limit = 10): Promise<{
   jobs: Job[];
   blockedPlatforms: string[];
+  isMock?: boolean;
 }> {
   const res = await fetch(`${CRAWLER_BASE_URL}/search`, {
     method: "POST",
@@ -112,13 +113,29 @@ async function fetchCrawler(role: string, city: string, limit = 10): Promise<{
     },
     body: JSON.stringify({ role, city, page: 1, limit }),
     signal: AbortSignal.timeout(55_000),
-  }).catch(() => null);
+  }).catch((err) => {
+    console.warn(
+      `[m6/match-resume] crawler unreachable for "${role}" → local mock fallback:`,
+      String(err)
+    );
+    return null;
+  });
 
-  if (!res || !res.ok) return { jobs: [], blockedPlatforms: ["boss", "51job"] };
+  if (!res || !res.ok) {
+    // 爬虫不可达 → 本地 mock 兜底
+    const { generateMockJobs } = await import("@/lib/m6-mock-fallback");
+    const mockJobs = generateMockJobs(role, city, Math.min(limit, 6)) as Job[];
+    return {
+      jobs: mockJobs,
+      blockedPlatforms: ["51job", "liepin", "zhilian"],
+      isMock: true,
+    };
+  }
   const data = await res.json();
   return {
     jobs: Array.isArray(data.jobs) ? data.jobs : [],
     blockedPlatforms: Array.isArray(data.blockedPlatforms) ? data.blockedPlatforms : [],
+    isMock: data.isMock === true,
   };
 }
 
