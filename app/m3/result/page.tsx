@@ -14,6 +14,7 @@ import {
 } from "@/components/EditSuggestionCard";
 import { type LlmMetrics } from "@/components/DiffMetricsTable";
 import { M3OptimizationStepper } from "@/components/M3OptimizationStepper";
+import { M3ScoreDashboard, type M3DashboardData } from "@/components/M3ScoreDashboard";
 import { ensureResumeIds } from "@/lib/m3-id-helpers";
 
 /**
@@ -39,9 +40,28 @@ type RewrittenMap = Record<string, string>;
 
 type AnyBullet = { text?: string; narrative_tag?: string } | string;
 type ParsedResume = {
-  basic?: { name?: string | null; major?: string | null; year_level?: string | null };
+  basic?: {
+    name?: string | null;
+    phone?: string | null;
+    email?: string | null;
+    school?: string | null;
+    major?: string | null;
+    year_level?: string | null;
+    gpa?: string | null;
+    location?: string | null;
+  };
+  education?: {
+    school?: string;
+    major?: string;
+    degree?: string;
+    period?: string;
+    gpa?: string | null;
+    rank?: string | null;
+    courses?: string[];
+    awards?: string[];
+  }[];
   experience?: { org?: string; role?: string; period?: string; bullets?: AnyBullet[] }[];
-  projects?: { name?: string; period?: string; bullets?: AnyBullet[] }[];
+  projects?: { name?: string; period?: string; role?: string; tech_stack?: string[]; bullets?: AnyBullet[] }[];
   activities?: { org?: string; role?: string; period?: string; bullets?: AnyBullet[] }[];
   skills?: Record<string, string[]>;
   meta?: { narrative_tag_distribution?: Record<string, number> };
@@ -97,6 +117,9 @@ function ResultContent() {
   const [rewritten, setRewritten] = useState<RewrittenMap>({});
   const [downloading, setDownloading] = useState(false);
   const [fromDebriefHighlight, setFromDebriefHighlight] = useState<FromDebriefHighlight>(null);
+
+  // V3 — hover/点击 AI 改清单某条 → 右侧简历对应 bullet 蓝色高亮 + 滚到视野
+  const [hoveredEditId, setHoveredEditId] = useState<string | null>(null);
 
   // LLM metrics 给顶部"综合 +N 分 / JD 命中 +N 个"用(简化版)
   const [llmMetrics, setLlmMetrics] = useState<LlmMetrics | null>(null);
@@ -341,23 +364,103 @@ function ResultContent() {
     return data.edits.filter((e) => decisions[e.id] === "accept");
   }, [data, decisions]);
 
-  // V2 顶部评分:综合提升 / JD 命中率 / 待补充
-  const matchedKeywordsCount = llmMatchedKeywords.length;
-  const totalKeywordsCount = llmJdKeywords.length;
-  const coveragePct =
-    totalKeywordsCount > 0
-      ? Math.round((matchedKeywordsCount / totalKeywordsCount) * 100)
-      : 0;
-  // 综合提升估算:LLM 给的 v2-v1 STAR 完整度 + 关键词补全 + 量化填充
-  const improveScore = useMemo(() => {
-    if (!llmMetrics) return acceptedCount * 2; // fallback 简单估算
-    const starGain =
-      (llmMetrics.star_complete_v2?.complete ?? 0) -
-      (llmMetrics.star_complete_v1?.complete ?? 0);
-    const hardGain =
-      (llmMetrics.hard_req_v2_aligned ?? 0) - (llmMetrics.hard_req_v1_aligned ?? 0);
-    return Math.max(acceptedCount, Math.round(starGain * 3 + hardGain * 5 + acceptedCount * 2));
-  }, [llmMetrics, acceptedCount]);
+  // V3 评分大卡数据(综合 0-100 + 4 维度 + delta + 改造 tags)
+  const dashboardData = useMemo<M3DashboardData>(() => {
+    const matchedKeywordsCount = llmMatchedKeywords.length;
+    const totalKeywordsCount = llmJdKeywords.length;
+    const keywordsCoveragePct =
+      totalKeywordsCount > 0
+        ? (matchedKeywordsCount / totalKeywordsCount) * 100
+        : 60; // 没 LLM 数据时 60% baseline
+
+    const jdMatchPct = llmMetrics?.hard_req_total
+      ? ((llmMetrics.hard_req_v2_aligned ?? 0) / llmMetrics.hard_req_total) * 100
+      : keywordsCoveragePct; // fallback 用关键词覆盖度
+
+    const structurePct = llmMetrics?.star_complete_v2?.total
+      ? (llmMetrics.star_complete_v2.complete / llmMetrics.star_complete_v2.total) * 100
+      : 65;
+
+    // 成果表达清晰度:基于 acceptedCount / 总 bullet 数
+    let totalBullets = 0;
+    if (parsedResume) {
+      const sections: Array<keyof NonNullable<ParsedResume>> = [
+        "experience",
+        "projects",
+        "activities",
+      ];
+      for (const sec of sections) {
+        const arr = (parsedResume as Record<string, unknown>)?.[sec];
+        if (Array.isArray(arr)) {
+          for (const it of arr) {
+            const bs = (it as { bullets?: unknown[] })?.bullets;
+            if (Array.isArray(bs)) totalBullets += bs.length;
+          }
+        }
+      }
+    }
+    const achievementPct =
+      totalBullets > 0
+        ? Math.min(95, 50 + (acceptedCount / totalBullets) * 50)
+        : 70;
+
+    // 综合评分:4 维度加权平均
+    const totalScore = Math.round(
+      jdMatchPct * 0.3 +
+        keywordsCoveragePct * 0.3 +
+        structurePct * 0.2 +
+        achievementPct * 0.2,
+    );
+
+    // delta 估算:v2 - v1 主要靠 STAR + hard_req 提升
+    let delta = acceptedCount * 2; // fallback
+    if (llmMetrics) {
+      const starGain =
+        (llmMetrics.star_complete_v2?.complete ?? 0) -
+        (llmMetrics.star_complete_v1?.complete ?? 0);
+      const hardGain =
+        (llmMetrics.hard_req_v2_aligned ?? 0) -
+        (llmMetrics.hard_req_v1_aligned ?? 0);
+      delta = Math.max(acceptedCount, Math.round(starGain * 3 + hardGain * 5 + acceptedCount * 2));
+    }
+
+    // improveTags:基于 edit 分布选 1-3 个有代表性的 tag
+    const cats = new Set<string>();
+    if (data) {
+      for (const e of data.edits) {
+        if (decisions[e.id] === "accept") cats.add(e.category);
+      }
+    }
+    const improveTags: string[] = [];
+    if (cats.has("ats-keyword") || cats.has("narrative-tools")) improveTags.push("关键词补强");
+    if (cats.has("quantification") || cats.has("tech-deepening"))
+      improveTags.push("成果表达增强");
+    if (cats.has("section-reorder")) improveTags.push("结构更完整");
+    if (improveTags.length === 0 && acceptedCount > 0) improveTags.push("表述更精炼");
+
+    return {
+      totalScore: Math.max(0, Math.min(100, totalScore)),
+      delta: Math.max(0, delta),
+      acceptedCount,
+      pendingCount: pendingFillEdits.length,
+      jdMatchPct,
+      keywordsCoveragePct,
+      structurePct,
+      achievementPct,
+      improveTags,
+      loading: llmMetricsRefreshing && !llmMetrics,
+    };
+  }, [
+    llmMatchedKeywords,
+    llmJdKeywords,
+    llmMetrics,
+    llmMetricsRefreshing,
+    parsedResume,
+    acceptedCount,
+    data,
+    decisions,
+    pendingFillEdits.length,
+  ]);
 
   function handleFillBlank(editId: string, filledText: string) {
     setRewritten((r) => ({ ...r, [editId]: filledText }));
@@ -423,46 +526,18 @@ function ResultContent() {
           </div>
         )}
 
-        {/* Ready — V2 左对话 + 右简历 */}
+        {/* Ready — V3 左对话 + 右简历 */}
         {status === "ready" && data && (
           <>
-            {/* 顶部 sticky 1 行 — 4 维数据 + 下载 Word */}
+            {/* 顶部 sticky 工具栏(返回 + 下载)*/}
             <section className="sticky top-20 z-30 bg-warm-bg/95 backdrop-blur-sm border-b border-border shadow-sm">
-              <div className="max-w-[1400px] mx-auto px-6 py-3 flex items-center justify-between gap-4 flex-wrap">
-                <div className="flex items-center gap-5 flex-wrap text-sm">
-                  <Link
-                    href={`/m3${convQs}`}
-                    className="text-ink-soft hover:text-esther-blue text-xs"
-                  >
-                    ← 改简历 / JD
-                  </Link>
-                  <span className="flex items-center gap-1.5">
-                    <span className="text-ink-soft text-xs">综合提升</span>
-                    <strong className="text-esther-blue text-lg leading-none">
-                      +{improveScore}
-                    </strong>
-                    <span className="text-ink-muted text-xs">分</span>
-                  </span>
-                  <span className="flex items-center gap-1.5">
-                    <span className="text-ink-soft text-xs">JD 关键词</span>
-                    <strong className="text-ink">
-                      {matchedKeywordsCount}/{totalKeywordsCount}
-                    </strong>
-                    <span className="text-ink-muted text-xs">· {coveragePct}%</span>
-                  </span>
-                  <span className="flex items-center gap-1.5">
-                    <span className="text-ink-soft text-xs">AI 已改</span>
-                    <strong className="text-esther-blue">{acceptedCount}</strong>
-                    <span className="text-ink-muted text-xs">处</span>
-                  </span>
-                  {pendingFillEdits.length > 0 && (
-                    <span className="flex items-center gap-1.5">
-                      <span className="text-ink-soft text-xs">待你填</span>
-                      <strong className="text-esther-red">{pendingFillEdits.length}</strong>
-                      <span className="text-ink-muted text-xs">处</span>
-                    </span>
-                  )}
-                </div>
+              <div className="max-w-[1400px] mx-auto px-6 py-3 flex items-center justify-between gap-4">
+                <Link
+                  href={`/m3${convQs}`}
+                  className="text-ink-soft hover:text-esther-blue text-xs"
+                >
+                  ← 改简历 / JD
+                </Link>
                 <button
                   onClick={handleDownload}
                   disabled={downloading}
@@ -472,6 +547,11 @@ function ResultContent() {
                 </button>
               </div>
             </section>
+
+            {/* V3 评分大卡(照抄竞品)*/}
+            <div className="max-w-[1400px] mx-auto px-6 pt-6">
+              <M3ScoreDashboard data={dashboardData} />
+            </div>
 
             {/* placeholder_mode 提示(M6 → M3 没拿到 JD 全文)*/}
             {jdContext?.placeholder_mode && (
@@ -506,15 +586,33 @@ function ResultContent() {
                       AI 已自动改了 {acceptedCount} 处低风险表述,你直接看右侧简历就行。如果某段想换写法、补关键词、加深度,告诉我。
                     </p>
 
-                    {/* 已改清单(折叠)*/}
+                    {/* 已改清单(折叠 + hover 联动 → 简历对应 bullet 高亮)*/}
                     {acceptedEdits.length > 0 && (
-                      <details className="mb-3 border border-border rounded p-2 bg-warm-bg-deep/20">
+                      <details className="mb-3 border border-border rounded p-2 bg-warm-bg-deep/20" open>
                         <summary className="text-xs text-ink-soft cursor-pointer hover:text-esther-blue list-none">
-                          ▾ 看 AI 改了哪 {acceptedEdits.length} 处
+                          ▾ 看 AI 改了哪 {acceptedEdits.length} 处 <span className="text-[10px] text-ink-muted">(鼠标 hover 看右侧对应位置)</span>
                         </summary>
-                        <ul className="mt-2 space-y-1.5 text-[11px] text-ink-soft max-h-60 overflow-y-auto">
+                        <ul className="mt-2 space-y-1 text-[11px] text-ink-soft max-h-60 overflow-y-auto">
                           {acceptedEdits.map((e) => (
-                            <li key={e.id} className="leading-snug">
+                            <li
+                              key={e.id}
+                              onMouseEnter={() => setHoveredEditId(e.id)}
+                              onMouseLeave={() => setHoveredEditId(null)}
+                              onClick={() => {
+                                setHoveredEditId(e.id);
+                                if (typeof document !== "undefined") {
+                                  const el = document.querySelector<HTMLElement>(
+                                    `[data-edit-id="${e.id}"]`,
+                                  );
+                                  el?.scrollIntoView({ behavior: "smooth", block: "center" });
+                                }
+                              }}
+                              className={`leading-snug cursor-pointer rounded px-1.5 py-1 transition-colors ${
+                                hoveredEditId === e.id
+                                  ? "bg-esther-blue/15 text-ink"
+                                  : "hover:bg-esther-blue/[0.06]"
+                              }`}
+                            >
                               <span className="text-esther-blue mr-1">·</span>
                               <span className="text-ink-muted">[{e.category}]</span>{" "}
                               {e.reason || "改写"}
@@ -560,6 +658,9 @@ function ResultContent() {
                       decisions={decisions}
                       rewritten={rewritten}
                       onFillBlank={handleFillBlank}
+                      hoveredEditId={hoveredEditId}
+                      onHoverEdit={setHoveredEditId}
+                      jdContext={jdContext}
                     />
                   </Card>
 
@@ -702,12 +803,18 @@ function ResumePreview({
   decisions,
   rewritten,
   onFillBlank,
+  hoveredEditId,
+  onHoverEdit,
+  jdContext,
 }: {
   parsedResume: ParsedResume;
   edits: EditSuggestion[];
   decisions: DecisionsMap;
   rewritten: RewrittenMap;
   onFillBlank?: (editId: string, filledText: string) => void;
+  hoveredEditId?: string | null;
+  onHoverEdit?: (editId: string | null) => void;
+  jdContext?: JdCtx;
 }) {
   function lookupEdit(
     section: "experience" | "projects" | "activities",
@@ -786,27 +893,30 @@ function ResumePreview({
       (it.bullets ?? []).map((b, bIdx) => {
         const orig = typeof b === "string" ? b : b.text ?? "";
         const { text, status, editId } = getBulletDisplay(section, sIdx, bIdx, orig);
+        const isHovered = editId && hoveredEditId === editId;
+        const hasFillMark = !!text.match(FILL_RE);
         return (
           <li
             key={`${section}-${sIdx}-${bIdx}`}
-            className={`text-[13px] leading-relaxed flex items-start gap-2 mb-1.5 ${
-              status === "accepted"
-                ? "bg-esther-blue/[0.06] px-1.5 rounded-sm"
-                : status === "needs-fill"
-                  ? "bg-esther-yellow/[0.06] px-1.5 rounded-sm"
-                  : ""
+            data-edit-id={editId ?? undefined}
+            onMouseEnter={() => editId && onHoverEdit?.(editId)}
+            onMouseLeave={() => onHoverEdit?.(null)}
+            className={`text-[13px] leading-relaxed flex items-start gap-2 mb-1.5 px-1.5 rounded-sm transition-all duration-200 ${
+              isHovered
+                ? "bg-esther-blue/25 ring-2 ring-esther-blue/60 shadow-sm"
+                : status === "accepted"
+                  ? "bg-esther-blue/[0.08]"
+                  : status === "needs-fill"
+                    ? "bg-esther-yellow/[0.12]"
+                    : ""
             }`}
           >
             <span className="text-ink mt-1.5 flex-shrink-0">·</span>
             <span
               className={
-                status === "accepted"
-                  ? "text-ink"
-                  : status === "needs-fill"
-                    ? "text-ink"
-                    : status === "rejected"
-                      ? "text-ink-muted line-through"
-                      : "text-ink"
+                status === "rejected"
+                  ? "text-ink-muted line-through"
+                  : "text-ink flex-1"
               }
             >
               <BulletFillableText
@@ -814,8 +924,20 @@ function ResumePreview({
                 editId={editId}
                 onFillBlank={onFillBlank}
               />
-              {status === "accepted" && !text.match(FILL_RE) && (
-                <span className="text-esther-blue ml-1.5 text-[10px]">✓ 已改</span>
+              {status === "accepted" && !hasFillMark && (
+                <span className="text-esther-blue ml-1.5 text-[10px]">✓ AI 已改</span>
+              )}
+              {status === "needs-fill" && !hasFillMark && editId && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (onFillBlank) onFillBlank(editId, text + "【请补充具体数字】");
+                  }}
+                  className="ml-1.5 inline-flex items-center px-1.5 py-0.5 rounded bg-esther-yellow/60 hover:bg-esther-yellow border border-esther-yellow text-[10px] text-ink font-medium transition-colors"
+                  title="点击在这条 bullet 末尾插入【请补充具体数字】"
+                >
+                  ✎ 这里 AI 想加数字 — 点我标出
+                </button>
               )}
             </span>
           </li>
@@ -824,77 +946,170 @@ function ResumePreview({
     );
   }
 
+  // 联系方式 + 求职意向
+  const basic = parsedResume?.basic;
+  const targetRole = (jdContext as { role_name?: string } | null)?.role_name;
+  const contactItems: string[] = [];
+  if (basic?.phone) contactItems.push(`📞 ${basic.phone}`);
+  if (basic?.email) contactItems.push(`✉️ ${basic.email}`);
+  if (basic?.location) contactItems.push(`📍 ${basic.location}`);
+
+  // 教育背景:优先用 education[],fallback 用 basic.school
+  const educationItems =
+    parsedResume?.education && parsedResume.education.length > 0
+      ? parsedResume.education
+      : basic?.school
+        ? [
+            {
+              school: basic.school,
+              major: basic.major ?? "",
+              degree: basic.year_level ?? "",
+              period: "",
+              gpa: basic.gpa ?? null,
+            },
+          ]
+        : [];
+
   if (!parsedResume) return null;
 
   return (
-    <div className="font-body-zh max-w-[700px] mx-auto space-y-4">
-      {/* 顶部:姓名 + 基本信息(简历头) */}
-      {parsedResume.basic && (
-        <div className="text-center pb-4 border-b-2 border-ink">
-          <h2 className="text-2xl font-bold text-ink tracking-wide">
-            {parsedResume.basic.name ?? "—"}
+    <div className="font-body-zh max-w-[750px] mx-auto">
+      {/* ========= 顶部 Header:姓名 + 联系方式 + 求职意向 ========= */}
+      {basic && (
+        <div className="text-center pb-3 mb-4 border-b-2 border-ink">
+          <h2 className="text-3xl font-bold text-ink tracking-wide mb-2">
+            {basic.name ?? "—"} 的简历
           </h2>
-          <p className="text-sm text-ink-soft mt-1">
-            {parsedResume.basic.major}
-            {parsedResume.basic.year_level ? ` · ${parsedResume.basic.year_level}` : ""}
-          </p>
+          {contactItems.length > 0 && (
+            <p className="text-xs text-ink-soft mb-1">
+              {contactItems.join(" | ")}
+              {targetRole && (
+                <>
+                  {" | "}
+                  <span className="text-ink">求职意向:{targetRole}</span>
+                </>
+              )}
+            </p>
+          )}
+          {contactItems.length === 0 && targetRole && (
+            <p className="text-xs text-ink mb-1">求职意向:{targetRole}</p>
+          )}
+          {basic.major && (
+            <p className="text-xs text-ink-soft">
+              {basic.major}
+              {basic.year_level ? ` · ${basic.year_level}` : ""}
+              {basic.gpa ? ` · GPA ${basic.gpa}` : ""}
+            </p>
+          )}
         </div>
       )}
 
+      {/* ========= 核心技能(放最前,招聘官 ATS 一眼看) ========= */}
+      {parsedResume.skills && (
+        <Section title="核心技能">
+          <CoreSkillsList skills={parsedResume.skills} />
+        </Section>
+      )}
+
+      {/* ========= 教育背景 ========= */}
+      {educationItems.length > 0 && (
+        <Section title="教育背景">
+          {educationItems.map((ed, idx) => (
+            <div key={idx} className="mb-2.5">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <p className="text-sm font-semibold text-ink">
+                  {ed.school}
+                  {ed.major ? ` | ${ed.major}` : ""}
+                  {ed.degree ? ` | ${ed.degree}` : ""}
+                  {ed.gpa ? ` | GPA ${ed.gpa}` : ""}
+                </p>
+                {ed.period && (
+                  <span className="text-ink-muted font-normal text-xs">
+                    {ed.period}
+                  </span>
+                )}
+              </div>
+              {ed.awards && ed.awards.length > 0 && (
+                <p className="text-[12px] text-ink-soft mt-0.5">
+                  荣誉:{ed.awards.join(" · ")}
+                </p>
+              )}
+              {ed.courses && ed.courses.length > 0 && (
+                <p className="text-[12px] text-ink-soft mt-0.5">
+                  主修:{ed.courses.join(" · ")}
+                </p>
+              )}
+            </div>
+          ))}
+        </Section>
+      )}
+
+      {/* ========= 实习经历 ========= */}
       {(parsedResume.experience ?? []).length > 0 && (
         <Section title="实习经历">
           {(parsedResume.experience ?? []).map((e, sIdx) => (
             <div key={sIdx} className="mb-3">
-              <p className="text-sm font-semibold text-ink mb-1.5">
-                {e.org} · {e.role}
+              <div className="flex items-center justify-between gap-2 flex-wrap mb-1">
+                <p className="text-sm font-semibold text-ink">
+                  {e.org}
+                  {e.role ? ` · ${e.role}` : ""}
+                </p>
                 {e.period && (
-                  <span className="text-ink-muted font-normal text-xs ml-2">
+                  <span className="text-ink-muted font-normal text-xs">
                     {e.period}
                   </span>
                 )}
-              </p>
+              </div>
               <ul>{renderBulletList("experience", [e])[0]}</ul>
             </div>
           ))}
         </Section>
       )}
 
+      {/* ========= 项目经验 ========= */}
       {(parsedResume.projects ?? []).length > 0 && (
         <Section title="项目经验">
           {(parsedResume.projects ?? []).map((p, sIdx) => (
             <div key={sIdx} className="mb-3">
-              <p className="text-sm font-semibold text-ink mb-1.5">
-                {p.name}
+              <div className="flex items-center justify-between gap-2 flex-wrap mb-1">
+                <p className="text-sm font-semibold text-ink">
+                  {p.name}
+                  {p.role ? ` · ${p.role}` : ""}
+                </p>
                 {p.period && (
-                  <span className="text-ink-muted font-normal text-xs ml-2">
+                  <span className="text-ink-muted font-normal text-xs">
                     {p.period}
                   </span>
                 )}
-              </p>
+              </div>
+              {p.tech_stack && p.tech_stack.length > 0 && (
+                <p className="text-[12px] text-ink-soft mb-1">
+                  技术栈:{p.tech_stack.join(" · ")}
+                </p>
+              )}
               <ul>{renderBulletList("projects", [p])[0]}</ul>
             </div>
           ))}
         </Section>
       )}
 
+      {/* ========= 社团活动 ========= */}
       {(parsedResume.activities ?? []).length > 0 && (
         <Section title="社团活动">
           {(parsedResume.activities ?? []).map((a, sIdx) => (
             <div key={sIdx} className="mb-3">
-              <p className="text-sm font-semibold text-ink mb-1.5">
-                {a.org} · {a.role}
+              <p className="text-sm font-semibold text-ink mb-1">
+                {a.org}
+                {a.role ? ` · ${a.role}` : ""}
+                {a.period && (
+                  <span className="text-ink-muted font-normal text-xs ml-2">
+                    {a.period}
+                  </span>
+                )}
               </p>
               <ul>{renderBulletList("activities", [a])[0]}</ul>
             </div>
           ))}
-        </Section>
-      )}
-
-      {parsedResume.skills && (
-        <Section title="技能">
-          <p className="text-[13px] text-ink leading-relaxed">
-            {Object.values(parsedResume.skills).flat().filter(Boolean).join(" · ")}
-          </p>
         </Section>
       )}
     </div>
@@ -903,11 +1118,38 @@ function ResumePreview({
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div>
-      <h3 className="text-sm font-bold text-ink border-b border-ink/30 pb-1 mb-2.5 tracking-wide">
+    <div className="mb-5">
+      <h3 className="text-base font-bold text-ink mb-2 tracking-wide">
         {title}
       </h3>
-      {children}
+      <div className="border-t border-ink/20 pt-2.5">{children}</div>
+    </div>
+  );
+}
+
+/** 核心技能:按 category 分类展示(label: value) */
+function CoreSkillsList({ skills }: { skills: Record<string, string[]> }) {
+  const LABELS: Record<string, string> = {
+    languages: "编程语言",
+    frameworks: "框架与库",
+    tools: "工具",
+    domain: "领域知识",
+    tech: "技术",
+    language: "语言",
+    tool: "工具",
+  };
+  const entries = Object.entries(skills).filter(([, v]) => Array.isArray(v) && v.length > 0);
+  if (entries.length === 0) return null;
+  return (
+    <div className="space-y-1.5">
+      {entries.map(([key, vals]) => (
+        <p key={key} className="text-[13px] text-ink leading-relaxed">
+          <span className="text-esther-blue font-semibold">
+            {LABELS[key] ?? key}:
+          </span>{" "}
+          {vals.join(" · ")}
+        </p>
+      ))}
     </div>
   );
 }
