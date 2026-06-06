@@ -104,7 +104,8 @@ const PROMPT_MAIN = `你是「Offer 捕手」模块 3 简历整理 Phase 5 改�
    - **判定原则**:宁可降为 needs_confirmation 也不要冒险标 explicit。explicit 等价于"我担保这是原文已有的事实"
 
 9. **(offer-1-sparkling-hippo v4 新增)每条 edit 必填 evidence_audit**(可展开的证据审计 — 让评委/用户看到反编造工程):
-   - 数组,1-3 条,每条 { "source": "jd"|"resume"|"experience"|"interview", "excerpt": "原文片段 ≤ 120 字" }
+   - 数组,**默认 1 条**(精简输出),仅在原文 + 隐藏经验都能引时才放 2 条,**永远不要 3 条**
+   - 每条 { "source": "jd"|"resume"|"experience"|"interview", "excerpt": "原文片段 ≤ 80 字" }(从 120 字缩到 80 字,防止输出爆量)
    - excerpt 必须**直接复制**自相应来源的实际文本(parsed_resume / hidden_experiences / jd_context / from_debrief_highlight),不要改写
    - 这是 evidence_source 字符串字段的结构化升级版,字符串版仍兼容保留
 
@@ -156,7 +157,7 @@ const PROMPT_MAIN = `你是「Offer 捕手」模块 3 简历整理 Phase 5 改�
         { "source": "resume", "excerpt": "原文片段 ≤ 120 字" },
         { "source": "experience", "excerpt": "..." }
       ],
-      "reason": "1-2 句为什么 — 引用 narrative_tag / JD 关键词 / 隐藏经验 / Phase 3 你说没",
+      "reason": "**1 句 ≤ 50 字**(精简,不要写两句) — 引用 narrative_tag / JD 关键词 / 隐藏经验 / Phase 3 你说没",
       "category": "narrative-tools" | "ats-keyword" | "gap-alert" | ...,
       "priority": "high" | "medium" | "low",
       "fab_warning": null | "⚠️ ...",
@@ -181,7 +182,11 @@ const PROMPT_MAIN = `你是「Offer 捕手」模块 3 简历整理 Phase 5 改�
 □ **每条 edit 都填 claim_type**(explicit/inferred/needs_confirmation 三选一,不要输出 forbidden);宁可降级为 needs_confirmation
 □ **每条 edit 都填 evidence_audit**(数组,1-3 条,excerpt 必须是真实原文片段,不要改写)
 
-数量:**8-15 条建议**。high priority 占 30-50%。`;
+【输出长度硬约束(防止 JSON 截断)】
+- 数量:**6-10 条建议**(质量优先,不堆数量;DeepSeek 输出 8K 上限)
+- 每条 suggested_text ≤ 80 字 / reason ≤ 50 字 / evidence_audit 默认 1 条且 excerpt ≤ 80 字
+- high priority 占 30-50%
+- **输出 JSON 总长目标 ≤ 5000 字符**,绝不超过 7500 字符 — 接近 8K 上限就立即收尾,宁可少 1-2 条`;
 
 export async function POST(request: NextRequest) {
   try {
