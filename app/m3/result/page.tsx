@@ -874,6 +874,10 @@ function ResumePreview({
   onHoverEdit?: (editId: string | null) => void;
   jdContext?: JdCtx;
 }) {
+  // 1 个 edit 只能映射到 1 个 bullet(防 parse-resume 出错导致跨 section 重复 bullet 时,
+  // 同一 edit.suggested_text 被多个 bullet 重复显示)
+  const usedEditIds = new Set<string>();
+
   function lookupEdit(
     section: "experience" | "projects" | "activities",
     sectionIdx: number,
@@ -881,11 +885,21 @@ function ResumePreview({
     originalText: string,
   ): EditSuggestion | null {
     const target = `${section}[${sectionIdx}].bullets[${bulletIdx}]`;
-    // L1: target 精确字符串匹配(主路径,绝大多数命中)
-    let matched = edits.find((e) => e.target === target);
-    if (matched) return matched;
+    const claim = (m: EditSuggestion | undefined) => {
+      if (!m) return null;
+      if (usedEditIds.has(m.id)) return null; // 已被前面 bullet 用过,不重复
+      usedEditIds.add(m.id);
+      return m;
+    };
 
-    // L2: bullet_id 精确匹配(章节重排后 target 字符串失配时兜底)
+    // L1: target 精确字符串匹配(主路径)
+    const l1 = edits.find((e) => e.target === target);
+    if (l1) {
+      const c = claim(l1);
+      if (c) return c;
+    }
+
+    // L2: bullet_id 精确匹配(章节重排兜底)
     const currentBulletId = (() => {
       const items = (parsedResume as Record<string, unknown>)?.[section];
       if (!Array.isArray(items)) return null;
@@ -895,21 +909,21 @@ function ResumePreview({
       return b.id ?? null;
     })();
     if (currentBulletId) {
-      matched = edits.find((e) => e.bullet_id === currentBulletId);
-      if (matched) return matched;
+      const l2 = edits.find((e) => e.bullet_id === currentBulletId);
+      const c = claim(l2);
+      if (c) return c;
     }
 
-    // L3: original_text **完全相等**(严格,防止跨 section 误匹配)
-    // 之前用 70% 字符重叠 fuzzy match — 会把"卡戎心理的 bullet"误匹配到
-    // "追引光子的 edit"。已禁用 fuzzy,改严格相等。
+    // L3: original_text **完全相等**(严格)
     if (originalText.length >= 10) {
-      matched = edits.find(
+      const l3 = edits.find(
         (e) =>
           e.original_text === originalText &&
           e.original_text !== "(新增)" &&
           e.original_text !== "(JD 缺口)",
       );
-      if (matched) return matched;
+      const c = claim(l3);
+      if (c) return c;
     }
 
     return null;
