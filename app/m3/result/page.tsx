@@ -881,30 +881,38 @@ function ResumePreview({
     originalText: string,
   ): EditSuggestion | null {
     const target = `${section}[${sectionIdx}].bullets[${bulletIdx}]`;
+    // L1: target 精确字符串匹配(主路径,绝大多数命中)
     let matched = edits.find((e) => e.target === target);
-    if (!matched) {
-      const currentBulletId = (() => {
-        const items = (parsedResume as Record<string, unknown>)?.[section];
-        if (!Array.isArray(items)) return null;
-        const it = items[sectionIdx] as { bullets?: Array<{ id?: string } | string> } | undefined;
-        const b = it?.bullets?.[bulletIdx];
-        if (!b || typeof b === "string") return null;
-        return b.id ?? null;
-      })();
-      if (currentBulletId) matched = edits.find((e) => e.bullet_id === currentBulletId);
+    if (matched) return matched;
+
+    // L2: bullet_id 精确匹配(章节重排后 target 字符串失配时兜底)
+    const currentBulletId = (() => {
+      const items = (parsedResume as Record<string, unknown>)?.[section];
+      if (!Array.isArray(items)) return null;
+      const it = items[sectionIdx] as { bullets?: Array<{ id?: string } | string> } | undefined;
+      const b = it?.bullets?.[bulletIdx];
+      if (!b || typeof b === "string") return null;
+      return b.id ?? null;
+    })();
+    if (currentBulletId) {
+      matched = edits.find((e) => e.bullet_id === currentBulletId);
+      if (matched) return matched;
     }
-    if (!matched) {
-      matched = edits.find((e) => {
-        if (!e.original_text || e.original_text === "(新增)" || e.original_text === "(JD 缺口)") return false;
-        if (e.original_text.length < 10 || originalText.length < 10) return false;
-        const a = new Set(e.original_text.replace(/\s/g, ""));
-        const b = new Set(originalText.replace(/\s/g, ""));
-        const inter = [...a].filter((c) => b.has(c)).length;
-        const union = new Set([...a, ...b]).size;
-        return union > 0 && inter / union >= 0.7;
-      });
+
+    // L3: original_text **完全相等**(严格,防止跨 section 误匹配)
+    // 之前用 70% 字符重叠 fuzzy match — 会把"卡戎心理的 bullet"误匹配到
+    // "追引光子的 edit"。已禁用 fuzzy,改严格相等。
+    if (originalText.length >= 10) {
+      matched = edits.find(
+        (e) =>
+          e.original_text === originalText &&
+          e.original_text !== "(新增)" &&
+          e.original_text !== "(JD 缺口)",
+      );
+      if (matched) return matched;
     }
-    return matched ?? null;
+
+    return null;
   }
 
   function getBulletDisplay(
