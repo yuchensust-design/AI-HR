@@ -68,7 +68,6 @@ function Module3Content() {
 
   // 旧的 hasParsed/hasJd 用 useM3Data 静态读;
   // 下方 inline 操作完会 setLocalParsedRaw/setLocalJdRaw → effectiveHasParsed/effectiveHasJd 取代
-  const isQuickMode = jdContext?.meta?.mode === "quick";
   const hasFinal = !!finalResume?.markdown;
 
   const convQs = convId ? `?c=${convId}` : "";
@@ -173,26 +172,25 @@ function Module3Content() {
     }
   }
 
-  // Step 2 JD inline state — 默认展开 textarea(已有 JD 时自动收起显示摘要)
-  const [jdExpanded, setJdExpanded] = useState(true);
+  // Step 2 JD inline state — 永远展开,不切换摘要/编辑态
   const [jdRoleName, setJdRoleName] = useState("");
   const [jdText, setJdText] = useState("");
   const [jdAutoSaved, setJdAutoSaved] = useState(false);
-  // 已有 JD 摘要 → 自动收起;没 JD 时维持展开(用户点"取消"才会折叠)
+  // 页面加载时,从 effectiveJd 灌一次初始值(只跑一次,后续用户编辑)
+  const [jdHydrated, setJdHydrated] = useState(false);
   useEffect(() => {
-    if (effectiveHasJd) setJdExpanded(false);
-  }, [effectiveHasJd]);
-  // 重展开时,把当前已存的 role_name / rawJdText 灌回 input/textarea,方便用户继续改
-  // 只依赖 jdExpanded 切 true,不依赖 effectiveJd(否则 auto save 后会无限重灌)
-  useEffect(() => {
-    if (jdExpanded) {
-      const ej = (effectiveJd ?? {}) as { role_name?: string; rawJdText?: string };
+    if (jdHydrated) return;
+    if (effectiveJd) {
+      const ej = effectiveJd as { role_name?: string; rawJdText?: string };
       setJdRoleName(ej.role_name ?? "");
       setJdText(ej.rawJdText ?? "");
-      setJdAutoSaved(false);
+      setJdAutoSaved(true);
+      setJdHydrated(true);
+    } else if (!dataLoading) {
+      // data 加载完仍是 null → 标记 hydrated,允许用户开始填
+      setJdHydrated(true);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [jdExpanded]);
+  }, [effectiveJd, jdHydrated, dataLoading]);
 
   // 从 m6 跳过来 → 自动预填 jdText + 展开 Step 2
   useEffect(() => {
@@ -208,7 +206,7 @@ function Module3Content() {
       };
       if (pending.from_m6 && pending.jdText && pending.jdText.length > 50) {
         setJdText(pending.jdText);
-        setJdExpanded(true);
+        if (pending.roleName) setJdRoleName(pending.roleName);
         window.localStorage.removeItem(STORAGE_KEYS.M6_PENDING_JD);
       }
     } catch {
@@ -218,7 +216,7 @@ function Module3Content() {
 
   /** auto save:用户填 input/textarea → debounce 800ms → 自动 persist,不需点按钮 */
   useEffect(() => {
-    if (!jdExpanded) return;
+    if (!jdHydrated) return; // 还在从 effectiveJd 灌初值时,跳过
     const role = jdRoleName.trim();
     const text = jdText.trim();
     // 都没填 → 跳过
@@ -246,7 +244,7 @@ function Module3Content() {
     }, 800);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [jdRoleName, jdText, jdExpanded]);
+  }, [jdRoleName, jdText, jdHydrated]);
 
   // 登录但没选 conv → 空状态
   const needPickConv = !userLoading && !!user && !hasConv;
@@ -406,100 +404,48 @@ function Module3Content() {
                   )}
                 </Step>
 
-                {/* ============ Step 2 · 目标岗位(inline textarea,默认展开) ============ */}
-                <Step no="2" title="目标岗位 JD" hint="粘贴目标岗位 JD 全文 — AI 会按 JD 关键词 + 任职要求做针对性优化">
-                  {effectiveHasJd && !jdExpanded ? (
-                    <div className="flex items-center justify-between gap-3 flex-wrap rounded-xl border border-esther-blue/30 bg-esther-blue/[0.04] px-4 py-3">
-                      <div className="flex-1 min-w-[200px] text-sm text-ink leading-snug">
-                        <span className="text-esther-blue font-semibold">🎯</span>{" "}
-                        <span className="font-medium">{effectiveJd?.jd_summary}</span>
-                        {effectiveJd?.priority_score ? (
-                          <span className="text-ink-soft ml-2">
-                            · 匹配 {effectiveJd.priority_score}/5
-                          </span>
-                        ) : null}
-                        {isQuickMode && (
-                          <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded bg-esther-yellow text-ink text-[10px]">
-                            快速模式
-                          </span>
-                        )}
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setJdExpanded(true);
-                          setJdText("");
-                        }}
-                        className="text-xs text-ink-muted hover:text-esther-blue transition-colors"
-                      >
-                        改 JD →
-                      </button>
+                {/* ============ Step 2 · 目标岗位(input + textarea 永远展开,自动保存) ============ */}
+                <Step no="2" title="目标岗位 JD" hint="填岗位名 + 可选粘 JD 全文,自动保存 — AI 会按 JD 关键词做针对性优化">
+                  <div className="rounded-xl border border-esther-blue/30 bg-card p-4 space-y-3">
+                    {/* 岗位名称 */}
+                    <div>
+                      <label className="block text-xs text-ink-soft mb-1.5">
+                        岗位名称 <span className="text-ink-muted">(必填一个 — 跟下方 JD 全文至少有一个)</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={jdRoleName}
+                        onChange={(e) => setJdRoleName(e.target.value)}
+                        placeholder="例如:产品经理 / 前端开发 / 数据分析师 / 用户研究员"
+                        maxLength={40}
+                        className="w-full px-3 py-2 rounded-lg border border-border bg-warm-bg/40 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-esther-blue/40"
+                      />
                     </div>
-                  ) : jdExpanded ? (
-                    <div className="rounded-xl border border-esther-blue/30 bg-card p-4 space-y-3">
-                      {/* 岗位名称 — 简短一行,跟 JD 全文并列 */}
-                      <div>
-                        <label className="block text-xs text-ink-soft mb-1.5">
-                          岗位名称 <span className="text-ink-muted">(必填一个 — 跟下方 JD 全文至少有一个)</span>
-                        </label>
-                        <input
-                          type="text"
-                          value={jdRoleName}
-                          onChange={(e) => setJdRoleName(e.target.value)}
-                          placeholder="例如:产品经理 / 前端开发 / 数据分析师 / 用户研究员"
-                          maxLength={40}
-                          className="w-full px-3 py-2 rounded-lg border border-border bg-warm-bg/40 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-esther-blue/40"
-                        />
-                      </div>
-                      {/* JD 全文 textarea */}
-                      <div>
-                        <label className="block text-xs text-ink-soft mb-1.5">
-                          JD 全文 <span className="text-ink-muted">(可选,越完整 AI 越准 — 字数 {jdText.length})</span>
-                        </label>
-                        <textarea
-                          value={jdText}
-                          onChange={(e) => setJdText(e.target.value)}
-                          rows={6}
-                          placeholder="粘贴 JD 全文 — 岗位职责 / 任职要求 / 加分项,越完整越准"
-                          className="w-full px-3 py-2 rounded-lg border border-border bg-warm-bg/40 text-sm text-ink leading-relaxed resize-y focus:outline-none focus:ring-2 focus:ring-esther-blue/40"
-                        />
-                        {jdText.length > 0 && jdText.length < 30 && (
-                          <p className="text-xs text-esther-red mt-1">JD 全文太短,要么补完整 ≥30 字,要么留空只靠岗位名</p>
-                        )}
-                      </div>
-                      {/* 自动保存状态 + 收起 */}
-                      <div className="flex items-center justify-between gap-2 pt-1">
-                        <p className="text-xs text-ink-muted">
-                          {(jdRoleName.trim() || jdText.trim().length >= 30)
-                            ? jdAutoSaved
-                              ? <span className="text-esther-blue">✓ 已自动保存,可继续编辑或开始优化</span>
-                              : <span className="text-ink-soft">输入完会自动保存…</span>
-                            : <span className="text-ink-muted">填岗位名或粘贴 JD 全文,自动保存</span>}
-                        </p>
-                        {effectiveHasJd && (
-                          <button
-                            type="button"
-                            onClick={() => setJdExpanded(false)}
-                            className="text-xs text-ink-muted hover:text-esther-blue"
-                          >
-                            收起 ▲
-                          </button>
-                        )}
-                      </div>
+                    {/* JD 全文 textarea */}
+                    <div>
+                      <label className="block text-xs text-ink-soft mb-1.5">
+                        JD 全文 <span className="text-ink-muted">(可选,越完整 AI 越准 — 字数 {jdText.length})</span>
+                      </label>
+                      <textarea
+                        value={jdText}
+                        onChange={(e) => setJdText(e.target.value)}
+                        rows={6}
+                        placeholder="粘贴 JD 全文 — 岗位职责 / 任职要求 / 加分项,越完整越准"
+                        className="w-full px-3 py-2 rounded-lg border border-border bg-warm-bg/40 text-sm text-ink leading-relaxed resize-y focus:outline-none focus:ring-2 focus:ring-esther-blue/40"
+                      />
+                      {jdText.length > 0 && jdText.length < 30 && (
+                        <p className="text-xs text-esther-red mt-1">JD 全文太短,要么补完整 ≥30 字,要么留空只靠岗位名</p>
+                      )}
                     </div>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => setJdExpanded(true)}
-                      disabled={!effectiveHasParsed}
-                      className="w-full flex items-center justify-between gap-3 rounded-xl border border-dashed border-border bg-warm-bg-deep/20 hover:bg-warm-bg-deep/40 hover:border-esther-blue transition-colors px-4 py-3 disabled:opacity-40 disabled:cursor-not-allowed"
-                    >
-                      <span className="text-sm text-ink-soft">
-                        + 粘贴 JD 文本
-                      </span>
-                      <span className="text-xs text-esther-blue">展开输入框 →</span>
-                    </button>
-                  )}
+                    {/* 自动保存状态 */}
+                    <p className="text-xs">
+                      {(jdRoleName.trim() || jdText.trim().length >= 30)
+                        ? jdAutoSaved
+                          ? <span className="text-esther-blue">✓ 已自动保存</span>
+                          : <span className="text-ink-soft">输入完会自动保存…</span>
+                        : <span className="text-ink-muted">填岗位名或粘贴 JD 全文,会自动保存</span>}
+                    </p>
+                  </div>
                 </Step>
 
                 {/* ============ Step 3 · 优化目标(6 chip 多选) ============ */}
