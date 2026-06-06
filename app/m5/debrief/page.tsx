@@ -539,8 +539,8 @@ function Module5DebriefContent() {
                 </p>
               )}
 
-              <p className="text-[11px] text-ink-muted mt-5 leading-relaxed">
-                评分依赖 STT 转写,允许 ±20% 误差;STT 误识别不算用户失误。模拟面试仅供练习参考,看趋势不看单次绝对分。
+              <p className="text-[11px] text-ink-muted mt-5">
+                ℹ️ 评分仅供参考 · 看趋势不看单次绝对分
               </p>
             </div>
           </section>
@@ -559,7 +559,7 @@ function Module5DebriefContent() {
                     💡 这 {backfillCandidates.length} 段你答得特别好 — 要不要写进简历?
                   </h2>
                   <p className="text-sm text-ink-soft">
-                    AI 从 transcript 里识别出可以反哺简历的答案 · 三种用法:一键全部采纳 / 单条采纳 / 复制 bullet 手动粘贴
+                    一键全部采纳 / 单条采纳 / 复制 bullet 自己粘
                   </p>
                 </div>
                 {(() => {
@@ -582,8 +582,8 @@ function Module5DebriefContent() {
                   );
                 })()}
               </div>
-              <p className="text-[11px] text-ink-muted mb-6 leading-relaxed">
-                采纳后这些 bullet 草稿会进入简历优化的素材池(hidden_experiences),M3 会基于它们生成 source=「面试」的改写建议;不会编造没说过的数字,所有 bullet 都引用本场 transcript。
+              <p className="text-[11px] text-ink-muted mb-6">
+                采纳的 bullet 会进入简历优化的素材池,你可以在简历整理里继续微调
               </p>
 
               <div className="space-y-5">

@@ -149,16 +149,10 @@ export default function Module1EntryPage() {
             Section 2: 测评特点
             ========================================================== */}
         <section className="bg-warm-bg-deep/40 border-b border-border">
-          <div className="max-w-[1100px] mx-auto px-6 py-16">
-            <p className="font-display italic text-sm text-esther-blue mb-2">
-              Why this matters
-            </p>
-            <h2 className="text-2xl md:text-3xl font-bold text-ink mb-3">
-              我们的测评跟别人不一样
+          <div className="max-w-[1100px] mx-auto px-6 py-14">
+            <h2 className="text-xl md:text-2xl font-semibold text-ink mb-8">
+              4 件事让结果不只是性格 quiz
             </h2>
-            <p className="text-sm text-ink-soft mb-10 max-w-2xl">
-              不是网上随便一个性格测验 — 这是我们认真想了 4 件事,做出来的。
-            </p>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {FEATURES.map((f, i) => (
@@ -318,8 +312,8 @@ export default function Module1EntryPage() {
             >
               开始测评 → 看你自己的结果
             </Link>
-            <p className="text-xs text-ink-muted mt-6 font-display italic leading-relaxed">
-              🔒 答题选项存浏览器本地 · 分析时发送到模型接口、不做账号级持久化 · 不因学校 / 专业 / 空窗判优劣
+            <p className="text-xs text-ink-muted mt-6 font-display italic">
+              🔒 答题本地保存 · 仅辅助探索方向
             </p>
           </div>
         </section>

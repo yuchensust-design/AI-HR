@@ -546,9 +546,6 @@ function ResultContent() {
             <p className="text-ink-soft text-sm">
               AI 给了几条建议,你逐条决定要不要改 · 任何时候可以下载
             </p>
-            <p className="text-xs text-ink-muted mt-3 leading-relaxed bg-warm-bg-deep/40 border border-border rounded-md px-3 py-2">
-              ℹ️ Offer 捕手只重组你提供过的素材,不会替你发明经历。每条建议都标注来源(JD / 简历 / 经历挖掘 / 面试),你可以逐条拒绝、修改或覆盖。
-            </p>
             {/* placeholder_mode 提示(plan offer-1-sparkling-hippo P1):M6 跳过来但没拿到 JD 全文 */}
             {jdContext?.placeholder_mode && (
               <div className="mt-3 leading-relaxed bg-esther-yellow/15 border border-esther-yellow/50 rounded-md px-3 py-2">
@@ -571,9 +568,6 @@ function ResultContent() {
           <div className="max-w-[1400px] mx-auto px-6 py-20">
             <Card className="p-8 border-2 border-border bg-warm-bg-deep/30 text-center">
               <p className="text-base text-ink-soft">🤖 AI 在分析你的简历 + JD,产出改动建议(~10-20 秒)...</p>
-              <p className="text-xs text-ink-muted mt-2">
-                动态路由 prompt 长度 ~3000 字(比 7 段全塞省 22% token)
-              </p>
             </Card>
           </div>
         )}
@@ -609,9 +603,7 @@ function ResultContent() {
             <div className="flex items-center gap-2 px-3 py-2 rounded-md border border-border bg-warm-bg-deep/30">
               <span className="text-base">🛡️</span>
               <p className="text-[11px] text-ink-soft leading-snug">
-                <span className="text-ink font-medium">Offer 捕手</span>
-                只会重组和追问你提供过的信息,不会替你发明经历。
-                每条建议都标了 <span className="font-medium text-esther-blue">来源 · 置信度 · 对应 JD 关键词</span>,可逐条 audit。
+                每条建议都标了来源,你可以逐条 ✓ 采纳 / ✗ 跳过 / ✎ 改一下。
               </p>
             </div>
 

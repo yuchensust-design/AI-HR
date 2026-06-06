@@ -498,7 +498,6 @@ export default function Module1ResultPage() {
           </div>
         </section>
 
-        {/* 推荐依据 5 块 — AI-HR 视角"可解释推荐"能力的核心展示 */}
         <RecommendationRationale
           scores={result.scores}
           confidence={result.confidence}
@@ -508,18 +507,11 @@ export default function Module1ResultPage() {
           isSample={isSample}
         />
 
-        {/* 自我探索 — 6 维深度解读(基于 Holland 1997 经典 RIASEC) */}
         <section className="border-b border-border">
           <div className="max-w-[1100px] mx-auto px-6 py-14">
-            <p className="font-display italic text-sm text-esther-blue mb-2">
-              Know yourself first
-            </p>
-            <h2 className="text-2xl md:text-3xl font-bold text-ink mb-3">
-              你是怎样的人 · 6 维深度解读
+            <h2 className="text-2xl md:text-3xl font-bold text-ink mb-8">
+              6 维深度解读 · 你强在哪 / 注意哪
             </h2>
-            <p className="text-sm text-ink-soft mb-8 max-w-2xl">
-              不只是"推荐"标签,先理解你自己。每个维度展开看你强在哪 / 注意哪。
-            </p>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {DIMS.map((dim, idx) => {
@@ -802,15 +794,8 @@ export default function Module1ResultPage() {
             <p className="text-sm text-ink-muted font-display italic">
               ℹ️ 测评仅供参考,愿你的热爱与擅长终在某处相逢
             </p>
-            <p className="text-xs text-ink-muted mt-3 leading-relaxed">
-              本测评仅辅助你探索方向,不作为筛选标准;不因学校 / 专业 / 空窗判优劣。
-              <br />
-              推荐方向都能追溯到你的兴趣维度和经历信号,你可以拒绝或重测。
-            </p>
-            <p className="text-xs text-ink-muted mt-3 leading-relaxed">
-              基于霍兰德 RIASEC 经典 6 维理论(Holland, 1997),
-              <br />
-              题面参考 Martins et al. (2024) 心理测量学修订项
+            <p className="text-xs text-ink-muted mt-3">
+              基于国际经典职业兴趣理论 · 推荐方向可追溯到你的答案
             </p>
           </div>
         </footer>

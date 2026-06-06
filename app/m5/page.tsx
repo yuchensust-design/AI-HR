@@ -569,15 +569,6 @@ function Module5ConfigContent() {
                 </button>
               ))}
             </div>
-            <div className="pl-10 mt-3 flex items-center gap-3 flex-wrap">
-              <span className="text-[11px] text-ink-muted">v2 即将上线 ·</span>
-              <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-warm-bg-deep text-ink-muted text-[11px] border border-border">
-                案例面
-              </span>
-              <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-warm-bg-deep text-ink-muted text-[11px] border border-border">
-                群面
-              </span>
-            </div>
           </Card>
 
           <Card className="p-6 border-2 border-border">
@@ -637,8 +628,8 @@ function Module5ConfigContent() {
                 </button>
               ))}
             </div>
-            <p className="text-[11px] text-ink-muted mt-3 pl-10 leading-relaxed">
-              ⚠️ 严厉 / 严谨追问目的是让你讲清价值,不会贬低你。复盘里 AI 不会因为题目难就给低分,只看 STAR、数字、卡顿。
+            <p className="text-[11px] text-ink-muted mt-3 pl-10">
+              ⚠️ 追问不会贬低你 — 复盘只看 STAR / 数字 / 卡顿
             </p>
           </Card>
 

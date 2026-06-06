@@ -285,44 +285,8 @@ function Module3Content() {
                   </Card>
                 </div>
 
-                {/* 右:特性 + 下一模块跳转 */}
+                {/* 右:下一模块跳转 */}
                 <aside className="space-y-5">
-                  <Card className="p-5 border-2 border-esther-yellow/40 bg-esther-yellow/10">
-                    <p className="font-display italic text-xs text-esther-blue mb-2">为什么这次改的简历可靠</p>
-                    <ul className="text-xs text-ink-soft space-y-2 leading-relaxed">
-                      <li>
-                        <strong className="text-ink">AI 推测的会标出来</strong>
-                        <br />
-                        如果是 AI 推测的内容,会标"待你确认",不会偷偷塞进最终简历
-                      </li>
-                      <li>
-                        <strong className="text-ink">每条建议你来拍板</strong>
-                        <br />
-                        AI 给 N 条建议,你逐条 ✓ 采纳 / ✗ 跳过 / ↻ 重生 — 不替你决定
-                      </li>
-                      <li>
-                        <strong className="text-ink">改完跟原版对比</strong>
-                        <br />
-                        JD 关键词命中数 / 量化 bullet 数 / 字数 实时显示,看进步
-                      </li>
-                      <li>
-                        <strong className="text-ink">根据你的目标推内容</strong>
-                        <br />
-                        不是套模板 — 按你的 JD / 经历组合给针对性建议
-                      </li>
-                    </ul>
-                    <details className="mt-3">
-                      <summary className="text-[10px] text-ink-muted cursor-pointer hover:text-ink-soft">
-                        ▸ 技术细节(给评委看)
-                      </summary>
-                      <ul className="text-[10px] text-ink-muted space-y-1 mt-2 pl-3">
-                        <li>· Anti-fabrication 3 层:prompt 硬约束 + normalize 校验 + UI 标 evidence_source</li>
-                        <li>· Live Diff 6 维表:4 维规则实时计算 + 2 维 LLM 评估</li>
-                        <li>· 动态 skill routing:按 persona / role / state 路由 1-3 段补充 skill</li>
-                      </ul>
-                    </details>
-                  </Card>
-
                   <Card className="p-5 border-2 border-border">
                     <p className="font-display italic text-xs text-esther-blue mb-2">Next 模块</p>
                     <h3 className="text-sm font-semibold text-ink mb-3">改完之后...</h3>
