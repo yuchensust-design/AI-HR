@@ -253,23 +253,166 @@ ${JSON.stringify(fromDebriefHighlight ?? null, null, 2)}
 
 请按 schema 产出 edits[]。返 JSON。`;
 
-    const raw = await chat(
-      [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userPrompt },
-      ],
-      { model: "chat", temperature: 0.4, max_tokens: 4000, jsonMode: true }
-    );
-
-    let parsed: Record<string, unknown>;
-    try {
-      parsed = JSON.parse(raw);
-    } catch (e) {
-      console.error("/api/m3/suggest-edits — LLM JSON parse failed:", raw.slice(0, 500));
-      return NextResponse.json(
-        { error: "LLM 返回格式异常,请重试", raw: raw.slice(0, 500) },
-        { status: 502 }
+    // 3 层兜底:R1 max_tokens 8000 → R1 rescueJson(被截断时挽救能用部分)
+    // → R2 retry with 缩短 prompt + 6-10 条 edits + 8000 tokens
+    // 跟 evidence-parse 同思路 — 永不 502
+    async function callLlm(opts: {
+      sys: string;
+      usr: string;
+      max: number;
+    }): Promise<string> {
+      return chat(
+        [
+          { role: "system", content: opts.sys },
+          { role: "user", content: opts.usr },
+        ],
+        { model: "chat", temperature: 0.4, max_tokens: opts.max, jsonMode: true },
       );
+    }
+
+    /** 从被截断的 JSON 里挽救:找 `"edits": [` 起的所有完整 object,丢弃尾部不完整的 */
+    function rescueEdits(rawStr: string): Record<string, unknown> | null {
+      try {
+        const editsIdx = rawStr.indexOf('"edits"');
+        if (editsIdx < 0) return null;
+        const arrStart = rawStr.indexOf("[", editsIdx);
+        if (arrStart < 0) return null;
+        // 扫 array,记录每个 obj 完整边界
+        let depth = 0;
+        let objStart = -1;
+        const completedObjs: string[] = [];
+        let inString = false;
+        let escaped = false;
+        for (let i = arrStart + 1; i < rawStr.length; i++) {
+          const ch = rawStr[i];
+          if (escaped) {
+            escaped = false;
+            continue;
+          }
+          if (ch === "\\") {
+            escaped = true;
+            continue;
+          }
+          if (ch === '"') {
+            inString = !inString;
+            continue;
+          }
+          if (inString) continue;
+          if (ch === "{") {
+            if (depth === 0) objStart = i;
+            depth++;
+          } else if (ch === "}") {
+            depth--;
+            if (depth === 0 && objStart >= 0) {
+              completedObjs.push(rawStr.slice(objStart, i + 1));
+              objStart = -1;
+            }
+          } else if (ch === "]" && depth === 0) {
+            break;
+          }
+        }
+        if (completedObjs.length === 0) return null;
+        const editsArr: unknown[] = [];
+        for (const objStr of completedObjs) {
+          try {
+            editsArr.push(JSON.parse(objStr));
+          } catch {
+            /* 单个 obj 也烂了就跳过 */
+          }
+        }
+        if (editsArr.length === 0) return null;
+        return {
+          edits: editsArr,
+          default_accept_count: Math.min(3, editsArr.length),
+          optimization_summary: `本次挽救出 ${editsArr.length} 处建议(LLM 输出被截断,部分内容已丢弃)`,
+        };
+      } catch {
+        return null;
+      }
+    }
+
+    let raw = "";
+    let parsed: Record<string, unknown> | null = null;
+    let rescued = false;
+
+    // R1:正常调用 + JSON.parse + 失败 rescue
+    try {
+      raw = await callLlm({ sys: systemPrompt, usr: userPrompt, max: 8000 });
+      try {
+        parsed = JSON.parse(raw);
+      } catch {
+        const r = rescueEdits(raw);
+        if (r) {
+          parsed = r;
+          rescued = true;
+          console.warn(
+            `[suggest-edits] R1 JSON 截断,rescue 出 ${(r.edits as unknown[]).length} 条`,
+          );
+        }
+      }
+    } catch (err) {
+      console.error("[suggest-edits] R1 LLM 调用异常:", err);
+    }
+
+    // R2:R1 失败 → 缩短 prompt + 输出更少 edit
+    if (!parsed) {
+      const shortSys =
+        systemPrompt +
+        "\n\n【紧急 fallback】上一次输出被截断 — 这次**只输出 5-8 条最关键的 edit**,evidence_audit 每条只 1 项,reason 限 30 字内,严格控制 JSON 总长度 < 6000 字符。";
+      try {
+        raw = await callLlm({ sys: shortSys, usr: userPrompt, max: 8000 });
+        try {
+          parsed = JSON.parse(raw);
+        } catch {
+          const r = rescueEdits(raw);
+          if (r) {
+            parsed = r;
+            rescued = true;
+            console.warn(
+              `[suggest-edits] R2 仍截断,rescue 出 ${(r.edits as unknown[]).length} 条`,
+            );
+          }
+        }
+      } catch (err) {
+        console.error("[suggest-edits] R2 LLM 调用异常:", err);
+      }
+    }
+
+    // R3:R1+R2 全挂 → 返一条 placeholder edit,让前端不卡死
+    if (!parsed) {
+      console.error(
+        "[suggest-edits] 3 轮全失败,raw 头 500 字符:",
+        raw.slice(0, 500),
+      );
+      parsed = {
+        edits: [
+          {
+            id: "edit-fallback-001",
+            target: "experience[0].bullets[0]",
+            original_text: "(AI 暂时无法分析,请稍后重试)",
+            suggested_text: "AI 服务暂时繁忙,请点击右上「重试」按钮再试一次",
+            evidence_source: "fallback",
+            source: "resume",
+            confidence: 0.5,
+            linked_jd_keyword: null,
+            claim_type: "needs_confirmation",
+            evidence_audit: [],
+            reason: "AI 服务异常,这是占位提示。点重试可再次尝试。",
+            category: "narrative-tools",
+            priority: "low",
+            fab_warning: "⚠️ AI 服务异常",
+            jd_requirement_text: null,
+            fixable: null,
+          },
+        ],
+        default_accept_count: 0,
+        optimization_summary: "⚠️ AI 服务繁忙,请点重试再来一次",
+      };
+    }
+
+    if (rescued) {
+      // 告诉前端是 rescue 出来的(可选展示提示)
+      (parsed as Record<string, unknown>)._rescued = true;
     }
 
     // Normalize edits

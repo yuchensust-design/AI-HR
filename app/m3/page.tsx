@@ -173,11 +173,15 @@ function Module3Content() {
     }
   }
 
-  // Step 2 JD inline state
-  const [jdExpanded, setJdExpanded] = useState(false);
+  // Step 2 JD inline state — 默认展开 textarea(已有 JD 时自动收起显示摘要)
+  const [jdExpanded, setJdExpanded] = useState(true);
   const [jdText, setJdText] = useState("");
   const [parsingJd, setParsingJd] = useState(false);
   const [jdErr, setJdErr] = useState<string | null>(null);
+  // 已有 JD 摘要 → 自动收起;没 JD 时维持展开(用户点"取消"才会折叠)
+  useEffect(() => {
+    if (effectiveHasJd) setJdExpanded(false);
+  }, [effectiveHasJd]);
 
   // 从 m6 跳过来 → 自动预填 jdText + 展开 Step 2
   useEffect(() => {
@@ -383,8 +387,8 @@ function Module3Content() {
                   )}
                 </Step>
 
-                {/* ============ Step 2 · 目标岗位(inline textarea) ============ */}
-                <Step no="2" title="目标岗位" hint="可选 · 选择目标岗位后,AI 将更精准地优化关键词与技能匹配">
+                {/* ============ Step 2 · 目标岗位(inline textarea,默认展开) ============ */}
+                <Step no="2" title="目标岗位 JD" hint="粘贴目标岗位 JD 全文 — AI 会按 JD 关键词 + 任职要求做针对性优化">
                   {effectiveHasJd && !jdExpanded ? (
                     <div className="flex items-center justify-between gap-3 flex-wrap rounded-xl border border-esther-blue/30 bg-esther-blue/[0.04] px-4 py-3">
                       <div className="flex-1 min-w-[200px] text-sm text-ink leading-snug">
