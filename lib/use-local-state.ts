@@ -91,4 +91,16 @@ export const STORAGE_KEYS = {
    * Schema: M4Project[],见 lib/m4-types.ts。
    */
   M4_PROJECTS: "m4_projects",
+  /**
+   * M2 经历挖掘 — intake_artifact 主键名
+   */
+  M2_INTAKE: "intake_artifact",
+  M2_BULLETS: "candidate_bullets",
+  M2_CATEGORIES: "m2_categories",
+  M2_DEPTH: "m2_depth",
+  /**
+   * M1→M4 直通 — 用户从 M1 result 点击的目标岗位
+   * Schema: { role_type, industry, employability_level, saved_at }
+   */
+  M1_TARGET_ROLE: "m1_target_role",
 } as const;

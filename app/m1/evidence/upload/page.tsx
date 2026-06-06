@@ -393,10 +393,10 @@ export default function M1EvidenceUploadPage() {
             <div className="text-center py-20">
               <div className="inline-block animate-spin w-12 h-12 border-4 border-esther-blue border-t-transparent rounded-full mb-6" />
               <h2 className="text-xl font-bold text-ink mb-3">
-                不二在结合简历 + 测评帮你挑方向…
+                正在分析你的简历 + 测评结果…
               </h2>
               <p className="text-sm text-ink-soft leading-relaxed">
-                先让 LLM 摘出简历核心,再做三段融合,通常 5-12 秒。
+                通常需要 5-12 秒
               </p>
             </div>
           )}

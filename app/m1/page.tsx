@@ -22,17 +22,17 @@ const FEATURES = [
   {
     emoji: "🧭",
     title: "霍兰德 RIASEC · 50 年学术理论",
-    desc: "由美国心理学家 Holland 于 1959 年提出,被 O*NET 等国际职业指导系统采用至今。6 维度(实用/研究/艺术/社交/企业/常规)从职业兴趣偏好层面拆解你。",
+    desc: "由美国心理学家 Holland 于 1959 年提出,被 O*NET 等国际职业指导系统采用至今 · 6 维度(实用/研究/艺术/社交/企业/常规)从职业兴趣偏好层面拆解你",
   },
   {
     emoji: "🎯",
     title: "测评 + 你的经历 交叉验证",
-    desc: "单一测评容易判断片面 — 我们让你同时补一段简历或经历;两个信号交叉,推荐更贴你做过什么、喜不喜欢做。",
+    desc: "单一测评容易判断片面 — 我们让你同时补一段简历或经历;两个信号交叉,推荐更贴你做过什么、喜不喜欢做",
   },
   {
     emoji: "💬",
     title: "每条推荐都给「为什么」",
-    desc: "每个方向都会告诉你 RIASEC 哪几维支撑 + 哪段经历呼应。你可以拒绝任何一条,可以随时重测。",
+    desc: "每个方向都会告诉你 RIASEC 哪几维支撑 + 哪段经历呼应 · 你可以拒绝任何一条,可以随时重测",
   },
 ];
 
@@ -48,19 +48,19 @@ const SAMPLE_RECOMMENDATIONS = [
   {
     no: "01",
     direction: "AI / 互联网 产品经理",
-    why: "E 9 + I 8 → 你既爱推动事情发生(企业型),又重逻辑分析(研究型);加上字节实习 + AI 项目,跟 AI PM 重合度高。",
+    why: "E 9 + I 8 → 你既爱推动事情发生(企业型),又重逻辑分析(研究型);加上字节实习 + AI 项目,跟 AI PM 重合度高",
     chips: ["E 主导", "技术理解", "数据驱动"],
   },
   {
     no: "02",
     direction: "数据分析 / 增长策略",
-    why: "I 8 + Python 数据基础 → 你重数据推理,适合面向产品的数据角色。",
+    why: "I 8 + Python 数据基础 → 你重数据推理,适合面向产品的数据角色",
     chips: ["I 主导", "数据"],
   },
   {
     no: "03",
     direction: "互联网 / AI 创业方向",
-    why: "E 9(企业型最高)+ 你已经在做 0→1(AI 学习助手 30+ 用户) → 适合早期项目。",
+    why: "E 9(企业型最高)+ 你已经在做 0→1(AI 学习助手 30+ 用户) → 适合早期项目",
     chips: ["E 极高", "0→1 经历"],
   },
 ];
@@ -118,7 +118,7 @@ export default function Module1EntryPage() {
               >
                 自我对话
               </span>{" "}
-              — 愿你的热爱与擅长终在某处相逢。
+              — 愿你的热爱与擅长终在某处相逢
             </p>
             <div className="flex flex-wrap items-center gap-4">
               <Link
@@ -145,9 +145,13 @@ export default function Module1EntryPage() {
             ========================================================== */}
         <section className="bg-warm-bg-deep/40 border-b border-border">
           <div className="max-w-[1300px] mx-auto px-6 py-16">
-            <h2 className="text-2xl md:text-3xl font-bold text-ink mb-10 text-center">
+            <h2 className="text-2xl md:text-3xl font-bold text-ink mb-3 text-center">
               测评 + 经历 → 推荐方向
             </h2>
+            <p className="text-center text-ink-soft text-base leading-relaxed mb-10">
+              你做过什么，决定你现在能去哪里<br />
+              你热爱什么，照亮你最终该去哪里
+            </p>
 
             <FusionDiagram />
           </div>
@@ -171,7 +175,7 @@ export default function Module1EntryPage() {
             </h2>
             <p className="text-sm text-ink-soft mb-10 max-w-2xl">
               下面是一个 <span className="font-medium text-ink">陈昊</span>(CS 大四,冲字节 AI PM 实习)
-              的 sample 结果 — 你看完大概就知道自己测完会拿到什么。
+              的 sample 结果 — 你看完大概就知道自己测完会拿到什么
             </p>
 
             {/* 雷达图 + 身份 */}
@@ -277,10 +281,11 @@ export default function Module1EntryPage() {
               Your turn
             </p>
             <h2 className="text-2xl md:text-3xl font-bold text-ink mb-3">
-              准备好开始你自己的测评了吗?
+              花 3 分钟，认识一个更完整的自己
             </h2>
-            <p className="text-sm text-ink-soft mb-8 max-w-md mx-auto">
-              3-4 分钟 · 完成后给你 3-5 个推荐方向 · 仅辅助探索方向,不作为筛选标准
+            <p className="text-sm text-ink-soft mb-8 max-w-md mx-auto leading-relaxed">
+              没有标准答案，也没有好坏之分<br />
+              只是想帮你看清楚，你真正对什么感兴趣、在哪里能发光
             </p>
             <Link
               href="/m1/quiz"
@@ -288,9 +293,6 @@ export default function Module1EntryPage() {
             >
               开始测评 → 看你自己的结果
             </Link>
-            <p className="text-xs text-ink-muted mt-6 font-display italic">
-              🔒 答题本地保存 · 仅辅助探索方向
-            </p>
           </div>
         </section>
 
@@ -421,7 +423,7 @@ function FusionDiagram() {
           <ul className="space-y-4 relative">
             <li className="flex items-center gap-3">
               <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-esther-blue/[0.08] text-esther-blue border border-esther-blue/25 flex-shrink-0 whitespace-nowrap">
-                短期可投
+                现在可以投
               </span>
               <span className="text-sm text-ink">
                 2-3 个本季可投的实习 / 校招方向
@@ -429,10 +431,10 @@ function FusionDiagram() {
             </li>
             <li className="flex items-center gap-3">
               <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-esther-yellow/[0.18] text-ink border border-esther-yellow/50 flex-shrink-0 whitespace-nowrap">
-                可探索
+                值得去探索
               </span>
               <span className="text-sm text-ink">
-                值得花 1-2 个月试一试的方向
+                值得花半年试一试的方向
               </span>
             </li>
             <li className="flex items-center gap-3">
@@ -468,15 +470,15 @@ function FusionDiagram() {
         <div className="rounded-2xl bg-card border border-border p-5 space-y-3">
           <div className="flex items-center gap-2.5">
             <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-esther-blue/[0.08] text-esther-blue border border-esther-blue/25 whitespace-nowrap">
-              短期可投
+              现在可以投
             </span>
             <span className="text-xs text-ink">本季实习 / 校招方向</span>
           </div>
           <div className="flex items-center gap-2.5">
             <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-esther-yellow/[0.18] text-ink border border-esther-yellow/50 whitespace-nowrap">
-              可探索
+              值得去探索
             </span>
-            <span className="text-xs text-ink">1-2 个月试一试</span>
+            <span className="text-xs text-ink">值得花半年试一试</span>
           </div>
           <div className="flex items-center gap-2.5">
             <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-esther-red/[0.08] text-esther-red border border-esther-red/25 whitespace-nowrap">

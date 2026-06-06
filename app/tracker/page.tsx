@@ -11,6 +11,7 @@ import {
 } from "@/lib/tracker-types";
 import { SAMPLE_APPLICATIONS } from "@/lib/tracker-sample";
 import { computeMetrics } from "@/lib/tracker-metrics";
+import { useTrackerDBSync } from "@/lib/sync/useTrackerDBSync";
 
 import { SampleBanner } from "./components/SampleBanner";
 import { MetricsCards } from "./components/MetricsCards";
@@ -35,11 +36,24 @@ export default function TrackerPage() {
     TRACKER_STORAGE_KEYS.DIAGNOSIS_CACHE,
     null,
   );
+  const { upsertApplication, deleteApplication, loadFromDB } = useTrackerDBSync();
 
   const [editing, setEditing] = useState<Application | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // 登录用户且无真实数据时，尝试从 DB 恢复
+  useEffect(() => {
+    if (usingRealData) return; // 已有真实数据，跳过
+    loadFromDB().then((dbApps) => {
+      if (dbApps && dbApps.length > 0) {
+        setApplications(dbApps);
+        setUsingRealData(true);
+      }
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const metrics = useMemo(() => computeMetrics(applications), [applications]);
   const isAllSample = applications.every((a) => a.isSample);
@@ -60,13 +74,16 @@ export default function TrackerPage() {
     if (!usingRealData) setUsingRealData(true);
     setShowForm(false);
     setEditing(null);
-    // 数据变了,清掉旧诊断
     setDiagnosis(null);
+    // 同步到 DB（fire-and-forget）
+    void upsertApplication(a);
   }
 
   function handleDelete(id: string) {
     setApplications((prev) => prev.filter((p) => p.id !== id));
     setDiagnosis(null);
+    // 同步到 DB
+    void deleteApplication(id);
   }
 
   function handleSwitchToMyData() {

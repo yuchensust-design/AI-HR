@@ -37,7 +37,7 @@ export function RefineChips({
         </p>
         <h3 className="text-lg font-bold text-ink mb-1">想调整推荐?</h3>
         <p className="text-sm text-ink-soft mb-5">
-          点一个选项,不二会重新挑 ~(每小时最多 5 次)
+          点一个选项,不二会重新挑 ~
         </p>
 
         <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-thin">

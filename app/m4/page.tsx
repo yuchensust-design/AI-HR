@@ -2,17 +2,26 @@
 
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { Card } from "@/components/ui/card";
 import { Nav } from "@/components/Nav";
 import { BuerFloatingButton } from "@/components/BuerFloatingButton";
 import ConversationSwitcher from "@/components/conversations/ConversationSwitcher";
 import { STORAGE_KEYS, useLocalState } from "@/lib/use-local-state";
+import { useM4Projects } from "@/lib/useM4Projects";
 import type {
   M4Project,
   M4ProjectDraft,
   M4ProjectStatus,
   M4SourceGap,
 } from "@/lib/m4-types";
+
+type M1TargetRole = {
+  role_type: string;
+  industry: string;
+  employability_level: "now" | "needs_project" | "long_term";
+  saved_at: string;
+};
 
 /**
  * 模块 4 · 项目陪练 v2(plan offer-1-sparkling-hippo)
@@ -143,6 +152,9 @@ export default function Module4Page() {
 }
 
 function Module4Content() {
+  const sp = useSearchParams();
+  const fromM1 = sp.get("from") === "m1";
+
   const [jdContext] = useLocalState<JdContext | null>(
     STORAGE_KEYS.JD_CONTEXT,
     null,
@@ -151,10 +163,21 @@ function Module4Content() {
     STORAGE_KEYS.PARSED_RESUME,
     null,
   );
-  const [projects, setProjects] = useLocalState<M4Project[]>(
-    STORAGE_KEYS.M4_PROJECTS,
-    [],
-  );
+  const [projects, setProjects] = useM4Projects();
+
+  // M1→M4 直通：读取 m1_target_role
+  const [m1TargetRole, setM1TargetRole] = useState<M1TargetRole | null>(null);
+  useEffect(() => {
+    if (!fromM1) return;
+    try {
+      const raw = window.localStorage.getItem(STORAGE_KEYS.M1_TARGET_ROLE);
+      if (raw) setM1TargetRole(JSON.parse(raw) as M1TargetRole);
+    } catch { /* ignore */ }
+  }, [fromM1]);
+
+  // M1→M4 生成状态
+  const [m1Generating, setM1Generating] = useState(false);
+  const [m1GenError, setM1GenError] = useState<string | null>(null);
 
   const [activeId, setActiveId] = useState<string | null>(null);
   const [generating, setGenerating] = useState(false);
@@ -176,6 +199,49 @@ function Module4Content() {
   const targetRole = jdContext?.role_name ?? null;
   const targetCompany = jdContext?.company ?? null;
   const jdSummary = jdContext?.jd_summary ?? null;
+
+  // M1→M4：读 evidence 摘要
+  const m1Evidence = useMemo(() => {
+    if (!fromM1) return null;
+    try {
+      const raw = window.localStorage.getItem("riasec_result");
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      return parsed?.evidence ?? null;
+    } catch { return null; }
+  }, [fromM1]);
+
+  // M1→M4：生成项目
+  const handleGenerateFromRole = useCallback(async () => {
+    if (!m1TargetRole) return;
+    setM1Generating(true);
+    setM1GenError(null);
+    try {
+      const res = await fetch("/api/m4/generate-from-role", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          targetRole: m1TargetRole.role_type,
+          targetIndustry: m1TargetRole.industry,
+          evidenceSummary: m1Evidence?.summary ?? null,
+          evidenceTags: m1Evidence?.tags ?? null,
+          n: 2,
+        }),
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        throw new Error(j.error ?? `HTTP ${res.status}`);
+      }
+      const data = (await res.json()) as { gaps: M4SourceGap[]; projects: M4ProjectDraft[] };
+      const newProjects = data.projects.map(draftToProject);
+      setProjects((prev) => [...newProjects, ...prev]);
+      setActiveId(newProjects[0]?.id ?? null);
+    } catch (err) {
+      setM1GenError(err instanceof Error ? err.message : "生成失败");
+    } finally {
+      setM1Generating(false);
+    }
+  }, [m1TargetRole, m1Evidence, setProjects]);
 
   const handleGenerate = useCallback(async () => {
     if (gaps.length === 0) {
@@ -297,25 +363,55 @@ function Module4Content() {
                   补一段能写进简历的项目
                 </h1>
                 <p className="text-ink-soft text-sm">
-                  根据你在 M3 识别的 JD gap 自动生成 2-4 周可交付的补强项目 ·
-                  做完再加进简历,绝不把"提案"包装成"已完成"
+                  根据目标岗位和你的简历，设计 2-4 周可交付的补强项目 ·
+                  做完再加进简历，绝不把"提案"包装成"已完成"
                 </p>
               </div>
             </section>
 
-            {/* gap → 生成项目 状态卡 */}
-            <section className="border-b border-border bg-warm-bg-deep/30">
-              <div className="max-w-[1100px] mx-auto px-6 py-8">
-                <GapStatusCard
-                  gaps={gaps}
-                  targetRole={targetRole}
-                  hasProjects={projects.length > 0}
-                  generating={generating}
-                  onGenerate={handleGenerate}
-                  error={genError}
-                />
-              </div>
-            </section>
+            {/* from M1：直通入口卡 */}
+            {fromM1 && m1TargetRole && (
+              <section className="border-b border-border bg-esther-blue/5">
+                <div className="max-w-[1100px] mx-auto px-6 py-8">
+                  <p className="font-display italic text-xs text-esther-blue mb-2">
+                    来自 M1 测评推荐
+                  </p>
+                  <h2 className="text-xl font-bold text-ink mb-1">
+                    为「{m1TargetRole.role_type}」制定补经历计划
+                  </h2>
+                  <p className="text-sm text-ink-soft mb-5">
+                    AI 会分析这个方向通常需要什么经历，结合你的简历找出缺口，然后设计 2 个 2-4 周可完成的项目。
+                  </p>
+                  {m1GenError && (
+                    <p className="text-sm text-esther-red mb-4">⚠️ {m1GenError}</p>
+                  )}
+                  <button
+                    type="button"
+                    onClick={handleGenerateFromRole}
+                    disabled={m1Generating}
+                    className="inline-flex items-center justify-center rounded-full bg-esther-blue text-white px-6 py-2.5 text-sm font-medium hover:bg-esther-blue-dark transition-colors disabled:bg-ink-muted disabled:cursor-not-allowed"
+                  >
+                    {m1Generating ? "AI 正在分析缺口并设计项目…（约 20-40 秒）" : "✦ 生成补经历计划"}
+                  </button>
+                </div>
+              </section>
+            )}
+
+            {/* gap → 生成项目 状态卡（M3 流程，from M1 时隐藏）*/}
+            {!fromM1 && (
+              <section className="border-b border-border bg-warm-bg-deep/30">
+                <div className="max-w-[1100px] mx-auto px-6 py-8">
+                  <GapStatusCard
+                    gaps={gaps}
+                    targetRole={targetRole}
+                    hasProjects={projects.length > 0}
+                    generating={generating}
+                    onGenerate={handleGenerate}
+                    error={genError}
+                  />
+                </div>
+              </section>
+            )}
 
             {/* 项目列表 + 当前项目详情 */}
             {projects.length > 0 && (

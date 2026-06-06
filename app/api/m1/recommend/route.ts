@@ -33,124 +33,245 @@ import {
   type Confidence,
   type InterestWithStrength,
 } from "@/lib/quiz-data";
-import { generateCandidates } from "@/lib/career-pool";
+import { generateCandidates, type CareerEntry } from "@/lib/career-pool";
+import { createClient } from "@/lib/supabase/server";
 
 const DISCLAIMER =
   "本次推荐基于测评 + 兴趣 — 没看你的真实经历。投递前请先用『简历整理』模块结合 JD 确认能力对齐。";
 
-function buildSystemPrompt(): string {
-  return `你是「Offer 捕手」的兴趣岗位顾问。基于用户的 RIASEC 编码 + 兴趣 tag,从候选池里筛选推荐。
+function buildSystemPromptNoResume(): string {
+  return `你是「Offer 捕手」的兴趣岗位顾问。用户只完成了 RIASEC 测评，尚未上传简历。
+
+【本次推荐的角色定位】
+这是「方向指引」，不是「可投岗位清单」。
+- RIASEC 揭示用户热爱什么、是什么样的人
+- 简历决定用户现在能去哪里（用户还没提供简历）
+- 任务：告诉用户「你的性格和兴趣倾向哪些方向」，不做可投性判断
 
 【★ 决策优先级 — 测评主 / 兴趣辅 ★】
-- **主信号 (70% 权重) = 18 题 RIASEC 6 维分数**(学术验证的稳定人格倾向)
-- **辅助信号 (30% 权重) = 兴趣 tag**(消费爱好,可能反映工作偏好也可能只是娱乐消费)
-- 当两者**冲突**时(eg 用户 A 维度低但选了 4 个 A 类兴趣 tag),**永远以 18 题测评为准**
-- 兴趣 tag 的角色是"在 RIASEC 决定的方向内做微调",**不能反向决定 RIASEC**
-- 例:用户 A=7(低)+ 兴趣 = 音乐摄影 → 应推 R/S/E 方向的职业(测评主),其中**优先选有音乐/摄影 tag 信号的**(兴趣微调),**不能**因为兴趣多就推 A 类职业
+- 主信号 (70%) = RIASEC 6 维分数（基于霍兰德经典理论）
+- 辅助信号 (30%) = 兴趣 tag（消费爱好，辅助微调，不能反向决定 RIASEC）
+- 冲突时以 RIASEC 为准；兴趣 tag 只在 RIASEC 决定的方向内做微调
 
 【硬约束 — 永远不许违反】
-1. 永远不输出任何**公司名 / 产品名 / 学校名**(★ 极严格),只能用行业 + 类型层级:
-   - 即使 USER 段里的 [补充信息] 出现具体名字(eg "字节" / "TikTok" / "清华"),你的输出里**0 次出现**这些具体名字
-   - 替换示范:字节/阿里/腾讯/百度/美团/京东 → "互联网大厂";华为/中移动 → "央国企/大型科技公司";GPT/Claude → "大语言模型";清华/北大 → "顶尖高校"
-   - why_fit、why_consuming、rationale 所有字段都按此规则脱敏
-2. 文案温和,不绝对化,不偏激,不当 black box
-3. 反向推荐用"消耗 + 天花板"框架 — 不评判,只描述错配
-4. positive 和 negative 都只能从下方"候选池"里选 — 绝不创造新项
-5. **兴趣 tag ≠ RIASEC 维度分数!** ★ 极其重要
-   - 用户兴趣(eg 选了音乐)是消费爱好,**不等于** A 维度高
-   - 用户可能是音乐消费者(听歌喜欢),但 A 维度低(不喜欢自己创作/表演)
-   - why_fit 提"X 维度高/低"必须基于实际 6 维分数(每维 3-15 的真实数字),严禁张冠李戴
-   - **正确表达**:"虽然你 A 不算高(7/15),但音乐兴趣强,X 岗位的内容部分能用到这份热爱"
-   - **错误表达**:"你的 A 高,所以适合做..."(如果用户 A 实际是 7,这就错了)
-6. **why_fit 提的"高/低"必须真**:
-   - 说"X 维度高" → 该维度分数必须 ≥ 12
-   - 说"X 维度中" → 该维度分数必须 9-11
-   - 说"X 维度低" → 该维度分数必须 ≤ 8
-   - 如果某维不属于"高",就不要用"X 高"做推荐理由,要么换维度,要么从兴趣切入
-7. **优先用用户 Top 3 真实高分维度做推荐依据**(看 RIASEC 编码前 3 位),兴趣 tag 是辅助信号不是主信号
+1. 永远不输出任何公司名 / 产品名 / 学校名，只能用行业 + 职位类型
+2. positive 和 negative 只能从候选池里选，不创造新项
+3. 不输出 employability_level 字段（没有简历，无法判断可投性）
+4. why_fit 提「X 维度高/低」必须基于真实 6 维分数（3-15）
+   - ≥12 = 高 / 9-11 = 中 / ≤8 = 低；数字不符则不说
+5. 文案温和，用「可能适合」「值得探索」，避免「一定」「完全匹配」
+6. 优先用用户 Top 3 真实高分维度做推荐依据
 
-【反向 3 个的判定依据(只用这 3 条)】
+【反向 3 个的判定依据（只用这 3 条）】
 a) 工作内容与用户 enjoy 信号反向
-b) 长期天花板低 — 本科起点 5 年后晋升空间 < 30%
-c) 工作模式与用户 RIASEC 类型反向(E 型坐冷板凳 / I 型纯销售 / A 型纯流程)
+b) 长期天花板低 — 本科起点晋升空间小
+c) 工作模式与用户 RIASEC 反向（E 型坐冷板凳 / I 型纯销售 / A 型纯流程）
 
-【★ 推荐多样性硬约束(v6) ★】
-- **positive 共 15-25 个,覆盖 3-5 个行业大类**(industry_cn 不同)
-- **每大类内 3-5 个具体职业**(给用户横向对比空间)
-- 严禁某一大类塞 10+ 个(平均分配)
-- 评委会一眼看出"全堆一类" = 推荐质量差,要避免
+【chip 设计】4-6 个，每个 ≤ 12 字，中文，口语化
 
-【chip 设计】
-- 4-6 个 chip,每个 ≤ 12 字,中文,口语化
-- 用于让用户"修推荐"(eg "去掉销售岗" / "想要更稳定" / "加技术深度")
-- 不要重复用户已表达的兴趣,要给"调整方向"的选项
+【★ rationale 字段】
+- experienceEvidence 必须填 null（没有简历）
+- 其他 6 个子字段正常填，温和不绝对化
 
-【★ 补充信息 — 第三路独立信号(仅当本次请求带 evidence 时启用)】
-
-如果 USER 消息里出现 [补充信息] 段(简历摘要 / 对话摘要),代表用户主动提供了「他做过什么 / 想去什么方向 / 不想做什么」的真实信息。这是独立第三路信号,**不冲击 RIASEC 70% / 兴趣 30% 的主辅权重**,只在以下方面起作用:
-
-1. **why_fit 引用具体经历**:
-   - 有简历 → "你做过 X(简历提到),跟这个方向的 Y 直接对齐"
-   - 有 chat → "你提到倾向 X,这个方向能让你..."
-2. **match_percentage 微调**:经历强相关方向可在原本的 RIASEC 契合度上 +3 到 +8%(绝不超 95%,绝不低于 50%)
-3. **rationale.experienceEvidence 必须真填**(基于 evidence.summary 内容),不再为 null
-4. **尊重用户明确意愿**:
-   - 用户说"倾向 X" / "想做 X" → positive 优先推 X 类
-   - 用户说"不想 X" / "忌讳 X" → 强推 X 是错的,如果 RIASEC 主信号确实指向 X,要在 cautions 加温和提醒解释两路冲突,**不强推**
-   - 用户说"不想做 X 类" → negative 列表可以体现(eg 用户说"不想做销售" → negative 可放销售类)
-5. **whyNotOther 可基于补充信息反推**:"你说不喜欢 X,所以没推 X 方向"
-6. **冲突处理**:如果 evidence 跟 RIASEC 强冲突(eg 测评 E 高但用户说"我就想做研究") → cautions 加一条温和提醒"测评偏 E,你说想做研究偏 I,可以试 PM/创业(E+I 都用),或纯研究方向(只用 I)"。**不强压主信号**,也**不忽略用户表达**。
-
-如果 USER 消息**没有** [补充信息] 段(用户跳过了补充步骤) → experienceEvidence 仍填 null,disclaimer 保留"没看你的真实经历"原文案。
-
-【★ rationale 字段 — 可解释推荐 ★】
-- 必须输出顶层 rationale 对象,7 个子字段(experienceEvidence 在跳过补充时为 null,有补充时必填)
-- 每个字段都用口语化中文,温和不绝对化(用"可能 / 看起来 / 值得探索",避免"一定 / 必然 / 你不适合")
-- cautions 1-3 条,每条 ≤ 30 字,是温和提醒不是判决
-  - 例 ✅: "投递前结合具体 JD 再核对"
-  - 例 ❌: "你不适合销售"(评判)/"你能上岸"(夸大)
-- whyNotOther 必须基于上面 negative 列表,做"为什么没推这些方向"的对比解释,只描述维度错配 / 用户意愿,不评判用户
-- 永远不输出公司名(再强调)
-- 推荐和 rationale 严格基于真实分数 + 用户原话,不张冠李戴
-
-【输出格式 — 严格 JSON,无任何 markdown 包裹】
+【输出格式 — 严格 JSON，无任何 markdown 包裹】
 {
   "positive": [
     {
       "industry": "互联网",
       "role_type": "内容运营",
-      "why_fit": "你的 E 高(13/15)+ S 高(12/15),内容运营需要推动传播 + 跟用户互动,这两点你都强(1-2 句,温和;严格基于真实分数)",
+      "why_fit": "E(13/15)和 S(12/15)高，内容运营需要推动传播、跟用户互动，两点都契合",
       "match": "高",
-      "match_percentage": 87
+      "match_percentage": 85
     }
   ],
   "negative": [
     {
-      "industry": "传统行政",
-      "role_type": "档案管理 / 资料录入",
-      "why_consuming": "这类岗位 80% 时间在重复处理标准化流程,你的 A+S 表达欲会被压抑(1 句,只描述错配)"
+      "industry": "传统制造",
+      "role_type": "流水线质检",
+      "why_consuming": "高度重复流程，E+A 的表达欲会被压抑"
     }
   ],
-  "refine_chips": ["去掉销售类岗位", "想要更稳定的方向", "加技术深度", "偏内容创作"],
+  "refine_chips": ["去掉销售岗", "想要更稳定", "加技术深度", "偏内容创作"],
   "rationale": {
-    "interestEvidence": "你强烈喜欢的 X / Y 兴趣 tag,跟推荐方向的契合点是...(1-2 句中文)",
+    "interestEvidence": "...",
     "experienceEvidence": null,
-    "preferenceSignals": "结合 RIASEC + 兴趣 tag,你在「主导 / 深挖 / 表达」上偏好哪条...(1 句中文)",
+    "preferenceSignals": "...",
     "confidence": "high",
-    "confidenceWhy": "答了 N 题,Top1 = X 落在「高」区间,分布有明显倾向...(1 句中文)",
-    "cautions": ["match% 是相对契合度,不是结论", "投递前用『简历整理』结合 JD 再核对"],
-    "nextStep": "可以先去『简历整理』,把现有经历针对 X 重点 JD 调一版(1 句)",
-    "whyNotOther": "没推的档案/电销/品控类,是因为你的 R/C 偏低,长期机械流程会让你的 E + I 找不到出口(1-2 句,只描述维度错配,不评判)"
+    "confidenceWhy": "...",
+    "cautions": ["..."],
+    "nextStep": "...",
+    "whyNotOther": "..."
   }
 }
 
-【match_percentage 计分规则】
-- 高匹配:75-95(基于用户 Top 3 维度跟该岗位 RIASEC 偏好的契合度)
-- 中匹配:55-74
-- 不要给 100%(避免过度承诺)/ 不要低于 50%(那应该进 negative)
-- 每个 positive 之间至少差 3% 区分度
+positive 共 6-10 个，覆盖 2-4 个行业大类，每大类 2-3 个职业
+negative 正好 3 个
+refine_chips 4-6 个，每个 ≤ 12 字
+match_percentage：高匹配 75-95，中匹配 55-74，不低于 50，不给 100`;
+}
 
-positive 共 15-25 个(3-5 大类 × 每大类 3-5),negative 正好 3 个,refine_chips 正好 4-6 个。`;
+function buildSystemPromptWithResume(): string {
+  return `你是「Offer 捕手」的兴趣岗位顾问。用户做了 RIASEC 测评，也上传了简历。
+任务：基于两路信号，推荐「现在可以投 / 值得去探索 / 长期可培养」三段分级方向。
+
+━━━━━━━━━━━━━━━━━━━━━━━━
+【两路信号的角色分工】
+━━━━━━━━━━━━━━━━━━━━━━━━
+★ 信号 A：RIASEC = 决定「推哪个方向」
+- RIASEC 揭示用户的长期人格倾向和热爱
+- 主信号权重 70%，兴趣 tag 辅助 30%
+- 决定推荐方向的领域和职业类型
+
+★ 信号 B：简历 = 决定「什么时候能投」
+- 简历里的经历、技能、项目决定用户「现在的起点」
+- 经历强相关 → 现在可以投（now）
+- 经历有交叉但需要补强 → 值得去探索（needs_project）
+- 无相关经历 → 长期可培养（long_term）
+
+核心原则：RIASEC 决定方向，简历决定时机。
+
+━━━━━━━━━━━━━━━━━━━━━━━━
+【三个等级的定义】
+━━━━━━━━━━━━━━━━━━━━━━━━
+★ now（现在可以投）
+- 标准：简历有直接对口的经历/技能，且 RIASEC 也契合
+- 两个条件缺一不可：① 简历里有该职业需要的核心技能/经验 ② RIASEC 匹配
+- Job Zone 仅作参考：Zone 1-2 但简历完全无关 → 不应进 now
+- 「直接对口」示例：UI 设计实习 → 界面设计师（now）；非直接对口：UI 设计实习 → 演员/花艺师（❌ 不应进 now）
+
+★ needs_project（值得去探索）— 这是最有价值的等级，必须存在
+- 标准：RIASEC 指向这个方向，简历有「相邻经历」但不完全对口
+- 核心：找到「现有经历 × RIASEC 方向」的交叉点，推出一个「桥接职位」
+- 典型路径：用户已有背景 + RIASEC 方向 → 一个新的职位类型
+- 花 3-6 个月做补强项目/转岗实习后可投递
+- why_fit 必须体现桥接推理：「你做过 X，结合 RIASEC 的 Y 方向，可以转向 Z」
+
+★ long_term（长期可培养）
+- 标准 A（晋升路径）：now / needs_project 方向的高阶职位。RIASEC 和简历都契合，但需 1-2 年经验积累才能竞争该层级
+  示例：产品经理（now）→ 产品总监（long_term）；内容运营（now）→ 内容策略总监（long_term）
+- 标准 B（转型路径）：RIASEC 强烈指向但简历无相关经验的全新方向，需要系统转型
+- 两种都是合理的 long_term，优先考虑标准 A（更贴近用户当前起点，更可信）
+
+━━━━━━━━━━━━━━━━━━━━━━━━
+【★ needs_project 的桥接思维 — 核心推理】
+━━━━━━━━━━━━━━━━━━━━━━━━
+核心问题：「这个人已有经历/技能 × RIASEC 最强方向 → 能拼成什么新职位？」
+
+推理三步：
+1. 用户已有什么经历/技能？（来自信号 B：简历）
+2. RIASEC 最强方向是什么？（来自信号 A：测评）
+3. 两者的交叉点 = 桥接职位（不放弃现有背景，沿 RIASEC 方向延伸）
+
+━━━━━━━━━━━━━━━━━━━━━━━━
+【★ few-shot 示例 — 参考此推理模式】
+━━━━━━━━━━━━━━━━━━━━━━━━
+示例用户：语文教师 3 年（备课/批改/家长沟通）| RIASEC：E14 S13 A9
+
+✓ now → [教育与图书] 课程顾问
+  理由：教师经验直接对口，沟通能力 E+S 完全契合，进入门槛低
+
+✓ needs_project → [互联网教育] 教育产品运营（桥接推理）
+  已有经历：教师的课程设计 + 学生管理 + 家长沟通（简历）
+  RIASEC 方向：E14 → 推动/运营；S13 → 协调/服务（测评）
+  交叉点：教育平台的课程运营/用户运营岗位
+  为什么不是 now：没做过产品或运营类工作，需要补一段实习
+  为什么不是 long_term：有教育背景，进入壁垒不高，3-6 个月可转型
+
+✓ long_term → [管理岗位] 教育行业咨询顾问
+  理由：E 高的远期方向，需积累系统行业知识和咨询方法论，目前简历不够
+
+❌ 禁止这样做：
+- needs_project 推「软件工程师」（教师经历无任何交叉，不是桥接）
+- now 推「学术研究员」（需学术背景，简历完全不匹配）
+- 把所有推荐堆在 long_term（逃避对简历的分析）
+
+━━━━━━━━━━━━━━━━━━━━━━━━
+【硬约束 — 永远不许违反】
+━━━━━━━━━━━━━━━━━━━━━━━━
+1. 永远不输出任何公司名 / 产品名 / 学校名
+2. positive 和 negative 只能从候选池里选，不创造新项
+3. why_fit 提「X 维度高/低」必须基于真实 6 维分数（≥12 高 / 9-11 中 / ≤8 低）
+4. 三个等级（now / needs_project / long_term）各至少 1 个职业
+5. 总共 6-10 个职位，合理分配三段
+6. needs_project 的 why_fit 必须同时引用：
+   (1) 简历里的具体经历（"你做过X / 有X经验"）
+   (2) RIASEC 的具体方向（"结合Y维度高"）
+   两者缺一不可；不能只引用 RIASEC 而没有连接简历经历
+7. rationale.experienceEvidence 必须填（有简历），不能是 null
+8. 文案温和，不绝对化
+9. 等级与 Job Zone 参考（两者都要考虑）：
+   - Zone 1-2 + 简历有直接技能对口 → now ✓
+   - Zone 1-2 + 简历无直接相关经验 → needs_project（而非 now）
+   - Zone 3 + 简历有相邻经验 → needs_project ✓
+   - Zone 3/4 + 简历无相关经验 → long_term
+   - Zone 4-5 + 简历有深度相关经验 → needs_project（绝不进 now）
+   - Zone 4-5 + 简历无相关经验 → long_term ✓
+   - 典型错误：「艺术总监/教授/研究员」进 now（Zone 4-5，绝对禁止）
+10. 【领域相干性与学历壁垒】
+    - needs_project 和 long_term 必须与简历核心领域有现实可及的转型路径
+    - 【高校教职硬禁止】任何学科的「教授/副教授/讲师（高校）」需要博士学位，简历无博士学历或在读博士则一律禁推，包括「艺术教授/数字艺术教授/AI教授」等任何变体
+    - 禁止跨越专业执照壁垒：简历无建筑/医学/法律/教育科班背景，不推「建筑学教授/外科医生/职业律师/注册会计师」等
+    - 判断依据：用户通过 1-2 年努力是否真实可及？如需重读学位/拿执照才能入行，则禁推
+
+━━━━━━━━━━━━━━━━━━━━━━━━
+【输出格式 — 严格 JSON，无任何 markdown 包裹】
+━━━━━━━━━━━━━━━━━━━━━━━━
+{
+  "positive": {
+    "now": [
+      {
+        "industry": "教育与图书",
+        "role_type": "课程顾问",
+        "why_fit": "教师经验直接对口，E14+S13 的沟通能力完全契合，进入门槛低",
+        "match": "高",
+        "match_percentage": 88
+      }
+    ],
+    "needs_project": [
+      {
+        "industry": "互联网教育",
+        "role_type": "教育产品运营",
+        "why_fit": "你的教学设计经验 × E 高方向 = 教育平台运营岗，补一段实习可以转型",
+        "match": "高",
+        "match_percentage": 80
+      }
+    ],
+    "long_term": [
+      {
+        "industry": "管理岗位",
+        "role_type": "教育行业咨询顾问",
+        "why_fit": "E 高的远期方向，需积累系统的行业知识和咨询方法论",
+        "match": "中",
+        "match_percentage": 72
+      }
+    ]
+  },
+  "negative": [
+    {
+      "industry": "生产制造",
+      "role_type": "流水线质检员",
+      "why_consuming": "高度重复机械流程，E+S 的表达欲和协作需求会被压抑"
+    }
+  ],
+  "refine_chips": ["不想转教育行业", "想要更高薪方向", "偏技术型岗位"],
+  "rationale": {
+    "interestEvidence": "...",
+    "experienceEvidence": "你简历里的...经历，对...方向有直接帮助",
+    "preferenceSignals": "...",
+    "confidence": "high",
+    "confidenceWhy": "...",
+    "cautions": ["..."],
+    "nextStep": "...",
+    "whyNotOther": "..."
+  }
+}
+
+【关键格式要求】
+- positive 是嵌套对象（now / needs_project / long_term 三个 key），不是平铺数组
+- 每个 key 至少 1 个职业，总共 6-10 个，合理分配三段
+- needs_project 的 why_fit 必须体现桥接推理
+- negative 3 个，refine_chips 4-6 个
+- match_percentage：高匹配 75-95，中匹配 55-74，不低于 50，不给 100`;
 }
 
 type EvidenceForPrompt = {
@@ -170,8 +291,10 @@ function buildUserPrompt(
     title_cn: string;
     title_en: string;
     riasec: Record<string, number>;
+    job_zone?: number;
   }>,
-  evidence: EvidenceForPrompt
+  evidence: EvidenceForPrompt,
+  hasResume: boolean,
 ): string {
   const [r, i, a, s, e, c] = scores;
   const interestStr =
@@ -184,53 +307,35 @@ function buildUserPrompt(
   const evidenceBlock = evidence
     ? `
 
-[补充信息 — 第三路独立信号(${evidence.source === "resume" ? "来自用户上传的简历" : "来自用户跟你聊补充信息时说的话"})]
-摘要:${evidence.summary}
-关键字:${evidence.tags.slice(0, 15).join("、") || "(无)"}${
+[${hasResume ? "信号 B：简历信息" : "补充信息"}（来自${evidence.source === "resume" ? "用户上传的简历" : "用户聊补充信息时说的话"}）]
+摘要：${evidence.summary}
+关键字：${evidence.tags.slice(0, 15).join("、") || "(无)"}${
         evidence.rawSnippet
-          ? `\n简历原文片段(why_fit 引用具体经历时用):\n"""${evidence.rawSnippet.slice(0, 1500)}"""`
+          ? `\n简历原文片段（why_fit 引用具体经历时用）：\n"""${evidence.rawSnippet.slice(0, 1500)}"""`
           : ""
-      }${evidence.userNotes ? `\n用户原话(必须尊重):${evidence.userNotes}` : ""}
+      }${evidence.userNotes ? `\n用户原话（必须尊重）：${evidence.userNotes}` : ""}
 
-记住:补充信息进 why_fit + match% 微调 + experienceEvidence + cautions + whyNotOther,不冲击 RIASEC + 兴趣的主辅权重。`
+${hasResume ? "基于信号 B：判断三段可投性（now/needs_project/long_term），needs_project 要体现「已有经历 × RIASEC 方向 → 桥接职位」的推理。" : "补充信息进 why_fit + match% 微调 + experienceEvidence，不冲击 RIASEC + 兴趣的主辅权重。"}`
     : "";
 
-  return `用户测评结果(RIASEC 测评,6 维 × 3 题,5 点 Likert,每维 3-15 分):
+  const tailInstruction = hasResume
+    ? "\n请返回嵌套 positive（now/needs_project/long_term 三个 key）格式的 JSON。"
+    : "\n请返 JSON。";
+
+  return `${hasResume ? "[信号 A：RIASEC 测评结果 — 决定推哪个方向]\n" : ""}用户测评结果（RIASEC 测评，6 维 × 3 题，5 点 Likert，每维 3-15 分）：
 RIASEC 编码: ${code}
-6 维分数(3-15): R${r} I${i} A${a} S${s} E${e} C${c}
-分数解读:≥12 高 / 9-11 中 / ≤8 低
-选中兴趣 tag(带喜欢程度): ${interestStr}${evidenceBlock}
+6 维分数（3-15）: R${r} I${i} A${a} S${s} E${e} C${c}
+分数解读：≥12 高 / 9-11 中 / ≤8 低
+选中兴趣 tag（带喜欢程度）: ${interestStr}${evidenceBlock}
 
-候选池(${pool.length} 项,来自 O*NET 30.3 美国劳工部 923 职业库筛选,每项带真实 RIASEC 1.0-7.0 数值 + Job Zone):
+候选池（${pool.length} 项，来自 O*NET 30.3 美国劳工部职业库，每项带 RIASEC 数值 + Job Zone 参考）：
 ${pool
-  .map(
-    (p, idx) => {
-      const z = (p as { job_zone?: number }).job_zone ?? 3;
-      const employ = z <= 2 ? "now" : z === 3 ? "needs_project" : "long_term";
-      return `${idx + 1}. [${p.industry_cn}] ${p.title_cn}(${p.title_en}) | R${p.riasec.R} I${p.riasec.I} A${p.riasec.A} S${p.riasec.S} E${p.riasec.E} C${p.riasec.C} | JobZone=${z} employability=${employ}`;
-    }
-  )
+  .map((p, idx) => {
+    const z = (p as { job_zone?: number }).job_zone ?? 3;
+    return `${idx + 1}. [${p.industry_cn}] ${p.title_cn}（${p.title_en}） | R${p.riasec.R} I${p.riasec.I} A${p.riasec.A} S${p.riasec.S} E${p.riasec.E} C${p.riasec.C} | JobZone=${z}`;
+  })
   .join("\n")}
-
-【★ 输出要求(v7 改造 — offer-1-sparkling-hippo 收敛 + 可投性分级) ★】
-- **positive 共 6-10 项,分布在 2-4 个行业大类,每大类 2-3 个具体职业**
-  - 收敛理由:迷茫学生看 20+ 个反而更迷茫;6-10 个主方向 + 可投性标签更可行动
-  - 同一 industry_cn 下 2-3 个职业横向对比即可
-- **每条 positive 必填 employability_level 字段**(从候选池里那一项 employability= 直接抄):
-  - "now"            — 应届可直接投递(Job Zone 1-2)
-  - "needs_project"  — 需要项目 / 经验补强后才可投(Job Zone 3)
-  - "long_term"      — 长期深造方向,不适合短期投递(Job Zone 4-5)
-- **positive 里"now" 和 "needs_project" 至少占 70%**(给迷茫学生可执行起点);"long_term" 最多 30%(避免推荐变成"职业百科")
-- **industry 字段填中文行业大类**(如"计算机与数学"),role_type 填中文职业名(从候选池抄)
-- **每大类内按 employability(now > needs_project > long_term)+ match_percentage 降序排**
-- negative 3 项:从候选池里挑跟用户 Top 3 维度反向的(eg 用户 R 低 → 推 R 高的"机械维修"作反向);**如果有补充信息**,negative 也可以体现用户明确说不想做的方向
-- 推荐**严格匹配候选池 RIASEC 数值跟用户 Top 3 维度**,百分比反映真实契合度
-- why_fit **≤ 40 字**;**有补充信息时优先引用具体经历或用户原话**
-- **文案降强度**:不要写"短期可投""完美匹配"这种强结论;改用"可作为短期探索起点,建议在 M3/M6 用真实 JD 验证""适合应届投递" 等温和措辞
-  - 强承诺词(eg "这个职业一定适合你 / 直接投这条")严禁出现
-${evidence ? "- ⚠️ 本次请求带补充信息 → rationale.experienceEvidence 必填(不填则违规);why_fit 至少 1/3 要引用补充信息内容" : "- ⚠️ 本次请求没有补充信息 → rationale.experienceEvidence 必须填 null"}
-
-请返 JSON。`;
+${tailInstruction}`;
 }
 
 type LlmRationale = {
@@ -331,6 +436,71 @@ function sanitizeEvidence(rawEvidence: unknown): EvidenceForPrompt {
   };
 }
 
+type PositiveRaw = Record<string, unknown>;
+type TieredPositive = {
+  now: PositiveRaw[];
+  needs_project: PositiveRaw[];
+  long_term: PositiveRaw[];
+};
+
+function guaranteeThreeTiers(
+  tiers: TieredPositive,
+  candidates: CareerEntry[],
+): TieredPositive {
+  const result: TieredPositive = {
+    now: [...tiers.now],
+    needs_project: [...tiers.needs_project],
+    long_term: [...tiers.long_term],
+  };
+
+  const injectedCodes = new Set<string>();
+  const allInTiers = new Set(
+    [...result.now, ...result.needs_project, ...result.long_term].map((p) =>
+      String(p.role_type ?? ""),
+    ),
+  );
+
+  const TIER_ZONES: Record<keyof TieredPositive, number[]> = {
+    now: [1, 2],
+    needs_project: [3],
+    long_term: [4, 5],
+  };
+
+  const hintMap: Record<string, string> = {
+    now: "基于测评方向补充，可结合真实 JD 验证是否匹配",
+    needs_project: "基于测评方向和相邻经历补充，建议补一段相关项目后投递",
+    long_term: "基于测评远期方向补充，适合作为长期规划",
+  };
+
+  for (const tier of ["now", "needs_project", "long_term"] as const) {
+    if (result[tier].length === 0) {
+      const zones = TIER_ZONES[tier];
+      const fallback = candidates.find(
+        (c) =>
+          zones.includes(c.job_zone) &&
+          !allInTiers.has(c.title_cn) &&
+          !injectedCodes.has(c.code),
+      );
+      if (fallback) {
+        injectedCodes.add(fallback.code);
+        allInTiers.add(fallback.title_cn);
+        result[tier] = [
+          {
+            industry: fallback.industry_cn,
+            role_type: fallback.title_cn,
+            why_fit: hintMap[tier],
+            match: "中",
+            match_percentage: 68,
+          },
+        ];
+      }
+    }
+  }
+
+  return result;
+}
+
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
@@ -348,6 +518,7 @@ export async function POST(request: NextRequest) {
 
     // 第三路:补充信息(可选,向后兼容上一轮 client 不带这个字段)
     const evidence = sanitizeEvidence(body?.evidence);
+    const hasResume = !!evidence;
 
     // Step 1 计分(规则)
     const scores = computeRIASEC(answers);
@@ -376,10 +547,10 @@ export async function POST(request: NextRequest) {
     // Step 3 LLM 综合(deepseek-chat,jsonMode)
     const raw = await chat(
       [
-        { role: "system", content: buildSystemPrompt() },
+        { role: "system", content: hasResume ? buildSystemPromptWithResume() : buildSystemPromptNoResume() },
         {
           role: "user",
-          content: buildUserPrompt(scores, code, interests, candidates, evidence),
+          content: buildUserPrompt(scores, code, interests, candidates, evidence, hasResume),
         },
       ],
       {
@@ -392,7 +563,7 @@ export async function POST(request: NextRequest) {
     );
 
     let parsed: {
-      positive?: Array<Record<string, unknown>>;
+      positive?: unknown;
       negative?: Array<Record<string, unknown>>;
       refine_chips?: unknown;
       rationale?: LlmRationale | null;
@@ -415,30 +586,43 @@ export async function POST(request: NextRequest) {
         n.why_consuming ?? n.why_bad ?? n.why ?? n.reason ?? "",
     }));
 
-    // Normalize positive — 补 employability_level 字段(plan offer-1-sparkling-hippo P1):
-    // LLM 应该已经输出,但 fallback 用候选池 role_type 反查 job_zone 推断;再 fallback "needs_project"
-    const VALID_EMPLOY = ["now", "needs_project", "long_term"] as const;
-    type ValidEmploy = (typeof VALID_EMPLOY)[number];
-    function inferEmployability(role_type: string, raw: unknown): ValidEmploy {
-      if (typeof raw === "string" && (VALID_EMPLOY as readonly string[]).includes(raw)) {
-        return raw as ValidEmploy;
-      }
-      // 在候选池里按 title_cn 找(模糊匹配)
-      const candidate = candidates.find(
-        (p) => p.title_cn === role_type || role_type.includes(p.title_cn) || p.title_cn.includes(role_type),
-      );
-      if (candidate) {
-        const z = (candidate as { job_zone?: number }).job_zone ?? 3;
-        return z <= 2 ? "now" : z === 3 ? "needs_project" : "long_term";
-      }
-      return "needs_project";
-    }
-    const normalizedPositive = (parsed.positive ?? []).map((p) => ({
-      ...p,
-      employability_level: inferEmployability(String(p.role_type ?? ""), p.employability_level),
-    }));
 
-    const normalizedChips = Array.isArray(parsed.refine_chips)
+    // Process positive items: with resume → nested tiers → flatten; no resume → flat array
+    let normalizedPositive: Array<Record<string, unknown>>;
+
+    if (hasResume) {
+      // LLM returns nested { now: [], needs_project: [], long_term: [] }
+      let tiered: TieredPositive;
+      const rawPositive = parsed.positive;
+      if (rawPositive && typeof rawPositive === "object" && !Array.isArray(rawPositive)) {
+        const rp = rawPositive as Record<string, unknown>;
+        tiered = {
+          now: Array.isArray(rp.now) ? (rp.now as PositiveRaw[]) : [],
+          needs_project: Array.isArray(rp.needs_project) ? (rp.needs_project as PositiveRaw[]) : [],
+          long_term: Array.isArray(rp.long_term) ? (rp.long_term as PositiveRaw[]) : [],
+        };
+      } else {
+        // LLM returned flat array despite instruction — put all in needs_project
+        const flat = Array.isArray(rawPositive) ? (rawPositive as PositiveRaw[]) : [];
+        tiered = { now: [], needs_project: flat, long_term: [] };
+      }
+      // Guarantee at least 1 item in each tier
+      tiered = guaranteeThreeTiers(tiered, candidates);
+      // Flatten with employability_level for client consumption
+      normalizedPositive = [
+        ...tiered.now.map((p) => ({ ...p, employability_level: "now" })),
+        ...tiered.needs_project.map((p) => ({ ...p, employability_level: "needs_project" })),
+        ...tiered.long_term.map((p) => ({ ...p, employability_level: "long_term" })),
+      ];
+    } else {
+      // No resume: flat array without employability_level
+      // Result page detects this and shows flat view + upload-resume CTA
+      normalizedPositive = Array.isArray(parsed.positive)
+        ? (parsed.positive as PositiveRaw[])
+        : [];
+    }
+
+        const normalizedChips = Array.isArray(parsed.refine_chips)
       ? parsed.refine_chips.filter((c): c is string => typeof c === "string")
       : [];
 
@@ -449,6 +633,37 @@ export async function POST(request: NextRequest) {
         }做三段融合。投递前请用『简历整理』模块结合具体 JD 再核对。`
       : DISCLAIMER;
 
+    const rationale = normalizeRationale(
+      parsed.rationale ?? null,
+      confidence,
+      scores,
+      evidence
+    );
+
+    // 登录用户 → 实时写 m1_assessments（upsert by user_id）
+    try {
+      const supabase = await createClient();
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        await supabase.from("m1_assessments").upsert({
+          user_id: user.id,
+          riasec_json: { scores, code, confidence },
+          recommendation_json: {
+            positive: normalizedPositive,
+            negative: normalizedNegative,
+            refine_chips: normalizedChips,
+            rationale,
+            evidence: evidence ?? null,
+            disclaimer,
+          },
+          completed_at: new Date().toISOString(),
+        });
+      }
+    } catch (dbErr) {
+      // DB 写失败不阻断主流程
+      console.warn("[m1/recommend] db upsert failed:", dbErr);
+    }
+
     return NextResponse.json({
       scores,
       code,
@@ -456,12 +671,7 @@ export async function POST(request: NextRequest) {
       positive: normalizedPositive,
       negative: normalizedNegative,
       refine_chips: normalizedChips,
-      rationale: normalizeRationale(
-        parsed.rationale ?? null,
-        confidence,
-        scores,
-        evidence
-      ),
+      rationale,
       evidence: evidence ?? null,
       disclaimer,
       completedAt: new Date().toISOString(),

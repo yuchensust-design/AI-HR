@@ -8,10 +8,7 @@ import { BuerFloatingButton } from "@/components/BuerFloatingButton";
 import { DiaryChatPanel } from "@/components/DiaryChatPanel";
 import { Card } from "@/components/ui/card";
 import {
-  addEntry,
-  clearAllEntries,
   countByPeriod,
-  deleteEntry,
   exportDiaryJson,
   getDiaryEntries,
   hasDiaryConsent,
@@ -25,6 +22,7 @@ import {
   type WeatherEmoji,
   type MoodEmoji,
 } from "@/lib/diary";
+import { useDiarySync } from "@/lib/useDiarySync";
 import { compressImage } from "@/lib/image-compress";
 import { STORAGE_KEYS } from "@/lib/use-local-state";
 
@@ -132,6 +130,7 @@ function groupByDate(entries: DiaryEntry[]): Array<{ date: string; items: DiaryE
 }
 
 export default function DiaryPage() {
+  const { addEntry, deleteEntry, clearAllEntries } = useDiarySync();
   const [entries, setEntries] = useState<DiaryEntry[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [showConsent, setShowConsent] = useState(false);
@@ -260,7 +259,7 @@ export default function DiaryPage() {
     setImageError(null);
   };
 
-  const handleAdd = () => {
+  const handleAdd = async () => {
     const trimmed = newContent.trim();
     if (!trimmed) return;
     const metadata: DiaryEntryMetadata = {};
@@ -269,7 +268,7 @@ export default function DiaryPage() {
     if (metaWeather) metadata.weather = metaWeather;
     if (metaMood) metadata.mood = metaMood;
     if (metaPlace.trim()) metadata.place = metaPlace.trim();
-    addEntry({
+    await addEntry({
       content: trimmed,
       title: newTitle.trim() || undefined,
       imageBase64: imagePreview ?? null,
@@ -304,13 +303,13 @@ export default function DiaryPage() {
     setImageError(null);
   };
 
-  const handleDelete = (id: string) => {
-    deleteEntry(id);
+  const handleDelete = async (id: string) => {
+    await deleteEntry(id);
     refresh();
   };
 
-  const handleClearAll = () => {
-    clearAllEntries();
+  const handleClearAll = async () => {
+    await clearAllEntries();
     setConfirmClear(false);
     refresh();
   };

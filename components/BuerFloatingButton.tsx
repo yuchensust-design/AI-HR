@@ -10,7 +10,7 @@ import {
   type FormEvent,
   type KeyboardEvent,
 } from "react";
-import { addEntry as addDiaryEntry } from "@/lib/diary";
+import { useDiarySync } from "@/lib/useDiarySync";
 
 /**
  * 「不二」情绪陪伴 — 右下角悬浮按钮 + chat panel
@@ -120,6 +120,7 @@ const DIARY_HINT_KEY = "buer_floating_diary_hint_dismissed";
 
 export function BuerFloatingButton() {
   const router = useRouter();
+  const { addEntry: addDiaryEntry } = useDiarySync();
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState<Message[]>([INITIAL_GREETING]);
   const [input, setInput] = useState("");
@@ -164,19 +165,16 @@ export function BuerFloatingButton() {
 
   // v3.1 §8.19 §B.2 — 用户主动把这条 user 消息存到 /diary
   // 内存模式 (PRD §3.8.6) 不变;只是把这一条 user content 单独写到日记 localStorage
-  const handleSaveToDiary = useCallback((idx: number) => {
+  const handleSaveToDiary = useCallback(async (idx: number) => {
+    const msg = messages[idx];
+    if (!msg || msg.role !== "user" || msg.savedToDiary) return;
+    await addDiaryEntry({ content: msg.content, source: "buer-chat" });
     setMessages((prev) => {
-      const msg = prev[idx];
-      if (!msg || msg.role !== "user" || msg.savedToDiary) return prev;
-      addDiaryEntry({
-        content: msg.content,
-        source: "buer-chat",
-      });
       const next = [...prev];
-      next[idx] = { ...msg, savedToDiary: true };
+      if (next[idx]) next[idx] = { ...next[idx], savedToDiary: true };
       return next;
     });
-  }, []);
+  }, [messages, addDiaryEntry]);
 
   // v2 §8.20 §C.3 — chat 多轮 → LLM 整理成第一人称日记
   const handleSummarize = useCallback(async () => {
@@ -202,9 +200,9 @@ export function BuerFloatingButton() {
     }
   }, [messages]);
 
-  const handleSaveSummary = useCallback(() => {
+  const handleSaveSummary = useCallback(async () => {
     if (!summary || !summary.eligible) return;
-    addDiaryEntry({
+    await addDiaryEntry({
       title: summary.title,
       content: summary.content,
       source: "ai-summary",

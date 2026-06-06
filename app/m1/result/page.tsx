@@ -1,7 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { createClient } from "@/lib/supabase/client";
 import { Card } from "@/components/ui/card";
 import { ResetQuizButton } from "@/components/ResetQuizButton";
 import { Nav } from "@/components/Nav";
@@ -53,22 +55,22 @@ type PositiveItem = {
 
 const EMPLOYABILITY_LABEL: Record<Employability, { tag: string; color: string; section: string; hint: string }> = {
   now: {
-    tag: "应届可投",
+    tag: "现在可以投",
     color: "bg-esther-blue/15 text-esther-blue",
-    section: "✓ 现在就可以投",
-    hint: "Job Zone 1-2 · 应届可直接投递这类岗位",
+    section: "现在可以投",
+    hint: "简历经历直接对口，现在就可以开始准备投递",
   },
   needs_project: {
-    tag: "补项目可投",
+    tag: "值得去探索",
     color: "bg-esther-yellow/40 text-ink",
-    section: "⚙ 补一段项目再投",
-    hint: "Job Zone 3 · 适合在 M4 做一个补强项目后投递",
+    section: "值得去探索",
+    hint: "已有经历与方向有交叉，补强一段项目或实习后可以投递",
   },
   long_term: {
-    tag: "长期方向",
+    tag: "长期可培养",
     color: "bg-warm-bg-deep text-ink-soft",
-    section: "🧭 长期深造方向",
-    hint: "Job Zone 4-5 · 不适合短期投递,但可以作为长期规划",
+    section: "长期可培养",
+    hint: "RIASEC 方向匹配，但需要 1-2 年的深造积累，适合作为远期规划",
   },
 };
 
@@ -123,27 +125,17 @@ const DIMS: Dimension[] = ["R", "I", "A", "S", "E", "C"];
 // 保留 sampleMeta 的具体类型,让本页直接 SAMPLE.sampleMeta.emoji 等访问可以 narrow
 const SAMPLE: RecommendResult & { sampleMeta: NonNullable<RecommendResult["sampleMeta"]> } = M1_SAMPLE;
 
-const NEXT_STEPS = [
-  {
-    title: "整理简历",
-    desc: "基于这些方向调整简历,让经历更聚焦目标",
-    href: "/m3",
-  },
-  {
-    title: "补 gap 项目",
-    desc: "对方向感兴趣但经历不够?设计 2-4 周项目补强",
-    href: "/m4",
-  },
-  {
-    title: "练一场模拟面试",
-    desc: "用目标 JD 跑一场,看「具体性」「逻辑性」是否到位",
-    href: "/m5",
-  },
-];
+type TargetRole = {
+  role_type: string;
+  industry: string;
+  employability_level: Employability;
+  saved_at: string;
+};
 
 type FallbackKind = "no-data" | "api-error" | null;
 
 export default function Module1ResultPage() {
+  const router = useRouter();
   const [result, setResult] = useState<RecommendResult | null>(null);
   const [isSample, setIsSample] = useState(false);
   const [fallbackKind, setFallbackKind] = useState<FallbackKind>(null);
@@ -152,48 +144,113 @@ export default function Module1ResultPage() {
   const [refineError, setRefineError] = useState<string | null>(null);
   const [retrying, setRetrying] = useState(false);
 
-  // hydrate from localStorage
-  useEffect(() => {
+  // M1→M4 直通：保存目标岗位到 localStorage + DB，然后跳转
+  const handleGoToM4 = useCallback(async (role: TargetRole) => {
     try {
-      const raw = window.localStorage.getItem("riasec_result");
-      if (raw) {
-        const parsed = JSON.parse(raw) as RecommendResult;
-        const isApiFallback = parsed.fallback === "api-error";
-        if (
-          parsed.positive &&
-          Array.isArray(parsed.positive) &&
-          parsed.positive.length > 0
-        ) {
-          // 防御:外部塞进来的 answers 也走一次 schema 迁移
-          if (parsed.answers) {
-            parsed.answers = migrateAnswersSchema(parsed.answers) as RecommendResult["answers"];
+      window.localStorage.setItem("m1_target_role", JSON.stringify(role));
+    } catch { /* ignore */ }
+    // 登录用户同步到 DB
+    try {
+      const supabase = createClient();
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        await supabase.from("m1_assessments")
+          .update({ target_role_json: role })
+          .eq("user_id", user.id);
+      }
+    } catch { /* ignore, 不阻塞跳转 */ }
+    router.push("/m4?from=m1");
+  }, [router]);
+
+  // hydrate from localStorage → DB fallback → sample
+  useEffect(() => {
+    async function hydrate() {
+      // 1. localStorage 优先
+      try {
+        const raw = window.localStorage.getItem("riasec_result");
+        if (raw) {
+          const parsed = JSON.parse(raw) as RecommendResult;
+          const isApiFallback = parsed.fallback === "api-error";
+          if (
+            parsed.positive &&
+            Array.isArray(parsed.positive) &&
+            parsed.positive.length > 0
+          ) {
+            if (parsed.answers) {
+              parsed.answers = migrateAnswersSchema(parsed.answers) as RecommendResult["answers"];
+            }
+            if (!parsed.evidence) {
+              try {
+                const evRaw = window.localStorage.getItem("m1_evidence");
+                if (evRaw) parsed.evidence = JSON.parse(evRaw) as EvidenceInfo;
+              } catch { /* ignore */ }
+            }
+            setResult(parsed);
+            setIsSample(Boolean(parsed.isSample) || isApiFallback);
+            setFallbackKind(isApiFallback ? "api-error" : null);
+            setLoaded(true);
+            return;
           }
-          // 合并独立 key m1_evidence(三路径 utility 会同时写两处)
-          if (!parsed.evidence) {
-            try {
-              const evRaw = window.localStorage.getItem("m1_evidence");
-              if (evRaw) {
-                parsed.evidence = JSON.parse(evRaw) as EvidenceInfo;
-              }
-            } catch {
-              // ignore
+        }
+      } catch (e) {
+        console.warn("riasec_result parse failed:", e);
+      }
+
+      // 2. localStorage 无数据 → 尝试从 Supabase 恢复（已登录用户）
+      try {
+        const supabase = createClient();
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          const { data: row } = await supabase
+            .from("m1_assessments")
+            .select("riasec_json, recommendation_json, completed_at")
+            .eq("user_id", user.id)
+            .maybeSingle();
+          if (row?.riasec_json && row?.recommendation_json) {
+            const riasec = row.riasec_json as { scores: Scores; code: string; confidence: Confidence };
+            const rec = row.recommendation_json as {
+              positive: PositiveItem[];
+              negative: NegativeItem[];
+              refine_chips: string[];
+              rationale?: Rationale | null;
+              evidence?: EvidenceInfo;
+              disclaimer: string;
+            };
+            if (Array.isArray(rec.positive) && rec.positive.length > 0) {
+              const restored: RecommendResult = {
+                scores: riasec.scores,
+                code: riasec.code,
+                confidence: riasec.confidence,
+                positive: rec.positive,
+                negative: rec.negative ?? [],
+                refine_chips: rec.refine_chips ?? [],
+                rationale: rec.rationale ?? null,
+                evidence: rec.evidence ?? null,
+                disclaimer: rec.disclaimer ?? "",
+                completedAt: row.completed_at ?? new Date().toISOString(),
+                fallback: null,
+                isSample: false,
+              };
+              window.localStorage.setItem("riasec_result", JSON.stringify(restored));
+              setResult(restored);
+              setIsSample(false);
+              setFallbackKind(null);
+              setLoaded(true);
+              return;
             }
           }
-          setResult(parsed);
-          setIsSample(Boolean(parsed.isSample) || isApiFallback);
-          setFallbackKind(isApiFallback ? "api-error" : null);
-          setLoaded(true);
-          return;
         }
+      } catch (dbErr) {
+        console.warn("m1_assessments fetch failed:", dbErr);
       }
-    } catch (e) {
-      console.warn("riasec_result parse failed:", e);
+
+      // 3. 完全没数据 → sample
+      setResult(SAMPLE);
+      setIsSample(true);
+      setFallbackKind("no-data");
+      setLoaded(true);
     }
-    // 完全没数据 → sample,banner 提示「这是 sample,你还没做」
-    setResult(SAMPLE);
-    setIsSample(true);
-    setFallbackKind("no-data");
-    setLoaded(true);
+    void hydrate();
   }, []);
 
   const handleRetryAnalysis = async () => {
@@ -235,6 +292,7 @@ export default function Module1ResultPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           answers: result.answers,
+          evidence: result.evidence ?? null,
           previous: {
             positive: result.positive,
             negative: result.negative,
@@ -371,7 +429,7 @@ export default function Module1ResultPage() {
           </div>
         )}
 
-        {/* 页面标题 */}
+        {/* 页面标题 + Persona */}
         <section className="border-b border-border">
           <div className="max-w-[1100px] mx-auto px-6 py-10">
             <div className="flex items-start justify-between gap-4 mb-6 flex-wrap">
@@ -383,19 +441,21 @@ export default function Module1ResultPage() {
               </Link>
               <ResetQuizButton />
             </div>
-            <h1 className="text-3xl md:text-4xl font-bold text-ink mb-2 leading-tight">
-              我们觉得你可能适合的方向
-            </h1>
-            <p className="text-ink-soft text-sm">
-              基于你的测评 + 兴趣偏好综合判断
-              <span className="text-ink-muted text-xs ml-2">· 测评采用霍兰德职业兴趣理论(RIASEC)</span>
-            </p>
+            {!isSample && (
+              <RIASECPersona code={result.code} refineCount={result.refineCount} />
+            )}
+            {isSample && (
+              <h1 className="text-3xl md:text-4xl font-bold text-ink mb-2 leading-tight">
+                我们觉得你可能适合的方向
+              </h1>
+            )}
           </div>
         </section>
 
-        {/* 雷达 + 编码 + confidence */}
+        {/* 雷达 + 6维解读 */}
         <section className="border-b border-border bg-warm-bg-deep/40">
-          <div className="max-w-[1100px] mx-auto px-6 py-12 grid grid-cols-1 lg:grid-cols-[1fr_1.2fr] gap-10 items-center">
+          <div className="max-w-[1380px] mx-auto px-8 py-12 grid grid-cols-1 lg:grid-cols-[300px_1fr] gap-8 items-start">
+            {/* 左：雷达卡片 */}
             <div className="bg-card rounded-3xl p-6 border border-border shadow-sm">
               <p className="font-display italic text-xs text-esther-blue mb-1 text-center">
                 你的职业兴趣画像
@@ -408,168 +468,94 @@ export default function Module1ResultPage() {
                 <ConfidenceBadge confidence={result.confidence} />
               </div>
               <p className="text-[11px] text-ink-muted text-center mt-3 leading-relaxed">
-                数值越高表示倾向越强 · 共 6 维(实用 / 研究 / 艺术 / 社交 / 企业 / 常规)
+                数值越高表示倾向越强 · 共 6 维
               </p>
             </div>
 
+            {/* 右：6维解读 — top3展开(3列)，其余紧凑(3列) */}
             <div>
-              {isSample ? (
-                <>
-                  <div className="flex items-center gap-3 mb-4">
-                    <div className="w-12 h-12 rounded-full bg-esther-blue/15 border-2 border-esther-blue/40 flex items-center justify-center text-2xl">
-                      {SAMPLE.sampleMeta.emoji}
-                    </div>
-                    <div>
-                      <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium bg-warm-bg-deep text-ink-muted border border-border mb-1">
-                        sample case
-                      </span>
-                      <p className="text-sm text-ink leading-relaxed">
-                        {SAMPLE.sampleMeta.background}
-                      </p>
-                    </div>
-                  </div>
+              {(() => {
+                const top3Dims = DIMS.filter((d, i) =>
+                  result.code.split(" ").slice(0, 3).some((c) => c.startsWith(d))
+                );
+                const otherDims = DIMS.filter((d) => !top3Dims.includes(d));
 
-                  <div className="space-y-3">
-                    <div>
-                      <p className="text-xs text-ink-muted uppercase tracking-wider mb-1.5 font-display italic">
-                        Interest tags
-                      </p>
-                      <div className="flex flex-wrap gap-2">
-                        {SAMPLE.sampleMeta.tags.map((t) => (
-                          <span
-                            key={t}
-                            className="inline-flex items-center px-2.5 py-1 rounded-md bg-esther-yellow/30 text-ink text-xs font-medium border border-esther-yellow/60"
-                          >
-                            {t}
-                          </span>
-                        ))}
+                const renderCard = (dim: Dimension, expanded: boolean) => {
+                  const idx = DIMS.indexOf(dim);
+                  const score = result.scores[idx];
+                  const level = getDimensionLevel(score);
+                  const desc = DIMENSION_DESCRIPTIONS[dim];
+                  const levelColor =
+                    level === "high"
+                      ? "bg-esther-blue text-white"
+                      : level === "mid"
+                      ? "bg-esther-yellow text-ink"
+                      : "bg-warm-bg-deep text-ink-muted";
+
+                  return (
+                    <div
+                      key={dim}
+                      className={`p-4 rounded-2xl border-2 ${
+                        expanded
+                          ? "border-esther-blue bg-card shadow-sm"
+                          : "border-border bg-card opacity-80"
+                      }`}
+                    >
+                      <div className="flex items-baseline gap-2 mb-1.5 flex-wrap">
+                        <span className="font-display italic text-2xl font-bold text-esther-blue">
+                          {dim}
+                        </span>
+                        <span className="text-sm font-bold text-ink">
+                          {DIMENSION_LABELS[dim].cn}
+                        </span>
+                        <span
+                          className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold ${levelColor}`}
+                        >
+                          {DIMENSION_LEVEL_LABELS[level]}
+                          <span className="ml-1 font-display italic">{score}/15</span>
+                        </span>
                       </div>
+                      <p className="text-xs text-ink-soft font-medium">{desc.tagline}</p>
+                      {expanded && (
+                        <div className="space-y-1.5 mt-2 pt-2 border-t border-border">
+                          <p className="text-[10px] text-ink-muted font-display italic">You tend to ↓</p>
+                          <ul className="space-y-1">
+                            {desc.strengths.map((s, i) => (
+                              <li key={i} className="text-xs text-ink leading-relaxed flex items-start gap-1.5">
+                                <span className="text-esther-blue mt-1 text-[8px]">●</span>
+                                {s}
+                              </li>
+                            ))}
+                          </ul>
+                          <p className="text-xs text-ink-soft mt-2 leading-relaxed">
+                            <span className="font-medium text-ink">适合方向:</span> {desc.suited}
+                          </p>
+                          <p className="text-xs text-ink-muted/80 leading-relaxed italic">
+                            <span className="font-medium">留意:</span> {desc.caution}
+                          </p>
+                        </div>
+                      )}
                     </div>
-
-                    <div>
-                      <p className="text-xs text-ink-muted uppercase tracking-wider mb-1.5 font-display italic">
-                        Experiences
-                      </p>
-                      <ul className="space-y-1.5">
-                        {SAMPLE.sampleMeta.experiences.map((e) => (
-                          <li
-                            key={e}
-                            className="text-sm text-ink-soft flex items-start gap-2"
-                          >
-                            <span className="text-esther-blue mt-1 text-[8px]">●</span>
-                            {e}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-
-                    <p className="text-xs text-ink-muted pt-2 italic font-display">
-                      ↑ 这是 demo sample case;
-                      <Link href="/m1/quiz" className="underline text-esther-blue ml-1">
-                        点这里测自己的 →
-                      </Link>
-                    </p>
-                  </div>
-                </>
-              ) : (
-                <RIASECPersona code={result.code} refineCount={result.refineCount} />
-              )}
-            </div>
-          </div>
-        </section>
-
-        <RecommendationRationale
-          scores={result.scores}
-          confidence={result.confidence}
-          answers={result.answers}
-          rationale={result.rationale}
-          evidence={result.evidence}
-          isSample={isSample}
-        />
-
-        <section className="border-b border-border">
-          <div className="max-w-[1100px] mx-auto px-6 py-14">
-            <h2 className="text-2xl md:text-3xl font-bold text-ink mb-8">
-              6 维深度解读 · 你强在哪 / 注意哪
-            </h2>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {DIMS.map((dim, idx) => {
-                const score = result.scores[idx];
-                const level = getDimensionLevel(score);
-                const desc = DIMENSION_DESCRIPTIONS[dim];
-                const isTop3 = result.code.split(" ").slice(0, 3).some((c) => c.startsWith(dim));
-                const levelColor =
-                  level === "high"
-                    ? "bg-esther-blue text-white"
-                    : level === "mid"
-                    ? "bg-esther-yellow text-ink"
-                    : "bg-warm-bg-deep text-ink-muted";
+                  );
+                };
 
                 return (
-                  <div
-                    key={dim}
-                    className={`p-5 rounded-2xl border-2 transition-all ${
-                      isTop3
-                        ? "border-esther-blue bg-card shadow-sm"
-                        : "border-border bg-card opacity-90"
-                    }`}
-                  >
-                    <div className="flex items-baseline gap-3 mb-2 flex-wrap">
-                      <span className="font-display italic text-3xl font-bold text-esther-blue">
-                        {dim}
-                      </span>
-                      <span className="text-lg font-bold text-ink">
-                        {DIMENSION_LABELS[dim].cn}
-                      </span>
-                      <span
-                        className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold ${levelColor}`}
-                      >
-                        {DIMENSION_LEVEL_LABELS[level]}
-                        <span className="ml-1 font-display italic">
-                          {score}/15
-                        </span>
-                      </span>
+                  <>
+                    {/* Top3：3列等高展开 */}
+                    <div className="grid grid-cols-3 gap-3 mb-3">
+                      {top3Dims.map((d) => renderCard(d, true))}
                     </div>
-                    <p className="text-sm text-ink-soft mb-3 font-medium">
-                      {desc.tagline}
+                    {/* 其余3维：3列紧凑 */}
+                    <div className="grid grid-cols-3 gap-3">
+                      {otherDims.map((d) => renderCard(d, false))}
+                    </div>
+                    <p className="text-xs text-ink-muted mt-3 italic font-display">
+                      * 蓝色高亮 = 你的 Top 3 维度 · 其他 3 维供参考
                     </p>
-                    {isTop3 && (
-                      <div className="space-y-2 mt-3 pt-3 border-t border-border">
-                        <p className="text-xs text-ink-muted font-display italic">
-                          You tend to ↓
-                        </p>
-                        <ul className="space-y-1">
-                          {desc.strengths.map((s, i) => (
-                            <li
-                              key={i}
-                              className="text-xs text-ink leading-relaxed flex items-start gap-2"
-                            >
-                              <span className="text-esther-blue mt-1 text-[8px]">
-                                ●
-                              </span>
-                              {s}
-                            </li>
-                          ))}
-                        </ul>
-                        <p className="text-xs text-ink-soft mt-3 leading-relaxed">
-                          <span className="font-medium text-ink">适合方向:</span>{" "}
-                          {desc.suited}
-                        </p>
-                        <p className="text-xs text-ink-muted/80 leading-relaxed italic">
-                          <span className="font-medium">留意:</span>{" "}
-                          {desc.caution}
-                        </p>
-                      </div>
-                    )}
-                  </div>
+                  </>
                 );
-              })}
+              })()}
             </div>
-
-            <p className="text-xs text-ink-muted mt-6 italic font-display">
-              * 蓝色高亮 = 你的 Top 3 维度(优先看这 3 个) · 其他 3 维供参考
-            </p>
           </div>
         </section>
 
@@ -579,15 +565,16 @@ export default function Module1ResultPage() {
             <p className="font-display italic text-sm text-esther-blue mb-2">
               {result.positive.length} directions for you · across {new Set(result.positive.map((p) => p.industry)).size} industries
             </p>
-            <h2 className="text-2xl md:text-3xl font-bold text-ink mb-3">
+            <h2 className="text-2xl md:text-3xl font-bold text-ink mb-10">
               {result.positive.length} 个探索方向 · 覆盖 {new Set(result.positive.map((p) => p.industry)).size} 个行业大类
             </h2>
-            <p className="text-sm text-ink-soft mb-3 max-w-2xl">
-              ⚠️ 这是基于测评 + 兴趣推出来的 <span className="font-medium text-ink">兴趣倾向</span>,不是"短期可投岗位"承诺。建议先到「3·改简历」或「2·看岗位」用真实 JD 验证。
-            </p>
-            <p className="text-sm text-ink-soft mb-10 max-w-2xl">
-              下面按 <span className="font-medium text-ink">可投性等级</span> 分组(应届可投 / 补项目可投 / 长期方向),同级内按行业再分组。
-            </p>
+            {result.positive.some((p) => p.employability_level) ? (
+              <></>
+            ) : (
+              <p className="text-sm text-ink-soft mb-10 max-w-2xl">
+                这是基于你的<span className="font-medium text-ink">测评 + 兴趣</span>的方向指引。上传简历后，AI 能根据你的经历判断「现在能投什么、探索什么、长期往哪走」
+              </p>
+            )}
 
             {/* 按 employability_level 分组(now → needs_project → long_term),long_term 默认折叠 */}
             {(["now", "needs_project", "long_term"] as const).map((employ) => {
@@ -604,11 +591,13 @@ export default function Module1ResultPage() {
                   hint={meta.hint}
                   items={inLevel}
                   defaultCollapsed={isLongTerm}
+                  showGoToM4={employ === "needs_project" || employ === "long_term"}
+                  onGoToM4={handleGoToM4}
                 />
               );
             })}
 
-            {/* 旧版兼容:如果 positive 全部都没有 employability_level(老数据),退回到原"按 industry 分组"渲染 */}
+            {/* 无简历路径：平铺展示方向 + 上传简历 CTA */}
             {result.positive.every((p) => !p.employability_level) && (
             <div className="space-y-8 mt-6">
               {Array.from(
@@ -697,17 +686,34 @@ export default function Module1ResultPage() {
             </div>
             )}
 
+            {/* 无简历路径：CTA 引导上传简历解锁三段分类 */}
+            {result.positive.every((p) => !p.employability_level) && !isSample && (
+              <div className="mt-10 p-6 rounded-2xl border-2 border-dashed border-esther-blue/30 bg-esther-blue/5 text-center">
+                <p className="text-base font-semibold text-ink mb-2">
+                  想知道你现在能投什么、值得探索什么、长期往哪走？
+                </p>
+                <p className="text-sm text-ink-soft mb-5">
+                  上传简历后，AI 会结合你的经历给你分阶段的推荐
+                </p>
+                <Link
+                  href="/m1"
+                  className="inline-flex items-center justify-center rounded-full bg-esther-blue text-white px-6 py-2.5 text-sm font-medium hover:bg-esther-blue-dark transition-colors"
+                >
+                  上传简历，解锁三段分类 →
+                </Link>
+              </div>
+            )}
+
             <p className="text-xs text-ink-muted mt-8 italic leading-relaxed max-w-2xl">
               ℹ️ {result.disclaimer}
             </p>
           </div>
         </section>
 
-        {/* 反向折叠区 */}
-        <NegativeReveal items={result.negative} />
+        {/* 反向折叠区已移除 */}
 
         {/* Chip 修推荐 */}
-        {!isSample && result.refine_chips.length > 0 && (
+        {!isSample && result.refine_chips.length > 0 && result.evidence?.source === "resume" && (
           <>
             <RefineChips
               chips={result.refine_chips}
@@ -729,44 +735,15 @@ export default function Module1ResultPage() {
           </>
         )}
 
-        {/* 下一步 CTA */}
-        <section className="border-b border-border bg-warm-bg-deep/30">
-          <div className="max-w-[1100px] mx-auto px-6 py-14">
-            <p className="font-display italic text-sm text-esther-blue mb-2">
-              Next steps
-            </p>
-            <h2 className="text-2xl md:text-3xl font-bold text-ink mb-3">
-              接下来想做什么?
-            </h2>
-            <p className="text-sm text-ink-soft mb-8">
-              方向出来了,下一步可以是 ⬇️
-            </p>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {NEXT_STEPS.map((s) => (
-                <Link key={s.href} href={s.href} className="group block">
-                  <Card className="h-full p-6 bg-card border-2 border-border hover:border-esther-blue hover:shadow-md transition-all">
-                    <h3 className="text-base font-semibold text-ink mb-2 leading-snug">
-                      {s.title} →
-                    </h3>
-                    <p className="text-sm text-ink-soft leading-relaxed">
-                      {s.desc}
-                    </p>
-                  </Card>
-                </Link>
-              ))}
-            </div>
-
-            <div className="mt-8 flex flex-wrap items-center justify-between gap-4">
-              <p className="text-xs text-ink-muted flex items-center flex-wrap gap-1">
-                也可以选择 →
-                <ResetQuizButton className="ml-1 underline text-ink-soft hover:text-esther-blue text-xs">
-                  重新做一次测评
-                </ResetQuizButton>
-              </p>
-            </div>
-          </div>
-        </section>
+        {/* 重新测评入口 */}
+        <div className="max-w-[1100px] mx-auto px-6 py-8">
+          <p className="text-xs text-ink-muted">
+            也可以
+            <ResetQuizButton className="ml-1 underline text-ink-soft hover:text-esther-blue text-xs">
+              重新做一次测评
+            </ResetQuizButton>
+          </p>
+        </div>
 
         {/* Footer disclaimer */}
         <footer className="bg-warm-bg">
@@ -797,11 +774,15 @@ function PositiveLevelGroup({
   hint,
   items,
   defaultCollapsed,
+  showGoToM4 = false,
+  onGoToM4,
 }: {
   label: string;
   hint: string;
   items: PositiveItem[];
   defaultCollapsed: boolean;
+  showGoToM4?: boolean;
+  onGoToM4?: (role: TargetRole) => void;
 }) {
   const [collapsed, setCollapsed] = useState(defaultCollapsed);
 
@@ -873,6 +854,22 @@ function PositiveLevelGroup({
                         </span>
                         <p className="text-sm text-ink leading-relaxed">{r.why_fit}</p>
                       </div>
+                      {showGoToM4 && onGoToM4 && (
+                        <div className="mt-3 flex justify-end">
+                          <button
+                            type="button"
+                            onClick={() => onGoToM4({
+                              role_type: r.role_type,
+                              industry: r.industry,
+                              employability_level: r.employability_level ?? "needs_project",
+                              saved_at: new Date().toISOString(),
+                            })}
+                            className="text-xs font-medium text-esther-blue hover:underline transition-colors"
+                          >
+                            → 我需要补什么经历才能做这个？
+                          </button>
+                        </div>
+                      )}
                     </Card>
                   );
                 })}

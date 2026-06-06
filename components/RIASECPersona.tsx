@@ -46,21 +46,21 @@ export function RIASECPersona({
     contrast = (
       <>
         这三股劲儿都偏「<span className="font-medium text-ink">和人 · 表达 · 影响</span>」，
-        而不是「钻研 · 数据 · 动手」——所以下面的方向也往这边挑。
+        而不是「钻研 · 数据 · 动手」。
       </>
     );
   } else if (thingN > peopleN) {
     contrast = (
       <>
         这三股劲儿都偏「<span className="font-medium text-ink">钻研 · 数据 · 动手</span>」，
-        而不是「和人 · 表达 · 影响」——所以下面的方向也往这边挑。
+        而不是「和人 · 表达 · 影响」。
       </>
     );
   } else {
     contrast = (
       <>
         你既有「<span className="font-medium text-ink">和人 · 表达 · 影响</span>」的一面，
-        也有「<span className="font-medium text-ink">钻研 · 数据 · 动手</span>」的一面——下面的方向会兼顾两边。
+        也有「<span className="font-medium text-ink">钻研 · 数据 · 动手</span>」的一面。
       </>
     );
   }

@@ -162,7 +162,43 @@ export function generateCandidates(
     if (diversified.length >= topN) break;
   }
 
-  return diversified.map((x) => x.entry);
+  // ★ Zone Floor(v7): 保证候选池里有足够的应届可投 / 补项目可投选项
+  // 高 I/A 型用户的 top 候选几乎全是 Zone 4-5(研究员/教授),导致 LLM 只能选 long_term。
+  // 解决:如果 Zone≤2 不足 8 个 或 Zone=3 不足 5 个,从全库补最高分的缺口职业。
+  const ZONE_LOW_MIN = 8;   // Zone 1-2 至少保留几个
+  const ZONE_MID_MIN = 5;   // Zone 3 至少保留几个
+
+  const zoneFloorItems: typeof rough = [];
+  const floorSeen = new Set(diversified.map((x) => x.entry.code));
+
+  const zoneLowCount = diversified.filter((x) => x.entry.job_zone <= 2).length;
+  const zoneMidCount = diversified.filter((x) => x.entry.job_zone === 3).length;
+
+  if (zoneLowCount < ZONE_LOW_MIN || zoneMidCount < ZONE_MID_MIN) {
+    // 从全库(按 RIASEC 分)补足缺口,跳过已入选的
+    const needLow = Math.max(0, ZONE_LOW_MIN - zoneLowCount);
+    const needMid = Math.max(0, ZONE_MID_MIN - zoneMidCount);
+    let addedLow = 0;
+    let addedMid = 0;
+
+    for (const item of scored) {
+      if (floorSeen.has(item.entry.code)) continue;
+      const z = item.entry.job_zone;
+      if (z <= 2 && addedLow < needLow) {
+        zoneFloorItems.push(item);
+        floorSeen.add(item.entry.code);
+        addedLow++;
+      } else if (z === 3 && addedMid < needMid) {
+        zoneFloorItems.push(item);
+        floorSeen.add(item.entry.code);
+        addedMid++;
+      }
+      if (addedLow >= needLow && addedMid >= needMid) break;
+    }
+  }
+
+  // 合并:原 diversified + zone floor 补充项,总数不超过 topN + floor 补充数
+  return [...diversified, ...zoneFloorItems].map((x) => x.entry);
 }
 
 /**

@@ -31,22 +31,10 @@ const OPTIONS = [
     href: "/m1/evidence/upload",
     emoji: "📄",
     title: "上传简历",
-    desc: "PDF / Word / Markdown — 让我们快速看到你做过什么",
-    detail:
-      "本地解析(不传账号),提取后会摘成 1-2 段 + 关键字喂给推荐 LLM。",
+    desc: "PDF / Word / Markdown",
+    detail: "",
     cta: "选这个 →",
-    forWho: "已有简历的同学",
-  },
-  {
-    key: "chat",
-    href: "/m1/evidence/chat",
-    emoji: "💬",
-    title: "简单聊聊",
-    desc: "随便说说方向倾向、忌讳、想法 — 1-2 句就够",
-    detail:
-      "比如「我倾向硬件」「不想 996」「想去稳定的国企」,我们会把你的话喂给推荐 LLM。",
-    cta: "选这个 →",
-    forWho: "暂时没简历 / 想补倾向的同学",
+    forWho: "",
   },
 ];
 
@@ -161,45 +149,40 @@ export default function M1EvidenceEntryPage() {
         {/* Hero */}
         <section className="border-b border-border">
           <div className="max-w-[1100px] mx-auto px-6 py-10">
-            <h1 className="text-3xl md:text-4xl font-bold text-ink mb-3 leading-tight">
-              想让推荐更准的话,给我们点补充信息
+            <h1 className="text-3xl md:text-4xl font-bold text-ink leading-tight">
+              你的经历让推荐更具体
             </h1>
-            <p className="text-base text-ink-soft leading-relaxed max-w-2xl">
-              测评只看出你的「兴趣倾向」,但你做过什么 / 想去什么方向 —
-              这些只有你自己知道。下面三选一,
-              <span className="font-medium text-ink mx-1">不补也行</span>
-              ,直接看推荐 →
-            </p>
-            <p className="text-xs text-ink-muted mt-4 font-display italic">
-              三段融合 · RIASEC + 兴趣 tag + 补充信息 → 推荐 + 可解释依据
-            </p>
           </div>
         </section>
 
         {/* 两张主卡 + 跳过卡 */}
         <section className="border-b border-border bg-warm-bg-deep/40">
           <div className="max-w-[1100px] mx-auto px-6 py-12">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mb-6">
+            <div className="grid grid-cols-1 gap-5 mb-6">
               {OPTIONS.map((opt) => (
-                <Link key={opt.key} href={opt.href} className="group block">
+                <Link key={opt.key} href={opt.href} className="group block max-w-xl">
                   <Card className="h-full p-7 border-2 border-border hover:border-esther-blue hover:shadow-md transition-all bg-card">
                     <div className="flex items-start gap-4 mb-3">
                       <span className="text-4xl flex-shrink-0 leading-none">
                         {opt.emoji}
                       </span>
                       <div className="flex-1">
-                        <p className="text-[11px] text-ink-muted mb-0.5 font-display italic">
-                          {opt.forWho}
-                        </p>
+                        {opt.forWho && (
+                          <p className="text-[11px] text-ink-muted mb-0.5 font-display italic">
+                            {opt.forWho}
+                          </p>
+                        )}
                         <h3 className="text-xl font-bold text-ink mb-2 leading-snug">
                           {opt.title}
                         </h3>
                         <p className="text-sm text-ink leading-relaxed mb-3">
                           {opt.desc}
                         </p>
-                        <p className="text-xs text-ink-soft leading-relaxed">
-                          {opt.detail}
-                        </p>
+                        {opt.detail && (
+                          <p className="text-xs text-ink-soft leading-relaxed">
+                            {opt.detail}
+                          </p>
+                        )}
                       </div>
                     </div>
                     <p className="text-sm font-medium text-esther-blue mt-4 group-hover:translate-x-1 transition-transform">
@@ -242,16 +225,6 @@ export default function M1EvidenceEntryPage() {
           </div>
         </section>
 
-        {/* 隐私说明 */}
-        <footer className="bg-warm-bg">
-          <div className="max-w-[1100px] mx-auto px-6 py-10 text-center">
-            <p className="text-xs text-ink-muted leading-relaxed font-display italic">
-              🔒 简历在浏览器本地解析,不上传账号 · 摘要 + 关键字会发给推荐 LLM,
-              <br />
-              不做账号级持久化 · 测评 / 简历内容存浏览器 localStorage,可随时清除
-            </p>
-          </div>
-        </footer>
       </main>
     </>
   );

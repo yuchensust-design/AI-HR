@@ -3,10 +3,6 @@
 /**
  * 模块 2 · 经历挖掘 — 真 chat(P1 真 LLM 接入版)
  * 路由 /m2
- *
- * TODO(parallel-dev): localStorage key "intake_artifact" / "candidate_bullets"
- * 当前是字面量,待主开发者把它们加进 lib/use-local-state.ts STORAGE_KEYS 常量
- * (lib/use-local-state.ts 是 §3 共享文件 lock,本 worktree 不动)。
  */
 
 import Link from "next/link";
@@ -16,6 +12,7 @@ import { Nav } from "@/components/Nav";
 import { BuerFloatingButton } from "@/components/BuerFloatingButton";
 import { useLocalState, STORAGE_KEYS } from "@/lib/use-local-state";
 import ConversationSwitcher from "@/components/conversations/ConversationSwitcher";
+import { useM2DBSync } from "@/lib/sync/useM2DBSync";
 
 type Phase =
   | "anchor"
@@ -201,17 +198,30 @@ function mergeIntake(
 export default function Module2Page() {
   const [profile] = useLocalState<UserProfile>(STORAGE_KEYS.USER_PROFILE, {});
   const [intake, setIntake] = useLocalState<IntakeArtifact>(
-    "intake_artifact",
+    STORAGE_KEYS.M2_INTAKE,
     { roles: [], stories: [] }
   );
   const [bullets, setBullets] = useLocalState<CandidateBullet[]>(
-    "candidate_bullets",
+    STORAGE_KEYS.M2_BULLETS,
     []
   );
   const [categories, setCategories] = useLocalState<string[]>(
-    "m2_categories",
+    STORAGE_KEYS.M2_CATEGORIES,
     []
   );
+  const { syncToDb, loadFromDB, isReady: dbReady } = useM2DBSync();
+
+  // 登录用户且 intake 为空时从 DB 恢复
+  useEffect(() => {
+    if (!dbReady || intake.stories.length > 0) return;
+    loadFromDB().then((data) => {
+      if (!data) return;
+      if (data.intake) setIntake(data.intake as IntakeArtifact);
+      if (Array.isArray(data.bullets) && data.bullets.length > 0)
+        setBullets(data.bullets as CandidateBullet[]);
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dbReady]);
 
   const [messages, setMessages] = useState<ChatMsg[]>([]);
   const [input, setInput] = useState("");
@@ -223,7 +233,7 @@ export default function Module2Page() {
   const [expandedBullets, setExpandedBullets] = useState<Set<number>>(new Set());
   const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
   const [copiedAll, setCopiedAll] = useState(false);
-  const [depth, setDepth] = useLocalState<Depth>("m2_depth", "medium");
+  const [depth, setDepth] = useLocalState<Depth>(STORAGE_KEYS.M2_DEPTH, "medium");
 
   // 拔高型 persona / 已勾过类别 / 已有 stories → 进 chat;否则进类别枚举
   const ambitious = isAmbitiousPersonaTag(profile.persona_tag);
@@ -285,10 +295,19 @@ export default function Module2Page() {
       const data = await res.json();
 
       if (data.delta_intake) {
-        setIntake((prev) => mergeIntake(prev, data.delta_intake));
+        setIntake((prev) => {
+          const next = mergeIntake(prev, data.delta_intake);
+          // 同步到 DB（fire-and-forget）
+          void syncToDb(next, bullets);
+          return next;
+        });
       }
       if (Array.isArray(data.delta_bullets) && data.delta_bullets.length > 0) {
-        setBullets((prev) => [...prev, ...data.delta_bullets]);
+        setBullets((prev) => {
+          const next = [...prev, ...data.delta_bullets];
+          void syncToDb(intake, next);
+          return next;
+        });
       }
       if (data.phase) setPhase(data.phase as Phase);
       if (data.done) setDone(true);
@@ -323,6 +342,7 @@ export default function Module2Page() {
     bullets,
     setIntake,
     setBullets,
+    syncToDb,
   ]);
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
