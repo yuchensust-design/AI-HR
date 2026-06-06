@@ -14,7 +14,7 @@ const BASE_LINKS: { href: string; title: string; desc: string }[] = [
   {
     href: "/m3",
     title: "重做简历 + JD 对齐",
-    desc: "回复率低时优先看简历是否漏关键词,Live Diff 能定位缺哪几个。",
+    desc: "回复率低时,优先看简历是否漏了 JD 关键词 — 改完跟原版对比看进步。",
   },
   {
     href: "/m5",

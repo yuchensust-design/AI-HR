@@ -453,9 +453,9 @@ function GapStatusCard({
       <Card className="mt-5 p-4 border-2 border-esther-red/30 bg-esther-red/5">
         <p className="text-xs text-ink leading-relaxed">
           <span className="font-bold text-esther-red">
-            ⚠️ Anti-fabrication 纪律:
+            ⚠️ 项目没做完之前,不会进简历:
           </span>
-          {" "}项目状态在 DONE 之前永远不进简历;DONE 状态也需要你在「项目笔记」里写下实际成果(访谈了几人 / Dashboard 链接 / 报告输出),AI 才能基于真实素材生成 bullet。
+          {" "}状态到 DONE 之后,你还得在「项目笔记」里写下实际成果(访谈了几人 / Dashboard 链接 / 报告输出),AI 才会基于真实素材生成 bullet。
         </p>
       </Card>
     </Card>

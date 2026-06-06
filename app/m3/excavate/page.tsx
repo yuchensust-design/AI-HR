@@ -452,7 +452,7 @@ function ExcavateContent() {
             {status === "finalize" && (
               <Card className="p-6 border-2 border-esther-blue/30 bg-esther-blue/5">
                 <p className="text-sm text-ink-soft text-center py-4">
-                  🔍 怀疑型面试官 R1 在审视你挖到的故事(找 weak spot)...
+                  🔍 AI 在帮你提前找面试官会追问的薄弱点...
                 </p>
               </Card>
             )}
