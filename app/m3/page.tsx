@@ -9,6 +9,7 @@ import { Nav } from "@/components/Nav";
 import { BuerFloatingButton } from "@/components/BuerFloatingButton";
 import ConversationSwitcher from "@/components/conversations/ConversationSwitcher";
 import { DiaryMiningCard } from "@/components/DiaryMiningCard";
+import { ResumePromiseChips } from "@/components/m3/ResumePromiseChips";
 import { useM3Data } from "@/lib/sync/useM3Data";
 import { useUser } from "@/lib/auth/useUser";
 
@@ -285,8 +286,10 @@ function Module3Content() {
                   </Card>
                 </div>
 
-                {/* 右:下一模块跳转 */}
+                {/* 右:承诺 + 下一模块跳转 */}
                 <aside className="space-y-5">
+                  <ResumePromiseChips />
+
                   <Card className="p-5 border-2 border-border">
                     <p className="font-display italic text-xs text-esther-blue mb-2">Next 模块</p>
                     <h3 className="text-sm font-semibold text-ink mb-3">改完之后...</h3>
