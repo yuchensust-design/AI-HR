@@ -1,31 +1,19 @@
 "use client";
 
-import { Suspense, useState, useEffect, useCallback, useMemo } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useState, useEffect, useCallback, useMemo, useRef } from "react";
 import Link from "next/link";
 import { Card } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Nav } from "@/components/Nav";
 import { BuerFloatingButton } from "@/components/BuerFloatingButton";
 import { useLocalState, STORAGE_KEYS } from "@/lib/use-local-state";
 import { useM3DBSync } from "@/lib/sync/useM3DBSync";
 import {
-  EditSuggestionCard,
   type EditSuggestion,
   type Decision,
-  type GapAlertDecision,
   type RejectReason,
 } from "@/components/EditSuggestionCard";
-import { GapAlertCard } from "@/components/GapAlertCard";
-import { DiffMetricsTable, type LlmMetrics } from "@/components/DiffMetricsTable";
-import { M3DataDashboard } from "@/components/M3DataDashboard";
-import { JDKeywordsBar } from "@/components/JDKeywordsBar";
-import {
-  computeRuleMetrics,
-  extractV1Bullets,
-  extractV2Bullets,
-  type RuleMetrics,
-} from "@/lib/diff-metrics";
+import { type LlmMetrics } from "@/components/DiffMetricsTable";
+import { M3OptimizationStepper } from "@/components/M3OptimizationStepper";
 import { ensureResumeIds } from "@/lib/m3-id-helpers";
 
 /**
@@ -48,7 +36,6 @@ type SuggestEditsResult = {
 
 type DecisionsMap = Record<string, Decision>;
 type RewrittenMap = Record<string, string>;
-type GapDecisionsMap = Record<string, GapAlertDecision>;
 
 type AnyBullet = { text?: string; narrative_tag?: string } | string;
 type ParsedResume = {
@@ -91,16 +78,11 @@ export default function ResultPage() {
 }
 
 function ResultContent() {
-  const router = useRouter();
   const { isLoggedInWithConv, dbData, convQs, saveField, loading: dbLoading } = useM3DBSync();
 
   const [localParsedResume, setLocalParsedResume] = useLocalState<ParsedResume>(STORAGE_KEYS.PARSED_RESUME, null);
-  const [localJdContext] = useLocalState<JdCtx>(STORAGE_KEYS.JD_CONTEXT, null);
-  const [localHidden, setLocalHidden] = useLocalState<HiddenList>(STORAGE_KEYS.HIDDEN_EXPERIENCES, []);
-  const [, setRejectionReasons] = useLocalState<RejectionMap>(
-    STORAGE_KEYS.M3_REJECTION_REASONS,
-    {},
-  );
+  const [localJdContext, setLocalJdContext] = useLocalState<JdCtx>(STORAGE_KEYS.JD_CONTEXT, null);
+  const [localHidden] = useLocalState<HiddenList>(STORAGE_KEYS.HIDDEN_EXPERIENCES, []);
 
   const parsedResume = (isLoggedInWithConv ? dbData?.parsed_resume_json ?? null : localParsedResume) as ParsedResume;
   const jdContext = (isLoggedInWithConv ? dbData?.jd_context_json ?? null : localJdContext) as JdCtx;
@@ -108,36 +90,18 @@ function ResultContent() {
     ? (Array.isArray(dbData?.hidden_experience_json) ? dbData!.hidden_experience_json : [])
     : localHidden) as HiddenList;
 
-  const setHiddenExperiences = useCallback(
-    async (next: HiddenList | ((prev: HiddenList) => HiddenList)) => {
-      const resolved = typeof next === "function" ? (next as (p: HiddenList) => HiddenList)(hiddenExperiences) : next;
-      setLocalHidden(resolved);
-      if (isLoggedInWithConv) await saveField("hidden_experience_json", resolved);
-    },
-    [hiddenExperiences, isLoggedInWithConv, saveField, setLocalHidden],
-  );
-
   const [status, setStatus] = useState<Status>("loading");
   const [errorMsg, setErrorMsg] = useState("");
   const [data, setData] = useState<SuggestEditsResult | null>(null);
   const [decisions, setDecisions] = useState<DecisionsMap>({});
   const [rewritten, setRewritten] = useState<RewrittenMap>({});
-  const [gapDecisions, setGapDecisions] = useState<GapDecisionsMap>({});
-  const [gapFillBusyId, setGapFillBusyId] = useState<string | null>(null);
-  const [regenBusyId, setRegenBusyId] = useState<string | null>(null);
   const [downloading, setDownloading] = useState(false);
   const [fromDebriefHighlight, setFromDebriefHighlight] = useState<FromDebriefHighlight>(null);
-  const [highlightedKeyword, setHighlightedKeyword] = useState<string | null>(null);
 
-  // Live Diff 6 维表 state(2026-06-04)
+  // LLM metrics 给顶部"综合 +N 分 / JD 命中 +N 个"用(简化版)
   const [llmMetrics, setLlmMetrics] = useState<LlmMetrics | null>(null);
   const [llmJdKeywords, setLlmJdKeywords] = useState<string[]>([]);
   const [llmMatchedKeywords, setLlmMatchedKeywords] = useState<string[]>([]);
-  const [llmGapBreakdown, setLlmGapBreakdown] = useState<{ easy: number; mid: number; hard: number }>({
-    easy: 0,
-    mid: 0,
-    hard: 0,
-  });
   const [llmMetricsRefreshing, setLlmMetricsRefreshing] = useState(false);
 
   // 读模块 5 复盘 highlight(不持久化在 STORAGE_KEYS 里,直接读 raw key,fail-safe)
@@ -186,20 +150,21 @@ function ResultContent() {
       const parsed = (await res.json()) as SuggestEditsResult;
       setData(parsed);
 
-      // Auto-accept 风险分级(offer-1-sparkling-hippo):
-      // 仅放行 claim_type === "explicit" && priority === "high" 的 edit。
-      // inferred / needs_confirmation / forbidden 一律保持待确认,由用户手动决策。
-      // 老数据没 claim_type 时按 needs_confirmation 兜底,因此老 demo 也会变成"保守模式"。
+      // V2 自动 accept(2026-06-07 用户反馈):放弃逐条 accept/reject 流,所有低风险全自动改。
+      // 低风险 = claim_type === "explicit" 且 category 不是 hidden-experience-add / gap-alert / quantification。
+      // 高风险(inferred / needs_confirmation / quantification / 新增) → 保持 pending,在简历里【请补充】高亮等用户填。
+      const LOW_RISK_CAT = new Set([
+        "narrative-tools",
+        "ats-keyword",
+        "section-reorder",
+        "career-translator",
+        "tech-deepening",
+      ]);
       const initialDecisions: DecisionsMap = {};
-      const safeAutoAcceptable = parsed.edits.filter(
-        (e) => e.priority === "high" && e.claim_type === "explicit",
-      );
-      const autoAcceptCount = Math.min(
-        parsed.default_accept_count ?? 3,
-        safeAutoAcceptable.length,
-      );
-      for (let i = 0; i < autoAcceptCount; i++) {
-        initialDecisions[safeAutoAcceptable[i].id] = "accept";
+      for (const e of parsed.edits) {
+        if (e.claim_type === "explicit" && LOW_RISK_CAT.has(e.category)) {
+          initialDecisions[e.id] = "accept";
+        }
       }
       setDecisions(initialDecisions);
       setStatus("ready");
@@ -216,62 +181,49 @@ function ResultContent() {
     }
   }, [parsedResume, data, status, loadSuggestions]);
 
-  function handleAccept(id: string) {
-    setDecisions((d) => ({ ...d, [id]: "accept" }));
-  }
-  function handleReject(id: string, reason: RejectReason) {
-    setDecisions((d) => ({ ...d, [id]: "reject" }));
-    setRejectionReasons((m) => ({ ...m, [id]: reason }));
-  }
-  /** §8.28 Wave 4: 用户自己改文案 → 写入 rewritten + 自动采纳 */
-  function handleCustomEdit(id: string, text: string) {
-    setRewritten((r) => ({ ...r, [id]: text }));
-    setDecisions((d) => ({ ...d, [id]: "accept" }));
-  }
-  function handleKeywordClick(keyword: string) {
-    setHighlightedKeyword((cur) => (cur === keyword ? null : keyword));
-    // 滚到 JDKeywordsBar
-    if (typeof document !== "undefined") {
-      const el = document.querySelector<HTMLSpanElement>(`[data-keyword="${keyword}"]`);
-      if (el) {
-        el.scrollIntoView({ behavior: "smooth", block: "center" });
-      }
-    }
-  }
-  // === Live Diff 6 维表 computation(纯前端 4 维规则实时)===
-
-  // 收集所有 accepted edits(含 rewritten 文本)
-  const acceptedEditsForDiff = useMemo(() => {
-    if (!data) return [];
-    return data.edits
-      .filter((e) => decisions[e.id] === "accept" && e.category !== "gap-alert")
-      .map((e) => ({
-        target: e.target,
-        original_text: e.original_text,
-        suggested_text: rewritten[e.id] ?? e.suggested_text,
-      }));
-  }, [data, decisions, rewritten]);
-
-  const v1Bullets = useMemo(() => extractV1Bullets(parsedResume), [parsedResume]);
-  const v2Bullets = useMemo(
-    () => extractV2Bullets(parsedResume, acceptedEditsForDiff),
-    [parsedResume, acceptedEditsForDiff]
-  );
-
-  const ruleV1: RuleMetrics = useMemo(
-    () => computeRuleMetrics(v1Bullets, llmJdKeywords),
-    [v1Bullets, llmJdKeywords]
-  );
-  const ruleV2: RuleMetrics = useMemo(
-    () => computeRuleMetrics(v2Bullets, llmJdKeywords),
-    [v2Bullets, llmJdKeywords]
-  );
-
-  // 调 diff-metrics API(LLM 评估 STAR + 硬门槛 + jd_keywords 扩展)
+  // === LLM diff-metrics(只取顶部 1 行评分需要的 JD 关键词命中数 + STAR/hard_req 提升)===
   const loadLlmMetrics = useCallback(async () => {
-    if (v1Bullets.length === 0 && v2Bullets.length === 0) return;
+    if (!parsedResume) return;
     setLlmMetricsRefreshing(true);
     try {
+      // V2 不再计算 6 维表,只给 LLM 一个简化 payload 拿 jd_keywords / matched / STAR
+      const acceptedEditsForDiff = data
+        ? data.edits
+            .filter((e) => decisions[e.id] === "accept" && e.category !== "gap-alert")
+            .map((e) => ({
+              target: e.target,
+              original_text: e.original_text,
+              suggested_text: rewritten[e.id] ?? e.suggested_text,
+            }))
+        : [];
+      const v1Bullets: string[] = [];
+      const v2Bullets: string[] = [];
+      // 简单提取所有 bullet 文本(rough,只为后端 STAR 评分)
+      const sections: Array<keyof NonNullable<ParsedResume>> = [
+        "experience",
+        "projects",
+        "activities",
+      ];
+      for (const sec of sections) {
+        const arr = (parsedResume as Record<string, unknown>)?.[sec];
+        if (!Array.isArray(arr)) continue;
+        for (const it of arr) {
+          const bs = (it as { bullets?: Array<string | { text?: string }> })?.bullets;
+          if (!Array.isArray(bs)) continue;
+          for (const b of bs) {
+            const t = typeof b === "string" ? b : b?.text ?? "";
+            if (t) {
+              v1Bullets.push(t);
+              const repl = acceptedEditsForDiff.find((e) => e.original_text === t);
+              v2Bullets.push(repl ? repl.suggested_text : t);
+            }
+          }
+        }
+      }
+      if (v1Bullets.length === 0) {
+        setLlmMetricsRefreshing(false);
+        return;
+      }
       const res = await fetch("/api/m3/diff-metrics", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -286,7 +238,6 @@ function ResultContent() {
       const parsed = (await res.json()) as LlmMetrics & {
         jd_keywords?: string[];
         matched_keywords?: string[];
-        gap_breakdown?: { easy: number; mid: number; hard: number };
       };
       setLlmMetrics({
         star_complete_v1: parsed.star_complete_v1,
@@ -303,15 +254,12 @@ function ResultContent() {
       if (parsed.matched_keywords) {
         setLlmMatchedKeywords(parsed.matched_keywords);
       }
-      if (parsed.gap_breakdown) {
-        setLlmGapBreakdown(parsed.gap_breakdown);
-      }
     } catch (err) {
       console.error("[loadLlmMetrics] failed:", err);
     } finally {
       setLlmMetricsRefreshing(false);
     }
-  }, [v1Bullets, v2Bullets, jdContext, parsedResume]);
+  }, [parsedResume, jdContext, data, decisions, rewritten]);
 
   // 进 ready 状态后自动跑 1 次 LLM diff-metrics
   useEffect(() => {
@@ -320,95 +268,6 @@ function ResultContent() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status, data]);
-
-  // === gap-alert handlers (2026-06-02 v2) ===
-  async function handleGapFill(edit: EditSuggestion, userInput: string) {
-    setGapFillBusyId(edit.id);
-    try {
-      // 1. 把用户的简短经历转成 STAR(调 excavate API 的 answer action,简化版)
-      const dummyQ = {
-        id: `gap-fill-${edit.id}`,
-        topic_name: edit.jd_requirement_text ?? "JD 缺口",
-        context_intro: edit.suggested_text,
-        options: [],
-        fill_prompt: "",
-        none_label: "",
-      };
-      const dummyAnswer = {
-        option_letters: [],
-        fill_text: userInput,
-      };
-      const res = await fetch("/api/m3/excavate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "answer",
-          question: dummyQ,
-          userAnswer: dummyAnswer,
-          parsedResume,
-          jdContext: jdContext ?? null,
-        }),
-      });
-      const parsed = await res.json();
-
-      // 2. append 到 hidden_experiences
-      if (!parsed.skipped && parsed.candidate_bullets && parsed.candidate_bullets.length > 0) {
-        const newHidden = {
-          question_id: dummyQ.id,
-          topic_name: edit.jd_requirement_text ?? "JD 缺口补充",
-          raw_user_material: parsed.raw_user_material ?? userInput,
-          star_breakdown: parsed.star_breakdown ?? null,
-          candidate_bullets: parsed.candidate_bullets,
-        };
-        setHiddenExperiences((arr) => [...(arr ?? []), newHidden]);
-      }
-
-      // 3. 标记 gap decision
-      setGapDecisions((d) => ({ ...d, [edit.id]: { kind: "filled", user_input: userInput } }));
-
-      // 4. 重跑 suggest-edits(因为 hidden_experiences 变了)
-      // 注意:setHiddenExperiences 是异步的,这里手动构造新数组传过去
-      setTimeout(() => {
-        loadSuggestions();
-      }, 300);
-    } catch (err) {
-      console.error("gap fill failed:", err);
-    } finally {
-      setGapFillBusyId(null);
-    }
-  }
-
-  function handleGapAcknowledge(editId: string) {
-    setGapDecisions((d) => ({ ...d, [editId]: { kind: "acknowledged" } }));
-  }
-
-  function handleGapRedirectProject(editId: string) {
-    setGapDecisions((d) => ({ ...d, [editId]: { kind: "redirect-project" } }));
-    setTimeout(() => router.push("/m4"), 800); // m4 是另一模块,不带 m3 convId
-  }
-
-  async function handleRegen(edit: EditSuggestion) {
-    setRegenBusyId(edit.id);
-    try {
-      const res = await fetch("/api/m3/rewrite-bullet", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          edit,
-          parsedResume,
-          jdContext: jdContext ?? null,
-        }),
-      });
-      const parsed = await res.json();
-      if (parsed.suggested_text) {
-        setRewritten((r) => ({ ...r, [edit.id]: parsed.suggested_text }));
-      }
-    } catch (err) {
-      console.error("regen failed:", err);
-    } finally {
-      setRegenBusyId(null);
-    }
-  }
 
   async function handleDownload() {
     if (!data) return;
@@ -461,26 +320,49 @@ function ResultContent() {
 
   // 统计
   const acceptedCount = Object.values(decisions).filter((d) => d === "accept").length;
-  const rejectedCount = Object.values(decisions).filter((d) => d === "reject").length;
-  const pendingCount = (data?.edits.length ?? 0) - acceptedCount - rejectedCount;
 
-  // gap_breakdown 兜底:LLM 没返回时根据 jdContext.gaps 现算(纯规则)
-  const gapBreakdownFallback = useMemo(() => {
-    const gaps = jdContext?.gaps ?? [];
-    const b = { easy: 0, mid: 0, hard: 0 };
-    for (const g of gaps) {
-      const f = String(g?.fixable ?? "");
-      if (f.includes("易补")) b.easy++;
-      else if (f.includes("中等")) b.mid++;
-      else if (f.includes("难补")) b.hard++;
-    }
-    return b;
-  }, [jdContext]);
+  // V2 待补充 edit(简历里【请补充】高亮 + 用户点击填)
+  const pendingFillEdits = useMemo(() => {
+    if (!data) return [];
+    return data.edits.filter(
+      (e) =>
+        e.category !== "gap-alert" &&
+        decisions[e.id] !== "accept" &&
+        decisions[e.id] !== "reject" &&
+        (e.claim_type === "needs_confirmation" ||
+          e.claim_type === "inferred" ||
+          e.category === "quantification"),
+    );
+  }, [data, decisions]);
 
-  const effectiveGapBreakdown =
-    llmGapBreakdown.easy + llmGapBreakdown.mid + llmGapBreakdown.hard > 0
-      ? llmGapBreakdown
-      : gapBreakdownFallback;
+  // V2 已自动改的 edit 清单(给左侧"看 AI 改了哪 N 处"用)
+  const acceptedEdits = useMemo(() => {
+    if (!data) return [];
+    return data.edits.filter((e) => decisions[e.id] === "accept");
+  }, [data, decisions]);
+
+  // V2 顶部评分:综合提升 / JD 命中率 / 待补充
+  const matchedKeywordsCount = llmMatchedKeywords.length;
+  const totalKeywordsCount = llmJdKeywords.length;
+  const coveragePct =
+    totalKeywordsCount > 0
+      ? Math.round((matchedKeywordsCount / totalKeywordsCount) * 100)
+      : 0;
+  // 综合提升估算:LLM 给的 v2-v1 STAR 完整度 + 关键词补全 + 量化填充
+  const improveScore = useMemo(() => {
+    if (!llmMetrics) return acceptedCount * 2; // fallback 简单估算
+    const starGain =
+      (llmMetrics.star_complete_v2?.complete ?? 0) -
+      (llmMetrics.star_complete_v1?.complete ?? 0);
+    const hardGain =
+      (llmMetrics.hard_req_v2_aligned ?? 0) - (llmMetrics.hard_req_v1_aligned ?? 0);
+    return Math.max(acceptedCount, Math.round(starGain * 3 + hardGain * 5 + acceptedCount * 2));
+  }, [llmMetrics, acceptedCount]);
+
+  function handleFillBlank(editId: string, filledText: string) {
+    setRewritten((r) => ({ ...r, [editId]: filledText }));
+    setDecisions((d) => ({ ...d, [editId]: "accept" }));
+  }
 
   // 登录用户 DB 还在 fetch → 显示 loading,别闪 "还没读到你的简历"
   if (isLoggedInWithConv && dbLoading) {
@@ -523,79 +405,12 @@ function ResultContent() {
       <main className="min-h-screen bg-warm-bg">
         <div className="h-20" />
 
-        {/* 顶部 sticky 提交栏 */}
-        {data && (
-          <section className="sticky top-20 z-30 bg-warm-bg/95 backdrop-blur-sm border-b border-border shadow-sm">
-            <div className="max-w-[1400px] mx-auto px-6 py-3 flex items-center justify-between gap-3 flex-wrap">
-              <div className="flex items-center gap-3 flex-wrap text-xs">
-                <Badge className="bg-esther-yellow text-ink px-2 py-1">Phase 5 / 5</Badge>
-                <span className="text-ink-soft">
-                  共 <strong className="text-ink">{data.edits.length}</strong> 处建议 ·
-                  <span className="ml-2 text-esther-blue font-medium">已采纳 {acceptedCount}</span>
-                  <span className="ml-2 text-ink-muted">维持 {rejectedCount}</span>
-                  <span className="ml-2 text-esther-red">待审 {pendingCount}</span>
-                </span>
-                {data.inferred_persona && data.inferred_persona !== "未判定" && (
-                  <span className="inline-flex items-center px-2 py-0.5 rounded bg-esther-blue/10 text-esther-blue text-[10px] font-medium">
-                    persona: {data.inferred_persona}
-                  </span>
-                )}
-              </div>
-              <button
-                onClick={handleDownload}
-                disabled={downloading || acceptedCount === 0}
-                className="inline-flex items-center justify-center rounded-full bg-esther-blue text-white px-5 py-2 text-sm font-medium hover:bg-esther-blue-dark transition-colors shadow-sm disabled:opacity-40 disabled:cursor-not-allowed"
-              >
-                {downloading ? "生成中..." : "✓ 我看完了 → 下载 Word"}
-              </button>
-            </div>
-          </section>
-        )}
+        {/* Loading 中 → V2 stepper(参考竞品 — 显示 AI 思考过程,不再"AI 正在分析…"一句话)*/}
+        {status === "loading" && <M3OptimizationStepper ready={false} />}
 
-        {/* Header */}
-        <section className="border-b border-border">
-          <div className="max-w-[1400px] mx-auto px-6 py-6">
-            <Link
-              href="/m3/excavate"
-              className="inline-flex items-center gap-1 text-sm text-ink-soft hover:text-esther-blue transition-colors mb-3"
-            >
-              ← 回 Phase 3
-            </Link>
-            <h1 className="text-2xl md:text-3xl font-bold text-ink mb-1 leading-tight">
-              逐条确认改动 → 下载 Word
-            </h1>
-            <p className="text-ink-soft text-sm">
-              AI 给了几条建议,你逐条决定要不要改 · 任何时候可以下载
-            </p>
-            {/* placeholder_mode 提示(plan offer-1-sparkling-hippo P1):M6 跳过来但没拿到 JD 全文 */}
-            {jdContext?.placeholder_mode && (
-              <div className="mt-3 leading-relaxed bg-esther-yellow/15 border border-esther-yellow/50 rounded-md px-3 py-2">
-                <p className="text-xs text-ink">
-                  ⚠️ <strong>岗位摘要模式</strong>:当前 JD 全文未能从 M6 抓到(可能是平台反爬或岗位下架),仅基于
-                  <span className="font-medium"> {jdContext.role_name ?? "(岗位名)"}{jdContext.company ? ` @ ${jdContext.company}` : ""} </span>
-                  做岗位推断。
-                </p>
-                <p className="text-[11px] text-ink-soft mt-1">
-                  本次所有改写建议的 claim_type 已自动降级为 <code className="font-mono text-ink">inferred</code>(置信度 medium),
-                  建议你回 M6 点开原始岗位页面手动复制 JD 后回来重做一次。
-                </p>
-              </div>
-            )}
-          </div>
-        </section>
-
-        {/* 加载中 */}
-        {status === "loading" && (
-          <div className="max-w-[1400px] mx-auto px-6 py-20">
-            <Card className="p-8 border-2 border-border bg-warm-bg-deep/30 text-center">
-              <p className="text-base text-ink-soft">🤖 AI 在分析你的简历 + JD,产出改动建议(~10-20 秒)...</p>
-            </Card>
-          </div>
-        )}
-
-        {/* 错误 */}
+        {/* Error */}
         {status === "error" && (
-          <div className="max-w-[1400px] mx-auto px-6 py-20">
+          <div className="max-w-[600px] mx-auto px-6 py-20">
             <Card className="p-6 border-2 border-esther-red/30 bg-esther-red/5">
               <p className="text-sm text-esther-red mb-3">⚠️ {errorMsg}</p>
               <button
@@ -608,169 +423,158 @@ function ResultContent() {
           </div>
         )}
 
-        {/* Ready */}
+        {/* Ready — V2 左对话 + 右简历 */}
         {status === "ready" && data && (
-          <div className="max-w-[1400px] mx-auto px-6 py-6 space-y-4">
-            {/* PM 06 §3.4 #1 + #5 — 顶部数据看板 + 反编造文案 */}
-            <M3DataDashboard
-              data={{
-                jdKeywordsCount: llmJdKeywords.length,
-                matchedKeywordsCount: llmMatchedKeywords.length,
-                gapBreakdown: effectiveGapBreakdown,
-                acceptedCount,
-                totalEditsCount: data.edits.length,
-              }}
-            />
-            <div className="flex items-center gap-2 px-3 py-2 rounded-md border border-border bg-warm-bg-deep/30">
-              <span className="text-base">🛡️</span>
-              <p className="text-[11px] text-ink-soft leading-snug">
-                每条建议都标了来源,你可以逐条 ✓ 采纳 / ✗ 跳过 / ✎ 改一下。
-              </p>
-            </div>
+          <>
+            {/* 顶部 sticky 1 行 — 4 维数据 + 下载 Word */}
+            <section className="sticky top-20 z-30 bg-warm-bg/95 backdrop-blur-sm border-b border-border shadow-sm">
+              <div className="max-w-[1400px] mx-auto px-6 py-3 flex items-center justify-between gap-4 flex-wrap">
+                <div className="flex items-center gap-5 flex-wrap text-sm">
+                  <Link
+                    href={`/m3${convQs}`}
+                    className="text-ink-soft hover:text-esther-blue text-xs"
+                  >
+                    ← 改简历 / JD
+                  </Link>
+                  <span className="flex items-center gap-1.5">
+                    <span className="text-ink-soft text-xs">综合提升</span>
+                    <strong className="text-esther-blue text-lg leading-none">
+                      +{improveScore}
+                    </strong>
+                    <span className="text-ink-muted text-xs">分</span>
+                  </span>
+                  <span className="flex items-center gap-1.5">
+                    <span className="text-ink-soft text-xs">JD 关键词</span>
+                    <strong className="text-ink">
+                      {matchedKeywordsCount}/{totalKeywordsCount}
+                    </strong>
+                    <span className="text-ink-muted text-xs">· {coveragePct}%</span>
+                  </span>
+                  <span className="flex items-center gap-1.5">
+                    <span className="text-ink-soft text-xs">AI 已改</span>
+                    <strong className="text-esther-blue">{acceptedCount}</strong>
+                    <span className="text-ink-muted text-xs">处</span>
+                  </span>
+                  {pendingFillEdits.length > 0 && (
+                    <span className="flex items-center gap-1.5">
+                      <span className="text-ink-soft text-xs">待你填</span>
+                      <strong className="text-esther-red">{pendingFillEdits.length}</strong>
+                      <span className="text-ink-muted text-xs">处</span>
+                    </span>
+                  )}
+                </div>
+                <button
+                  onClick={handleDownload}
+                  disabled={downloading}
+                  className="inline-flex items-center justify-center rounded-full bg-esther-blue text-white px-5 py-2 text-sm font-medium hover:bg-esther-blue-dark transition-colors shadow-sm disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  {downloading ? "生成中..." : "↓ 下载 Word"}
+                </button>
+              </div>
+            </section>
 
-            {/* JD 关键词条 — 让 "对应关键词" 可视化 */}
-            <JDKeywordsBar
-              keywords={llmJdKeywords}
-              matched={llmMatchedKeywords}
-              highlighted={highlightedKeyword}
-            />
-
-            {fromDebriefHighlight && (
-              <Card className="p-3 border-2 border-purple-500/30 bg-purple-500/5">
-                <p className="text-[11px] text-purple-700 leading-relaxed">
-                  💡 已读到模块 5 面试复盘高价值答案,AI 会优先把它整理成一条
-                  <span className="font-medium ml-1">来自面试回写</span>的建议。
-                </p>
-              </Card>
+            {/* placeholder_mode 提示(M6 → M3 没拿到 JD 全文)*/}
+            {jdContext?.placeholder_mode && (
+              <div className="max-w-[1400px] mx-auto px-6 pt-4">
+                <div className="leading-relaxed bg-esther-yellow/15 border border-esther-yellow/50 rounded-md px-3 py-2">
+                  <p className="text-xs text-ink">
+                    ⚠️ <strong>岗位摘要模式</strong>:当前 JD 全文未能从 M6 抓到,仅基于
+                    <span className="font-medium">
+                      {" "}
+                      {jdContext.role_name ?? "(岗位名)"}
+                      {jdContext.company ? ` @ ${jdContext.company}` : ""}{" "}
+                    </span>
+                    做岗位推断。建议回 M6 复制完整 JD 重做一次。
+                  </p>
+                </div>
+              </div>
             )}
 
-            <div className="grid grid-cols-1 lg:grid-cols-[1fr_1.4fr] gap-6">
-            {/* 左:简历预览(简化版 — 列原始 bullet + 标 accepted/rejected) */}
-            <div className="lg:sticky lg:top-44 lg:self-start lg:max-h-[calc(100vh-12rem)] lg:overflow-y-auto">
-              <Card className="p-5 border-2 border-border bg-card">
-                <p className="font-display italic text-xs text-esther-blue mb-2">Live Preview</p>
-                <h3 className="text-sm font-semibold text-ink mb-3">
-                  📄 简历当前状态({acceptedCount} 处已改)
-                </h3>
-                <ResumePreview
-                  parsedResume={parsedResume}
-                  edits={data.edits}
-                  decisions={decisions}
-                  rewritten={rewritten}
-                />
-              </Card>
-            </div>
+            {/* 主内容:左 AI 对话 / 右 简历 */}
+            <div className="max-w-[1400px] mx-auto px-6 py-6">
+              <div className="grid grid-cols-1 lg:grid-cols-[340px_1fr] gap-6">
+                {/* 左:AI 对话(V1 stub,V2 接 chain rewrite)*/}
+                <aside className="lg:sticky lg:top-32 lg:self-start lg:max-h-[calc(100vh-9rem)] flex flex-col">
+                  <Card className="p-5 flex-1 flex flex-col bg-card">
+                    <p className="font-display italic text-xs text-esther-blue mb-1">
+                      Chat with AI
+                    </p>
+                    <h3 className="text-sm font-semibold text-ink mb-2">
+                      💬 跟 AI 说说哪里再改
+                    </h3>
+                    <p className="text-xs text-ink-soft leading-relaxed mb-3">
+                      AI 已自动改了 {acceptedCount} 处低风险表述,你直接看右侧简历就行。如果某段想换写法、补关键词、加深度,告诉我。
+                    </p>
 
-            {/* 右:Live Diff 6 维表 + 改动建议卡片列表 */}
-            <div className="space-y-4">
-              <Card className="p-4 border-2 border-esther-blue/30 bg-esther-blue/5">
-                <p className="text-sm text-ink-soft leading-relaxed">
-                  💡 {data.optimization_summary}
-                </p>
-                <p className="text-[11px] text-ink-muted mt-1">
-                  used skills: <span className="font-mono">{data.used_supplements.join(", ")}</span>
-                </p>
-              </Card>
-
-              {/* 6 维客观差异表(2026-06-04 用户需求)*/}
-              <DiffMetricsTable
-                ruleV1={ruleV1}
-                ruleV2={ruleV2}
-                llm={llmMetrics}
-                onRefreshLlm={loadLlmMetrics}
-                refreshing={llmMetricsRefreshing}
-              />
-
-
-              {(() => {
-                const gapAlerts = data.edits.filter((e) => e.category === "gap-alert");
-                const regularEdits = data.edits.filter((e) => e.category !== "gap-alert");
-                return (
-                  <>
-                    {/* 顶部 Gap-Alert section(2026-06-02 v2)*/}
-                    {gapAlerts.length > 0 && (
-                      <Card className="p-4 border-2 border-esther-red/40 bg-esther-red/5">
-                        <p className="font-display italic text-xs text-esther-red mb-2">
-                          JD Gaps
-                        </p>
-                        <h3 className="text-base font-semibold text-ink mb-1">
-                          📋 JD 还要求这些,你简历没体现({gapAlerts.length})
-                        </h3>
-                        <p className="text-xs text-ink-soft leading-relaxed">
-                          每条决定 3 选 1:你有相关经验?确实没有?打算做项目补?
-                          只列「易补」+「中等」的(难补 ≥3 月 已过滤,应去模块 E.2 项目设计)。
-                        </p>
-                      </Card>
+                    {/* 已改清单(折叠)*/}
+                    {acceptedEdits.length > 0 && (
+                      <details className="mb-3 border border-border rounded p-2 bg-warm-bg-deep/20">
+                        <summary className="text-xs text-ink-soft cursor-pointer hover:text-esther-blue list-none">
+                          ▾ 看 AI 改了哪 {acceptedEdits.length} 处
+                        </summary>
+                        <ul className="mt-2 space-y-1.5 text-[11px] text-ink-soft max-h-60 overflow-y-auto">
+                          {acceptedEdits.map((e) => (
+                            <li key={e.id} className="leading-snug">
+                              <span className="text-esther-blue mr-1">·</span>
+                              <span className="text-ink-muted">[{e.category}]</span>{" "}
+                              {e.reason || "改写"}
+                            </li>
+                          ))}
+                        </ul>
+                      </details>
                     )}
 
-                    {gapAlerts.map((edit) => (
-                      <GapAlertCard
-                        key={edit.id}
-                        edit={edit}
-                        decision={gapDecisions[edit.id] ?? null}
-                        onFill={(input) => handleGapFill(edit, input)}
-                        onAcknowledge={() => handleGapAcknowledge(edit.id)}
-                        onRedirectProject={() => handleGapRedirectProject(edit.id)}
-                        fillBusy={gapFillBusyId === edit.id}
-                      />
-                    ))}
-
-                    {/* 分隔:改写建议 */}
-                    {gapAlerts.length > 0 && regularEdits.length > 0 && (
-                      <div className="pt-3 border-t border-border">
-                        <p className="font-display italic text-xs text-esther-blue mb-1">
-                          Edit Suggestions
+                    {/* 待补充清单 */}
+                    {pendingFillEdits.length > 0 && (
+                      <div className="mb-3 border border-esther-yellow/50 rounded p-2 bg-esther-yellow/[0.05]">
+                        <p className="text-xs text-ink font-medium mb-1.5">
+                          ⚠️ 还有 {pendingFillEdits.length} 处要你填具体数字
                         </p>
-                        <h3 className="text-base font-semibold text-ink">
-                          ✏️ 改写建议({regularEdits.length})
-                        </h3>
+                        <p className="text-[11px] text-ink-soft leading-snug">
+                          简历里【请补充】高亮的地方,点一下填具体数字 / 信息
+                        </p>
                       </div>
                     )}
 
-                    {regularEdits.map((edit) => (
-                      <EditSuggestionCard
-                        key={edit.id}
-                        edit={edit}
-                        decision={decisions[edit.id] ?? null}
-                        rewrittenText={rewritten[edit.id] ?? null}
-                        onAccept={() => handleAccept(edit.id)}
-                        onReject={(reason) => handleReject(edit.id, reason)}
-                        onRegen={() => handleRegen(edit)}
-                        onCustomEdit={(text) => handleCustomEdit(edit.id, text)}
-                        regenBusy={regenBusyId === edit.id}
-                        onKeywordClick={handleKeywordClick}
+                    {/* 输入框 stub(V1 disabled,V2 接 LLM chain rewrite)*/}
+                    <div className="mt-auto">
+                      <textarea
+                        disabled
+                        rows={3}
+                        placeholder="例:把项目经历再写得更技术 · 补充更多 JD 关键词 · 换个写法"
+                        className="w-full px-3 py-2 rounded-lg border border-border bg-warm-bg/40 text-xs text-ink leading-relaxed resize-none focus:outline-none disabled:opacity-60"
                       />
-                    ))}
-                  </>
-                );
-              })()}
-            </div>
-            </div>
-            {/* Tracker 前置入口(plan offer-1-sparkling-hippo P2):简历版本 → Tracker 闭环 */}
-            <div className="max-w-[1400px] mx-auto px-6 pb-12">
-              <Card className="p-5 border-2 border-esther-blue/30 bg-esther-blue/5">
-                <div className="flex items-start gap-4 flex-wrap">
-                  <div className="flex-1 min-w-[280px]">
-                    <p className="font-display italic text-xs text-esther-blue mb-1">
-                      Next loop · Tracker
-                    </p>
-                    <h3 className="text-base font-semibold text-ink mb-1">
-                      📊 改完简历就开始投递 — 投了什么、回了什么,一起跟踪
-                    </h3>
-                    <p className="text-xs text-ink-soft leading-relaxed">
-                      把这一版简历加进「投递追踪」,后续回复率 / 面试转化率自动算出来。10 条以上才出转化结论,样本不足时不乱给百分比。
-                    </p>
-                  </div>
-                  <Link
-                    href="/tracker"
-                    className="inline-flex items-center justify-center rounded-full bg-esther-blue text-white px-5 py-2.5 text-sm font-medium hover:bg-esther-blue-dark transition-colors"
-                  >
-                    去投递追踪 →
-                  </Link>
+                      <p className="text-[10px] text-ink-muted mt-1.5">
+                        💬 自由对话即将上线 · 当前可手动点【请补充】填值
+                      </p>
+                    </div>
+                  </Card>
+                </aside>
+
+                {/* 右:简历预览(word-style)*/}
+                <div>
+                  <Card className="p-8 md:p-10 bg-white shadow-sm border-border">
+                    <ResumePreview
+                      parsedResume={parsedResume}
+                      edits={data.edits}
+                      decisions={decisions}
+                      rewritten={rewritten}
+                      onFillBlank={handleFillBlank}
+                    />
+                  </Card>
+
+                  {fromDebriefHighlight && (
+                    <Card className="mt-4 p-3 border-2 border-purple-500/30 bg-purple-500/5">
+                      <p className="text-[11px] text-purple-700 leading-relaxed">
+                        💡 已读到模块 5 面试复盘高价值答案,AI 已优先整理成简历里的
+                        <span className="font-medium ml-1">来自面试回写</span>建议。
+                      </p>
+                    </Card>
+                  )}
                 </div>
-              </Card>
+              </div>
             </div>
-          </div>
+          </>
         )}
 
         <BuerFloatingButton />
@@ -779,28 +583,141 @@ function ResultContent() {
   );
 }
 
-// ============ Resume Preview 简化组件(inline) ============
+// ============ Resume Preview V2 — word-style + 【请补充】点击填值 ============
+
+const FILL_RE = /【(请补充[^】]*?)】/g;
+
+/**
+ * 把 bullet 文本里的【请补充 X】拆成 text fragment + clickable blank,
+ * 用户点击 blank → 弹小 input 替换那段【...】写回 rewritten。
+ */
+function BulletFillableText({
+  text,
+  editId,
+  onFillBlank,
+}: {
+  text: string;
+  editId: string | null;
+  onFillBlank?: (editId: string, filledText: string) => void;
+}) {
+  const [openBlankIdx, setOpenBlankIdx] = useState<number | null>(null);
+  const [inputVal, setInputVal] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // 找到所有【请补充 ...】区域
+  const parts: Array<{ kind: "text" | "blank"; value: string; idx?: number }> = [];
+  let lastIdx = 0;
+  let m: RegExpExecArray | null;
+  let blankI = 0;
+  const re = new RegExp(FILL_RE);
+  while ((m = re.exec(text)) !== null) {
+    if (m.index > lastIdx) parts.push({ kind: "text", value: text.slice(lastIdx, m.index) });
+    parts.push({ kind: "blank", value: m[1], idx: blankI++ });
+    lastIdx = m.index + m[0].length;
+  }
+  if (lastIdx < text.length) parts.push({ kind: "text", value: text.slice(lastIdx) });
+
+  function applyFill(idx: number, replacement: string) {
+    if (!editId || !onFillBlank) return;
+    // 把第 idx 个【请补充 ...】替换为 replacement
+    let i = 0;
+    const next = text.replace(FILL_RE, (full) => {
+      const ret = i === idx ? replacement : full;
+      i++;
+      return ret;
+    });
+    onFillBlank(editId, next);
+    setOpenBlankIdx(null);
+    setInputVal("");
+  }
+
+  useEffect(() => {
+    if (openBlankIdx !== null) inputRef.current?.focus();
+  }, [openBlankIdx]);
+
+  if (parts.length === 0) return <>{text}</>;
+  return (
+    <>
+      {parts.map((p, i) => {
+        if (p.kind === "text") return <span key={i}>{p.value}</span>;
+        const idx = p.idx!;
+        if (openBlankIdx === idx) {
+          return (
+            <span key={i} className="inline-flex items-center gap-1 mx-0.5 align-middle">
+              <input
+                ref={inputRef}
+                type="text"
+                value={inputVal}
+                onChange={(e) => setInputVal(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && inputVal.trim()) applyFill(idx, inputVal.trim());
+                  else if (e.key === "Escape") {
+                    setOpenBlankIdx(null);
+                    setInputVal("");
+                  }
+                }}
+                placeholder={p.value}
+                className="px-1.5 py-0.5 rounded border border-esther-blue bg-white text-[12px] text-ink w-32 focus:outline-none focus:ring-1 focus:ring-esther-blue"
+              />
+              <button
+                type="button"
+                onClick={() => inputVal.trim() && applyFill(idx, inputVal.trim())}
+                className="text-[10px] text-esther-blue hover:underline"
+              >
+                确认
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setOpenBlankIdx(null);
+                  setInputVal("");
+                }}
+                className="text-[10px] text-ink-muted hover:text-ink"
+              >
+                取消
+              </button>
+            </span>
+          );
+        }
+        return (
+          <button
+            key={i}
+            type="button"
+            onClick={() => setOpenBlankIdx(idx)}
+            disabled={!editId || !onFillBlank}
+            className="inline-flex items-center px-1.5 py-0.5 mx-0.5 rounded bg-esther-yellow/40 hover:bg-esther-yellow/60 border border-esther-yellow text-[12px] text-ink font-medium transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-60"
+            title="点击填具体数字"
+          >
+            ✎ {p.value}
+          </button>
+        );
+      })}
+    </>
+  );
+}
 
 function ResumePreview({
   parsedResume,
   edits,
   decisions,
   rewritten,
+  onFillBlank,
 }: {
   parsedResume: ParsedResume;
   edits: EditSuggestion[];
   decisions: DecisionsMap;
   rewritten: RewrittenMap;
+  onFillBlank?: (editId: string, filledText: string) => void;
 }) {
-  function getBulletText(section: "experience" | "projects" | "activities", sectionIdx: number, bulletIdx: number, originalText: string): { text: string; status: "original" | "accepted" | "rejected" } {
+  function lookupEdit(
+    section: "experience" | "projects" | "activities",
+    sectionIdx: number,
+    bulletIdx: number,
+    originalText: string,
+  ): EditSuggestion | null {
     const target = `${section}[${sectionIdx}].bullets[${bulletIdx}]`;
-    // 双轨 lookup(offer-1-sparkling-hippo P0-B):
-    //   1. 先按 target 字符串匹配(最快,绝大多数 case 走这里)
-    //   2. 再按 edit.bullet_id 匹配:lookup 当前 parsedResume 中相同 bullet_id 的 bullet 位置
-    //   3. 再按 edit.original_text 模糊匹配:LLM 偶尔写错 target 时的兜底
     let matched = edits.find((e) => e.target === target);
     if (!matched) {
-      // 解析当前位置的 bullet_id,再到 edits 里找 bullet_id 一致的
       const currentBulletId = (() => {
         const items = (parsedResume as Record<string, unknown>)?.[section];
         if (!Array.isArray(items)) return null;
@@ -809,12 +726,9 @@ function ResumePreview({
         if (!b || typeof b === "string") return null;
         return b.id ?? null;
       })();
-      if (currentBulletId) {
-        matched = edits.find((e) => e.bullet_id === currentBulletId);
-      }
+      if (currentBulletId) matched = edits.find((e) => e.bullet_id === currentBulletId);
     }
     if (!matched) {
-      // original_text 模糊匹配(70% 字符重叠)
       matched = edits.find((e) => {
         if (!e.original_text || e.original_text === "(新增)" || e.original_text === "(JD 缺口)") return false;
         if (e.original_text.length < 10 || originalText.length < 10) return false;
@@ -825,106 +739,175 @@ function ResumePreview({
         return union > 0 && inter / union >= 0.7;
       });
     }
-    if (!matched) return { text: originalText, status: "original" };
-    const d = decisions[matched.id];
-    if (d === "accept") return { text: rewritten[matched.id] ?? matched.suggested_text, status: "accepted" };
-    return { text: originalText, status: d === "reject" ? "rejected" : "original" };
+    return matched ?? null;
   }
 
-  function renderBulletList(section: "experience" | "projects" | "activities", items: { bullets?: AnyBullet[] }[]) {
-    return items.map((it, sIdx) => (it.bullets ?? []).map((b, bIdx) => {
-      const orig = typeof b === "string" ? b : b.text ?? "";
-      const { text, status } = getBulletText(section, sIdx, bIdx, orig);
-      return (
-        <li
-          key={`${section}-${sIdx}-${bIdx}`}
-          className={`text-[11px] leading-relaxed flex items-start gap-1.5 mb-1 ${
-            status === "accepted" ? "bg-esther-blue/10 px-1 rounded" : ""
-          }`}
-        >
-          <span className="text-esther-blue mt-1 flex-shrink-0">·</span>
-          <span className={status === "accepted" ? "text-ink font-medium" : "text-ink-soft"}>
-            {text}
-            {status === "accepted" && <span className="text-esther-blue ml-1 text-[9px]">✓ 已改</span>}
-          </span>
-        </li>
-      );
-    }));
+  function getBulletDisplay(
+    section: "experience" | "projects" | "activities",
+    sectionIdx: number,
+    bulletIdx: number,
+    originalText: string,
+  ): {
+    text: string;
+    status: "original" | "accepted" | "needs-fill" | "rejected";
+    editId: string | null;
+  } {
+    const matched = lookupEdit(section, sectionIdx, bulletIdx, originalText);
+    if (!matched) return { text: originalText, status: "original", editId: null };
+    const d = decisions[matched.id];
+    if (d === "accept") {
+      return {
+        text: rewritten[matched.id] ?? matched.suggested_text,
+        status: "accepted",
+        editId: matched.id,
+      };
+    }
+    if (d === "reject") return { text: originalText, status: "rejected", editId: matched.id };
+    // pending — 高风险待用户填
+    const isFillable =
+      matched.claim_type === "needs_confirmation" ||
+      matched.claim_type === "inferred" ||
+      matched.category === "quantification";
+    if (isFillable) {
+      return {
+        text: rewritten[matched.id] ?? matched.suggested_text,
+        status: "needs-fill",
+        editId: matched.id,
+      };
+    }
+    return { text: originalText, status: "original", editId: matched.id };
+  }
+
+  function renderBulletList(
+    section: "experience" | "projects" | "activities",
+    items: { bullets?: AnyBullet[] }[],
+  ) {
+    return items.map((it, sIdx) =>
+      (it.bullets ?? []).map((b, bIdx) => {
+        const orig = typeof b === "string" ? b : b.text ?? "";
+        const { text, status, editId } = getBulletDisplay(section, sIdx, bIdx, orig);
+        return (
+          <li
+            key={`${section}-${sIdx}-${bIdx}`}
+            className={`text-[13px] leading-relaxed flex items-start gap-2 mb-1.5 ${
+              status === "accepted"
+                ? "bg-esther-blue/[0.06] px-1.5 rounded-sm"
+                : status === "needs-fill"
+                  ? "bg-esther-yellow/[0.06] px-1.5 rounded-sm"
+                  : ""
+            }`}
+          >
+            <span className="text-ink mt-1.5 flex-shrink-0">·</span>
+            <span
+              className={
+                status === "accepted"
+                  ? "text-ink"
+                  : status === "needs-fill"
+                    ? "text-ink"
+                    : status === "rejected"
+                      ? "text-ink-muted line-through"
+                      : "text-ink"
+              }
+            >
+              <BulletFillableText
+                text={text}
+                editId={editId}
+                onFillBlank={onFillBlank}
+              />
+              {status === "accepted" && !text.match(FILL_RE) && (
+                <span className="text-esther-blue ml-1.5 text-[10px]">✓ 已改</span>
+              )}
+            </span>
+          </li>
+        );
+      }),
+    );
   }
 
   if (!parsedResume) return null;
 
   return (
-    <div className="text-xs space-y-3 font-body-zh">
+    <div className="font-body-zh max-w-[700px] mx-auto space-y-4">
+      {/* 顶部:姓名 + 基本信息(简历头) */}
       {parsedResume.basic && (
-        <div className="text-center pb-2 border-b border-border">
-          <h2 className="text-lg font-bold text-ink">{parsedResume.basic.name ?? "—"}</h2>
-          <p className="text-[10px] text-ink-soft mt-0.5">
-            {parsedResume.basic.major}{parsedResume.basic.year_level ? ` · ${parsedResume.basic.year_level}` : ""}
+        <div className="text-center pb-4 border-b-2 border-ink">
+          <h2 className="text-2xl font-bold text-ink tracking-wide">
+            {parsedResume.basic.name ?? "—"}
+          </h2>
+          <p className="text-sm text-ink-soft mt-1">
+            {parsedResume.basic.major}
+            {parsedResume.basic.year_level ? ` · ${parsedResume.basic.year_level}` : ""}
           </p>
         </div>
       )}
 
       {(parsedResume.experience ?? []).length > 0 && (
-        <div>
-          <h3 className="text-xs font-bold text-esther-blue border-b border-esther-blue/30 pb-0.5 mb-2">
-            实习经历
-          </h3>
+        <Section title="实习经历">
           {(parsedResume.experience ?? []).map((e, sIdx) => (
-            <div key={sIdx} className="mb-2">
-              <p className="text-[11px] font-semibold text-ink">
+            <div key={sIdx} className="mb-3">
+              <p className="text-sm font-semibold text-ink mb-1.5">
                 {e.org} · {e.role}
-                {e.period && <span className="text-ink-muted font-normal ml-2">{e.period}</span>}
+                {e.period && (
+                  <span className="text-ink-muted font-normal text-xs ml-2">
+                    {e.period}
+                  </span>
+                )}
               </p>
               <ul>{renderBulletList("experience", [e])[0]}</ul>
             </div>
           ))}
-        </div>
+        </Section>
       )}
 
       {(parsedResume.projects ?? []).length > 0 && (
-        <div>
-          <h3 className="text-xs font-bold text-esther-blue border-b border-esther-blue/30 pb-0.5 mb-2">
-            项目经验
-          </h3>
+        <Section title="项目经验">
           {(parsedResume.projects ?? []).map((p, sIdx) => (
-            <div key={sIdx} className="mb-2">
-              <p className="text-[11px] font-semibold text-ink">
+            <div key={sIdx} className="mb-3">
+              <p className="text-sm font-semibold text-ink mb-1.5">
                 {p.name}
-                {p.period && <span className="text-ink-muted font-normal ml-2">{p.period}</span>}
+                {p.period && (
+                  <span className="text-ink-muted font-normal text-xs ml-2">
+                    {p.period}
+                  </span>
+                )}
               </p>
               <ul>{renderBulletList("projects", [p])[0]}</ul>
             </div>
           ))}
-        </div>
+        </Section>
       )}
 
       {(parsedResume.activities ?? []).length > 0 && (
-        <div>
-          <h3 className="text-xs font-bold text-esther-blue border-b border-esther-blue/30 pb-0.5 mb-2">
-            社团活动
-          </h3>
+        <Section title="社团活动">
           {(parsedResume.activities ?? []).map((a, sIdx) => (
-            <div key={sIdx} className="mb-2">
-              <p className="text-[11px] font-semibold text-ink">
+            <div key={sIdx} className="mb-3">
+              <p className="text-sm font-semibold text-ink mb-1.5">
                 {a.org} · {a.role}
               </p>
               <ul>{renderBulletList("activities", [a])[0]}</ul>
             </div>
           ))}
-        </div>
+        </Section>
       )}
 
       {parsedResume.skills && (
-        <div>
-          <h3 className="text-xs font-bold text-esther-blue border-b border-esther-blue/30 pb-0.5 mb-2">
-            技能
-          </h3>
-          <p className="text-[11px] text-ink-soft leading-relaxed">
+        <Section title="技能">
+          <p className="text-[13px] text-ink leading-relaxed">
             {Object.values(parsedResume.skills).flat().filter(Boolean).join(" · ")}
           </p>
-        </div>
+        </Section>
       )}
+    </div>
+  );
+}
+
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <h3 className="text-sm font-bold text-ink border-b border-ink/30 pb-1 mb-2.5 tracking-wide">
+        {title}
+      </h3>
+      {children}
     </div>
   );
 }
