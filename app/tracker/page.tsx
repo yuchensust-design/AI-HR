@@ -20,6 +20,7 @@ import { ApplicationForm } from "./components/ApplicationForm";
 import { DiagnosisPanel } from "./components/DiagnosisPanel";
 import { NextActions } from "./components/NextActions";
 import { TrackerInsights } from "./components/TrackerInsights";
+import Link from "next/link";
 
 export default function TrackerPage() {
   const [applications, setApplications] = useLocalState<Application[]>(
@@ -140,6 +141,21 @@ export default function TrackerPage() {
             <span className="text-ink font-medium"> 方向、简历,还是面试</span>。
             数据全部存在你浏览器本地,AI 诊断时只会读这份脱敏的指标快照(不含公司名)。
           </p>
+          {/* §8.28 Wave 5: tracker → m5/debrief 反向联动入口 */}
+          <div className="flex gap-3 flex-wrap pt-2">
+            <Link
+              href="/m5/debrief"
+              className="inline-flex items-center text-xs text-esther-blue hover:text-esther-blue-dark hover:underline"
+            >
+              🎤 看上一次面试复盘 →
+            </Link>
+            <Link
+              href="/m3"
+              className="inline-flex items-center text-xs text-esther-blue hover:text-esther-blue-dark hover:underline"
+            >
+              📝 回简历整理 →
+            </Link>
+          </div>
         </header>
 
         <SampleBanner

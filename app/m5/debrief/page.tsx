@@ -726,7 +726,7 @@ function Module5DebriefContent() {
             <h2 className="text-xl md:text-2xl font-bold text-ink mb-6">
               接下来想做什么?
             </h2>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
               <Link href="/m5/live" className="block">
                 <Card className="h-full p-5 border-2 border-border hover:border-esther-blue transition-colors">
                   <p className="text-base font-semibold text-ink mb-1">
@@ -744,6 +744,16 @@ function Module5DebriefContent() {
                   </p>
                   <p className="text-xs text-ink-soft leading-relaxed">
                     把上面亮点采纳到简历(或手动改)
+                  </p>
+                </Card>
+              </Link>
+              <Link href="/tracker" className="block">
+                <Card className="h-full p-5 border-2 border-esther-yellow/40 bg-esther-yellow/10 hover:border-esther-yellow transition-colors">
+                  <p className="text-base font-semibold text-ink mb-1">
+                    📊 看投递复盘 →
+                  </p>
+                  <p className="text-xs text-ink-soft leading-relaxed">
+                    把这次发现的弱项加进投递诊断,看规律
                   </p>
                 </Card>
               </Link>
