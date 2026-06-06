@@ -17,44 +17,44 @@ type Capability = {
 const CAPABILITIES: Capability[] = [
   {
     emoji: "🧭",
-    title: "RIASEC + 经历交叉验证",
-    desc: "基于职业兴趣测评和真实经历信号,不只看喜欢什么,也判断做过什么、适合什么。",
-    metric: "18 题 RIASEC × 兴趣 tag · 6-10 个推荐方向 × 可投性 3 级标签",
+    title: "测方向不靠玄学,看你真做过什么",
+    desc: "测评判断兴趣 + 聊你做过的事,推出 3-5 个你可能适合的行业方向,每条都告诉你为什么。",
+    metric: "18 题职业兴趣测评 + 兴趣 tag · 推 3-5 个方向 · 每条配可投性等级",
     accent: "blue",
   },
   {
     emoji: "📝",
-    title: "STAR 挖掘 + 量化证据提取",
-    desc: "把课程、实习、社团、项目拆成任务、动作、结果和数字,沉淀可写进简历的素材。",
-    metric: "6 阶段对话骨架 · 每轮 1+ 草稿 bullet · STAR 4 要素结构化",
+    title: "把零碎经历讲透,沉淀成可写素材",
+    desc: "把课程、实习、社团、项目拆成你做了什么、怎么做的、结果是啥,每步出一条草稿 bullet。",
+    metric: "6 阶段结构化对话 · 每轮 1+ 草稿 bullet · 按 STAR 结构展开",
     accent: "yellow",
   },
   {
     emoji: "🔎",
-    title: "JD 解析 + 关键词缺口映射",
-    desc: "拆解岗位关键词、硬性要求和能力缺口,减少简历初筛一眼不匹配。",
-    metric: "must_have / nice_to_have / gaps 三层拆解 · Live Diff 6 维量化",
+    title: "对着 JD 改简历,告诉你差在哪",
+    desc: "拆 JD 关键词、硬性要求和能力差距,告诉你简历哪条命中了、哪条没命中、要不要补。",
+    metric: "JD 必备 / 加分 / 缺口 三层拆解 · 改完跟原版 6 维对比",
     accent: "blue",
   },
   {
     emoji: "🛡",
-    title: "反编造 4 级 + 证据审计",
-    desc: "claimType 风险分级 + 数字溯源校验,LLM 编造的数字会自动替换为占位符,只有显式证据才能默认采纳。",
-    metric: "claim_type 4 级 (explicit / inferred / needs_confirmation / forbidden) · normalize 数字溯源 · 证据审计可展开",
+    title: "AI 不替你编经历,数字必须有出处",
+    desc: "AI 推测的会标'待你确认';没说过的数字会被替换为占位符让你来填;每条都能查到原始证据。",
+    metric: "建议分 4 级(有据 / 推断 / 待你确认 / 已拦截) · 数字必须溯源 · 可展开看原文",
     accent: "red",
   },
   {
     emoji: "🎤",
-    title: "3 类场景 × 3 种面试官风格 + 4 维复盘",
-    desc: "半结构化、行为面、技术面,搭配亲切、严厉、严谨风格,训练不同压力下的应答。",
-    metric: "9 种场景组合 · 4 维评分(逻辑/具体/清晰/口水话) · 低分附示范回答",
+    title: "9 种面试组合 × 4 维复盘",
+    desc: "3 类面试(半结构化/行为/技术)× 3 种面试官性格(亲切/严厉/严谨),练完每题给评分 + 改进示范。",
+    metric: "9 组合 · 4 维评分(逻辑/具体/清晰/口水话) · 低分配示范回答",
     accent: "yellow",
   },
   {
     emoji: "♻️",
-    title: "面试亮点识别 + 简历回写",
-    desc: "自动识别面试回答里的新成果、数字和隐藏亮点,把答出来的价值补回简历。",
-    metric: "一键采纳 → HIDDEN_EXPERIENCES 素材池 · M5 / 日记 / M3 三源统一通道",
+    title: "面试里答出的亮点,自动回写简历",
+    desc: "练面试时答出来的新数字、新成果、新故事,AI 帮你抽出来,一键加进简历素材池。",
+    metric: "一键采纳 → 简历素材池 · 面试 / 日记 / 简历 三源统一通道",
     accent: "blue",
   },
 ];
@@ -71,13 +71,13 @@ export function SixCapabilities() {
       <div className="max-w-[1300px] mx-auto px-6 py-20">
         <div className="mb-12 text-center">
           <p className="font-display italic text-sm text-esther-blue mb-2">
-            Six intelligent capabilities
+            Six core capabilities
           </p>
           <h2 className="text-3xl md:text-4xl font-bold text-ink mb-3">
-            六大智能能力,支撑一条可分析、可优化的求职闭环
+            6 件事,帮你把求职过透
           </h2>
           <p className="text-ink-soft text-base max-w-2xl mx-auto">
-            围绕 RIASEC 测评、JD 解析、结构化追问、面试复盘和闭环回写设计,把求职准备从感觉判断变成可分析、可优化的路径。
+            从找方向到改简历、练面试再到反哺简历 — 每件事都给你可看的依据 + 可改的结果
           </p>
         </div>
 

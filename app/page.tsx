@@ -2,7 +2,8 @@ import Image from "next/image";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Nav } from "@/components/Nav";
-import { PersonaSelector } from "@/components/PersonaSelector";
+import { EntryChoiceCards } from "@/components/EntryChoiceCards";
+import { MainFlowDiagram } from "@/components/MainFlowDiagram";
 import { SixCapabilities } from "@/components/SixCapabilities";
 import { StepsSection } from "@/components/StepsSection";
 import { BuerFloatingButton } from "@/components/BuerFloatingButton";
@@ -229,6 +230,11 @@ export default function Home() {
         </section>
 
         {/* ============================================================
+            主线图 — §8.28 Wave 6: 一张图看完闭环
+            ============================================================ */}
+        <MainFlowDiagram />
+
+        {/* ============================================================
             M6 Job Match Hero — 智能岗位匹配入口(首屏高位)
             ============================================================ */}
         <JobMatchHero />
@@ -314,11 +320,9 @@ export default function Home() {
         <SixCapabilities />
 
         {/* ============================================================
-            Persona 自选(6 种困境,共情入口)
+            2 入口决策卡 — §8.28 Wave 6: 砍 Persona 6 卡 → 2 入口
             ============================================================ */}
-        <div id="persona" className="bg-warm-bg">
-          <PersonaSelector />
-        </div>
+        <EntryChoiceCards />
 
         {/* ============================================================
             5 阶段切换式 step(顶部 nav + 主体大卡片 + 量化 metric bar)
