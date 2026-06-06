@@ -4,7 +4,6 @@ import { Suspense, useState, useEffect } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Card } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Nav } from "@/components/Nav";
 import { BuerFloatingButton } from "@/components/BuerFloatingButton";
 import ConversationSwitcher from "@/components/conversations/ConversationSwitcher";
@@ -146,9 +145,6 @@ function Module3Content() {
                 >
                   ← 回首页
                 </Link>
-                <Badge className="bg-esther-yellow text-ink hover:bg-esther-yellow/90 mb-3 px-3 py-1 text-xs font-medium">
-                  模块 03 · 简历整理
-                </Badge>
                 <h1 className="text-3xl md:text-4xl font-bold text-ink mb-2 leading-tight">
                   把简历改成能过筛的版本
                 </h1>

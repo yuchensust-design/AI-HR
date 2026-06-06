@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Card } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { ResetQuizButton } from "@/components/ResetQuizButton";
 import { Nav } from "@/components/Nav";
 import { BuerFloatingButton } from "@/components/BuerFloatingButton";
@@ -12,6 +11,7 @@ import { ConfidenceBadge } from "@/components/ConfidenceBadge";
 import { NegativeReveal, type NegativeItem } from "@/components/NegativeReveal";
 import { RefineChips } from "@/components/RefineChips";
 import { RecommendationRationale } from "@/components/RecommendationRationale";
+import { RIASECPersona } from "@/components/RIASECPersona";
 import {
   DIMENSION_DESCRIPTIONS,
   DIMENSION_LABELS,
@@ -383,9 +383,6 @@ export default function Module1ResultPage() {
               </Link>
               <ResetQuizButton />
             </div>
-            <Badge className="bg-esther-yellow text-ink hover:bg-esther-yellow/90 mb-3 px-3 py-1 text-xs font-medium">
-              模块 01 · 兴趣岗位发现
-            </Badge>
             <h1 className="text-3xl md:text-4xl font-bold text-ink mb-2 leading-tight">
               我们觉得你可能适合的方向
             </h1>
@@ -475,24 +472,7 @@ export default function Module1ResultPage() {
                   </div>
                 </>
               ) : (
-                <div>
-                  <p className="font-display italic text-xs text-esther-blue mb-2">
-                    Your code
-                  </p>
-                  <h2 className="text-xl font-bold text-ink mb-3">
-                    {result.code}
-                  </h2>
-                  <p className="text-sm text-ink-soft leading-relaxed">
-                    你的 6 维分布显示你在
-                    <span className="font-medium text-ink"> Top 3 维度</span>
-                    特别明显,下面是基于这个判断挑出来的方向。
-                  </p>
-                  {result.refineCount && result.refineCount > 0 ? (
-                    <p className="text-xs text-ink-muted mt-3 font-display italic">
-                      已调整 {result.refineCount} 次
-                    </p>
-                  ) : null}
-                </div>
+                <RIASECPersona code={result.code} refineCount={result.refineCount} />
               )}
             </div>
           </div>

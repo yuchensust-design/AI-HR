@@ -12,7 +12,6 @@
 import Link from "next/link";
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { Card } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Nav } from "@/components/Nav";
 import { BuerFloatingButton } from "@/components/BuerFloatingButton";
 import { useLocalState, STORAGE_KEYS } from "@/lib/use-local-state";
@@ -412,9 +411,6 @@ export default function Module2Page() {
             >
               ← 回首页
             </Link>
-            <Badge className="bg-esther-yellow text-ink hover:bg-esther-yellow/90 mb-3 px-3 py-1 text-xs font-medium">
-              模块 02 · 经历挖掘
-            </Badge>
             <h1 className="text-3xl md:text-4xl font-bold text-ink mb-2 leading-tight">
               把零散经历讲明白
             </h1>

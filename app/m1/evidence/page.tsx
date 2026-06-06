@@ -4,7 +4,6 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Card } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Nav } from "@/components/Nav";
 import {
   EMPTY_EVIDENCE,
@@ -162,9 +161,6 @@ export default function M1EvidenceEntryPage() {
         {/* Hero */}
         <section className="border-b border-border">
           <div className="max-w-[1100px] mx-auto px-6 py-10">
-            <Badge className="bg-esther-yellow text-ink hover:bg-esther-yellow/90 mb-3 px-3 py-1 text-xs font-medium">
-              模块 01 · 补充信息(可选)
-            </Badge>
             <h1 className="text-3xl md:text-4xl font-bold text-ink mb-3 leading-tight">
               想让推荐更准的话,给我们点补充信息
             </h1>

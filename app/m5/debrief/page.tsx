@@ -4,7 +4,6 @@ import Link from "next/link";
 import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Card } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Nav } from "@/components/Nav";
 import { BuerFloatingButton } from "@/components/BuerFloatingButton";
 import {
@@ -407,9 +406,6 @@ function Module5DebriefContent() {
             >
               ← 回到模拟面试入口
             </Link>
-            <Badge className="bg-esther-yellow text-ink hover:bg-esther-yellow/90 mb-3 px-3 py-1 text-xs font-medium">
-              模块 05 · 复盘报告
-            </Badge>
             <h1 className="text-3xl md:text-4xl font-bold text-ink mb-2 leading-tight">
               这一场,你做得怎么样
             </h1>

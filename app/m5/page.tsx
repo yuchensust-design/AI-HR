@@ -358,9 +358,6 @@ function Module5ConfigContent() {
             >
               ← 回首页
             </Link>
-            <Badge className="bg-esther-yellow text-ink hover:bg-esther-yellow/90 mb-3 px-3 py-1 text-xs font-medium">
-              模块 05 · 模拟面试
-            </Badge>
             <h1 className="text-3xl md:text-4xl font-bold text-ink mb-2 leading-tight">
               先告诉我点信息,然后开始
             </h1>

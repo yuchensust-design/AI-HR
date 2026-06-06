@@ -3,7 +3,6 @@
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Card } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Nav } from "@/components/Nav";
 import { BuerFloatingButton } from "@/components/BuerFloatingButton";
 import ConversationSwitcher from "@/components/conversations/ConversationSwitcher";
@@ -294,9 +293,6 @@ function Module4Content() {
                 >
                   ← 回首页
                 </Link>
-                <Badge className="bg-esther-yellow text-ink hover:bg-esther-yellow/90 mb-3 px-3 py-1 text-xs font-medium">
-                  模块 04 · 项目陪练
-                </Badge>
                 <h1 className="text-3xl md:text-4xl font-bold text-ink mb-2 leading-tight">
                   补一段能写进简历的项目
                 </h1>
