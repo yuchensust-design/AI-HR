@@ -267,6 +267,7 @@ export function EditSuggestionCard({
   onAccept,
   onReject,
   onRegen,
+  onCustomEdit,
   regenBusy,
   onKeywordClick,
 }: {
@@ -276,6 +277,8 @@ export function EditSuggestionCard({
   onAccept: () => void;
   onReject: (reason: RejectReason) => void;
   onRegen: () => void;
+  /** §8.28 Wave 4: 用户自己改文案后保存,以 acceptWith custom text 落地 */
+  onCustomEdit?: (text: string) => void;
   regenBusy: boolean;
   onKeywordClick?: (keyword: string) => void;
 }) {
@@ -295,6 +298,17 @@ export function EditSuggestionCard({
 
   const [showRejectPopover, setShowRejectPopover] = useState(false);
   const [showEvidenceAudit, setShowEvidenceAudit] = useState(false);
+  /** §8.28 Wave 4: inline 编辑模式 — 用户自己改文案 */
+  const [editing, setEditing] = useState(false);
+  const [draftText, setDraftText] = useState(finalSuggested);
+
+  // 第一手来源 excerpt(顶部 📌 显眼行)— 优先 evidence_audit[0] → evidence_source
+  const primaryExcerpt =
+    edit.evidence_audit?.[0]?.excerpt ?? edit.evidence_source ?? null;
+
+  // 中文优先级 label
+  const priorityCnLabel =
+    edit.priority === "high" ? "重要" : edit.priority === "medium" ? "中" : "次要";
 
   function handleRejectClick() {
     setShowRejectPopover(true);
@@ -311,7 +325,7 @@ export function EditSuggestionCard({
       <div className="flex items-center justify-between gap-2 mb-3 flex-wrap">
         <div className="flex items-center gap-1.5 flex-wrap">
           <span
-            className={`inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold ${
+            className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium ${
               edit.priority === "high"
                 ? "bg-esther-red text-white"
                 : edit.priority === "medium"
@@ -319,7 +333,7 @@ export function EditSuggestionCard({
                 : "bg-warm-bg-deep text-ink-soft"
             }`}
           >
-            {edit.priority.toUpperCase()}
+            {priorityCnLabel}
           </span>
           <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium ${cat.color}`}>
             {cat.label}
@@ -352,6 +366,17 @@ export function EditSuggestionCard({
         <span className="text-[10px] text-ink-muted font-mono">{edit.id}</span>
       </div>
 
+      {/* 📌 显眼来源行 — §8.28 Wave 4: 借鉴原型 m3-result.html 的"📌 依据"行 */}
+      {primaryExcerpt && (
+        <div className="mb-2 flex items-start gap-1.5 text-[11px] text-ink-soft bg-warm-bg-deep/30 border-l-2 border-esther-blue/40 pl-2 py-1 rounded-r">
+          <span className="flex-shrink-0">📌</span>
+          <span className="leading-snug">
+            <span className="text-ink-muted">依据:</span>
+            <span className="italic">&ldquo;{primaryExcerpt.length > 80 ? primaryExcerpt.slice(0, 80) + "…" : primaryExcerpt}&rdquo;</span>
+          </span>
+        </div>
+      )}
+
       {/* 原文 → 改写 */}
       {edit.original_text && edit.original_text !== "(新增)" ? (
         <>
@@ -375,7 +400,44 @@ export function EditSuggestionCard({
         }`}
       >
         <p className="text-[10px] text-esther-blue mb-1 font-display italic">改为</p>
-        <p className="text-xs text-ink leading-relaxed font-medium">{finalSuggested}</p>
+        {editing ? (
+          <>
+            <textarea
+              value={draftText}
+              onChange={(e) => setDraftText(e.target.value)}
+              rows={3}
+              className="w-full text-xs text-ink leading-relaxed bg-card border border-esther-blue/40 rounded p-2 resize-none focus:outline-none focus:ring-2 focus:ring-esther-blue/40"
+              autoFocus
+            />
+            <div className="flex items-center justify-end gap-2 mt-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setDraftText(finalSuggested);
+                  setEditing(false);
+                }}
+                className="text-[11px] text-ink-muted hover:text-ink"
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const t = draftText.trim();
+                  if (!t) return;
+                  onCustomEdit?.(t);
+                  setEditing(false);
+                }}
+                disabled={!draftText.trim() || draftText.trim() === finalSuggested.trim()}
+                className="inline-flex items-center rounded-full bg-esther-blue text-white px-3 py-1 text-[11px] font-medium hover:bg-esther-blue-dark disabled:opacity-40"
+              >
+                ✓ 保存改写
+              </button>
+            </div>
+          </>
+        ) : (
+          <p className="text-xs text-ink leading-relaxed font-medium">{finalSuggested}</p>
+        )}
       </div>
 
       {/* reason */}
@@ -477,6 +539,17 @@ export function EditSuggestionCard({
               />
             )}
           </>
+        )}
+        {decision === null && !editing && onCustomEdit && (
+          <button
+            onClick={() => {
+              setDraftText(finalSuggested);
+              setEditing(true);
+            }}
+            className="inline-flex items-center justify-center rounded-full border border-border bg-card text-ink-soft px-3 py-1.5 text-xs hover:border-esther-blue hover:text-esther-blue transition-colors"
+          >
+            ✎ 我自己改
+          </button>
         )}
         <button
           onClick={onRegen}

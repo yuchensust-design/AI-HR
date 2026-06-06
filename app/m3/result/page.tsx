@@ -223,6 +223,11 @@ function ResultContent() {
     setDecisions((d) => ({ ...d, [id]: "reject" }));
     setRejectionReasons((m) => ({ ...m, [id]: reason }));
   }
+  /** §8.28 Wave 4: 用户自己改文案 → 写入 rewritten + 自动采纳 */
+  function handleCustomEdit(id: string, text: string) {
+    setRewritten((r) => ({ ...r, [id]: text }));
+    setDecisions((d) => ({ ...d, [id]: "accept" }));
+  }
   function handleKeywordClick(keyword: string) {
     setHighlightedKeyword((cur) => (cur === keyword ? null : keyword));
     // 滚到 JDKeywordsBar
@@ -715,6 +720,7 @@ function ResultContent() {
                         onAccept={() => handleAccept(edit.id)}
                         onReject={(reason) => handleReject(edit.id, reason)}
                         onRegen={() => handleRegen(edit)}
+                        onCustomEdit={(text) => handleCustomEdit(edit.id, text)}
                         regenBusy={regenBusyId === edit.id}
                         onKeywordClick={handleKeywordClick}
                       />
