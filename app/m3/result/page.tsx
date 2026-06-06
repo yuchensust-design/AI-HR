@@ -95,7 +95,7 @@ function ResultContent() {
   const { isLoggedInWithConv, dbData, convQs, saveField } = useM3DBSync();
 
   const [localParsedResume, setLocalParsedResume] = useLocalState<ParsedResume>(STORAGE_KEYS.PARSED_RESUME, null);
-  const [localJdContext] = useLocalState<JdCtx>(STORAGE_KEYS.JD_CONTEXT, null);
+  const [localJdContext, setLocalJdContext] = useLocalState<JdCtx>(STORAGE_KEYS.JD_CONTEXT, null);
   const [localHidden, setLocalHidden] = useLocalState<HiddenList>(STORAGE_KEYS.HIDDEN_EXPERIENCES, []);
   const [, setRejectionReasons] = useLocalState<RejectionMap>(
     STORAGE_KEYS.M3_REJECTION_REASONS,
@@ -169,14 +169,72 @@ function ResultContent() {
     setStatus("loading");
     setErrorMsg("");
     try {
+      // §8.28 — 读 step 3 用户勾选的优化目标(localStorage),传给后端 prompt
+      let optimizationGoals: string[] | undefined;
+      try {
+        const raw = window.localStorage.getItem("m3_optimization_goals");
+        if (raw) {
+          const parsedGoals = JSON.parse(raw);
+          if (Array.isArray(parsedGoals)) optimizationGoals = parsedGoals;
+        }
+      } catch {
+        /* ignore */
+      }
+
+      // §8.28 — m3 主页 step 2 用户只保存了 raw JD(meta.mode=raw),没结构化
+      // 这里 lazy parse:先 parse-jd 转 full,再 suggest-edits
+      // 用户感知:一个 loading,不再多按一步"解析"
+      let effectiveJd = jdContext;
+      const isRawMode =
+        jdContext &&
+        typeof jdContext === "object" &&
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        ((jdContext as any).meta?.mode === "raw" || !!(jdContext as any).rawJdText) &&
+        // 已结构化(有 must_have / matched 等)就跳过
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        !(jdContext as any).must_have &&
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        !(jdContext as any).matched;
+
+      if (isRawMode) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const rawJdText = String((jdContext as any).rawJdText ?? "");
+        if (rawJdText.length >= 30) {
+          try {
+            const parseRes = await fetch("/api/m3/parse-jd", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                mode: "full",
+                jdText: rawJdText,
+                parsedResume,
+              }),
+            });
+            if (parseRes.ok) {
+              const fullJd = await parseRes.json();
+              // 双轨持久化升级后的 full jdContext
+              if (isLoggedInWithConv) {
+                await saveField("jd_context_json", fullJd);
+              } else {
+                setLocalJdContext(fullJd);
+              }
+              effectiveJd = fullJd;
+            }
+          } catch {
+            // parse-jd 挂了 → 继续用 raw,LLM 能读 rawJdText
+          }
+        }
+      }
+
       const res = await fetch("/api/m3/suggest-edits", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           parsedResume,
-          jdContext: jdContext ?? null,
+          jdContext: effectiveJd ?? null,
           hiddenExperiences: hiddenExperiences ?? [],
           fromDebriefHighlight: fromDebriefHighlight ?? null,
+          optimizationGoals,
         }),
       });
       if (!res.ok) {

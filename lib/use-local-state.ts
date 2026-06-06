@@ -87,6 +87,11 @@ export const STORAGE_KEYS = {
    */
   M6_PENDING_JD: "m6_pending_jd",
   /**
+   * M3 优化目标(§8.28 用户 lock 6 chip 多选,跨 conv 用户偏好)
+   * Schema: string[] (从 M3_OPTIMIZATION_GOAL_KEYS 子集中选)
+   */
+  M3_OPTIMIZATION_GOALS: "m3_optimization_goals",
+  /**
    * M4 项目陪练 — 用户已经生成 / 在做的项目集合。
    * Schema: M4Project[],见 lib/m4-types.ts。
    */

@@ -7,6 +7,8 @@ import { BuerFloatingButton } from "@/components/BuerFloatingButton";
 import { JobCard } from "@/components/m6/JobCard";
 import { AgentProgress } from "@/components/m6/AgentProgress";
 import { useLocalState, STORAGE_KEYS } from "@/lib/use-local-state";
+import { useUser } from "@/lib/auth/useUser";
+import { createConversation } from "@/lib/conversations";
 import type {
   AgentStepState,
   Job,
@@ -26,6 +28,7 @@ function DiscoverPageInner() {
   const router = useRouter();
   const sp = useSearchParams();
   const initialMode = sp.get("mode") === "match-resume" ? "recommend" : "search";
+  const { user } = useUser();
 
   const [activeTab, setActiveTab] = useLocalState<"search" | "recommend">(
     STORAGE_KEYS.DISCOVER_TAB,
@@ -238,20 +241,44 @@ function DiscoverPageInner() {
     window.localStorage.setItem(STORAGE_KEYS.M6_PENDING_JD, JSON.stringify(pending));
   }, []);
 
+  /**
+   * §8.28 — 登录用户:m6 直跳必须带 convId,否则被 useM3DBSync redirect 回主页 + 丢预填
+   * 自动新建一个 m3/m5 conv,标题用岗位名 + 公司类型(便于侧栏识别)
+   */
   const handleOptimizeResume = useCallback(
-    (job: Job) => {
+    async (job: Job) => {
       writePendingJd(job);
+      if (user) {
+        const convId = await createConversation(
+          "m3",
+          `${job.title} · ${job.company}`.slice(0, 40)
+        );
+        if (convId) {
+          router.push(`/m3/jd?c=${convId}`);
+          return;
+        }
+      }
       router.push("/m3/jd");
     },
-    [router, writePendingJd]
+    [router, writePendingJd, user]
   );
 
   const handlePracticeInterview = useCallback(
-    (job: Job) => {
+    async (job: Job) => {
       writePendingJd(job);
+      if (user) {
+        const convId = await createConversation(
+          "m5",
+          `${job.title} · ${job.company}`.slice(0, 40)
+        );
+        if (convId) {
+          router.push(`/m5?c=${convId}`);
+          return;
+        }
+      }
       router.push("/m5");
     },
-    [router, writePendingJd]
+    [router, writePendingJd, user]
   );
 
   const handleViewDetail = useCallback(async (job: Job) => {

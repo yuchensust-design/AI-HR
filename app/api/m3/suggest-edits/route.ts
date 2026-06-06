@@ -186,7 +186,13 @@ const PROMPT_MAIN = `你是「Offer 捕手」模块 3 简历整理 Phase 5 改�
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { parsedResume, jdContext, hiddenExperiences, fromDebriefHighlight } = body;
+    const {
+      parsedResume,
+      jdContext,
+      hiddenExperiences,
+      fromDebriefHighlight,
+      optimizationGoals, // §8.28 step 3 多选 chip — string[] of M3OptimizationGoalKey
+    } = body;
 
     if (!parsedResume) {
       return NextResponse.json({ error: "parsedResume required" }, { status: 400 });
@@ -214,6 +220,12 @@ export async function POST(request: NextRequest) {
       .map((k) => SKILL_SEGMENTS[k as SkillSegmentKey])
       .join("\n");
 
+    // §8.28 step 3 — 优化目标 prompt hint(全选时不加,选子集时加 priority hint)
+    const { goalsToPromptHint } = await import("@/lib/m3-optimization-goals");
+    const goalsHint = Array.isArray(optimizationGoals)
+      ? goalsToPromptHint(optimizationGoals)
+      : "";
+
     const systemPrompt = `${PROMPT_MAIN}
 
 【动态加载的补充 skill 段(基于 persona=${persona} + target_role + resume_state 路由)】
@@ -225,7 +237,7 @@ ${segmentsText}
 - has_jd: ${jdContext ? "yes" : "no(快速模式 - 只做通用 polish,不针对 JD 关键词)"}
 - has_hidden_experiences: ${
       Array.isArray(hiddenExperiences) && hiddenExperiences.length > 0 ? "yes" : "no"
-    }`;
+    }${goalsHint}`;
 
     const userPrompt = `parsed_resume(用户简历结构化):
 ${JSON.stringify(parsedResume, null, 2)}
