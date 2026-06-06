@@ -177,12 +177,22 @@ function Module3Content() {
   const [jdExpanded, setJdExpanded] = useState(true);
   const [jdRoleName, setJdRoleName] = useState("");
   const [jdText, setJdText] = useState("");
-  const [parsingJd, setParsingJd] = useState(false);
-  const [jdErr, setJdErr] = useState<string | null>(null);
+  const [jdAutoSaved, setJdAutoSaved] = useState(false);
   // 已有 JD 摘要 → 自动收起;没 JD 时维持展开(用户点"取消"才会折叠)
   useEffect(() => {
     if (effectiveHasJd) setJdExpanded(false);
   }, [effectiveHasJd]);
+  // 重展开时,把当前已存的 role_name / rawJdText 灌回 input/textarea,方便用户继续改
+  // 只依赖 jdExpanded 切 true,不依赖 effectiveJd(否则 auto save 后会无限重灌)
+  useEffect(() => {
+    if (jdExpanded) {
+      const ej = (effectiveJd ?? {}) as { role_name?: string; rawJdText?: string };
+      setJdRoleName(ej.role_name ?? "");
+      setJdText(ej.rawJdText ?? "");
+      setJdAutoSaved(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jdExpanded]);
 
   // 从 m6 跳过来 → 自动预填 jdText + 展开 Step 2
   useEffect(() => {
@@ -206,41 +216,37 @@ function Module3Content() {
     }
   }, []);
 
-  /** §8.28 — "用这份 JD" 立即保存 raw,不调 LLM;/m3/result 进去时统一 parse+suggest 一次性跑 */
-  async function handleSaveJd() {
-    const roleName = jdRoleName.trim();
+  /** auto save:用户填 input/textarea → debounce 800ms → 自动 persist,不需点按钮 */
+  useEffect(() => {
+    if (!jdExpanded) return;
+    const role = jdRoleName.trim();
     const text = jdText.trim();
-    // 至少要有岗位名 或 JD 全文之一
-    if (!roleName && (!text || text.length < 30)) {
-      setJdErr("请至少填一个:岗位名称(如『产品经理』)或 JD 全文");
-      return;
-    }
-    setParsingJd(true);
-    setJdErr(null);
-    try {
-      // 摘要 chip 优先显示岗位名;没岗位名时退到 JD 前 40 字
-      const summary = roleName
+    // 都没填 → 跳过
+    if (!role && text.length < 30) return;
+    // 跟当前已存的相同 → 跳过(避免重复 save)
+    const ej = (effectiveJd ?? {}) as { role_name?: string; rawJdText?: string };
+    if (role === (ej.role_name ?? "") && text === (ej.rawJdText ?? "")) return;
+
+    const t = setTimeout(async () => {
+      setJdAutoSaved(false);
+      const summary = role
         ? text
-          ? `${roleName} · ${text.slice(0, 24)}${text.length > 24 ? "…" : ""}`
-          : roleName
+          ? `${role} · ${text.slice(0, 24)}${text.length > 24 ? "…" : ""}`
+          : role
         : text.length > 40
           ? text.slice(0, 40) + "…"
           : text;
       await persistJd({
-        role_name: roleName || undefined,
+        role_name: role || undefined,
         jd_summary: summary,
         rawJdText: text || undefined,
         meta: { mode: "raw" },
       });
-      setJdExpanded(false);
-      setJdRoleName("");
-      setJdText("");
-    } catch (err) {
-      setJdErr(err instanceof Error ? err.message : "保存失败");
-    } finally {
-      setParsingJd(false);
-    }
-  }
+      setJdAutoSaved(true);
+    }, 800);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jdRoleName, jdText, jdExpanded]);
 
   // 登录但没选 conv → 空状态
   const needPickConv = !userLoading && !!user && !hasConv;
@@ -443,7 +449,6 @@ function Module3Content() {
                           placeholder="例如:产品经理 / 前端开发 / 数据分析师 / 用户研究员"
                           maxLength={40}
                           className="w-full px-3 py-2 rounded-lg border border-border bg-warm-bg/40 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-esther-blue/40"
-                          disabled={parsingJd}
                         />
                       </div>
                       {/* JD 全文 textarea */}
@@ -457,41 +462,30 @@ function Module3Content() {
                           rows={6}
                           placeholder="粘贴 JD 全文 — 岗位职责 / 任职要求 / 加分项,越完整越准"
                           className="w-full px-3 py-2 rounded-lg border border-border bg-warm-bg/40 text-sm text-ink leading-relaxed resize-y focus:outline-none focus:ring-2 focus:ring-esther-blue/40"
-                          disabled={parsingJd}
                         />
                         {jdText.length > 0 && jdText.length < 30 && (
                           <p className="text-xs text-esther-red mt-1">JD 全文太短,要么补完整 ≥30 字,要么留空只靠岗位名</p>
                         )}
                       </div>
-                      <div className="flex items-center justify-end gap-2">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setJdExpanded(false);
-                            setJdRoleName("");
-                            setJdText("");
-                            setJdErr(null);
-                          }}
-                          disabled={parsingJd}
-                          className="text-xs text-ink-muted hover:text-ink px-3"
-                        >
-                          取消
-                        </button>
-                        <button
-                          type="button"
-                          onClick={handleSaveJd}
-                          disabled={
-                            parsingJd ||
-                            (!jdRoleName.trim() && jdText.trim().length < 30)
-                          }
-                          className="inline-flex items-center justify-center rounded-full bg-esther-blue text-white px-5 py-2 text-sm font-medium hover:bg-esther-blue-dark disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                        >
-                          {parsingJd ? "保存中…" : "用这个岗位 →"}
-                        </button>
+                      {/* 自动保存状态 + 收起 */}
+                      <div className="flex items-center justify-between gap-2 pt-1">
+                        <p className="text-xs text-ink-muted">
+                          {(jdRoleName.trim() || jdText.trim().length >= 30)
+                            ? jdAutoSaved
+                              ? <span className="text-esther-blue">✓ 已自动保存,可继续编辑或开始优化</span>
+                              : <span className="text-ink-soft">输入完会自动保存…</span>
+                            : <span className="text-ink-muted">填岗位名或粘贴 JD 全文,自动保存</span>}
+                        </p>
+                        {effectiveHasJd && (
+                          <button
+                            type="button"
+                            onClick={() => setJdExpanded(false)}
+                            className="text-xs text-ink-muted hover:text-esther-blue"
+                          >
+                            收起 ▲
+                          </button>
+                        )}
                       </div>
-                      {jdErr && (
-                        <p className="text-xs text-esther-red">⚠️ {jdErr}</p>
-                      )}
                     </div>
                   ) : (
                     <button
