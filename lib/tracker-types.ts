@@ -131,9 +131,12 @@ export type InterviewRound = {
 
 export type Application = {
   id: string;
-  /** 行业 + 职位类型;严格不写公司名(plan 硬约束) */
-  industry: string;
+  /** 公司名 */
+  company: string;
+  /** 投递岗位 */
   role: string;
+  /** 行业/领域(可选,用于分析分组) */
+  industry: string;
   direction: RoleDirection;
   /** ISO date YYYY-MM-DD */
   appliedAt: string;
