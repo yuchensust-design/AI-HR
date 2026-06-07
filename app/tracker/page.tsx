@@ -6,31 +6,44 @@ import { BuerFloatingButton } from "@/components/BuerFloatingButton";
 import { useLocalState } from "@/lib/use-local-state";
 import {
   Application,
+  ApplicationStatus,
   Diagnosis,
+  DIRECTION_LABELS,
+  RoleDirection,
+  STATUS_COLORS,
+  STATUS_LABELS,
   TRACKER_STORAGE_KEYS,
 } from "@/lib/tracker-types";
-import { SAMPLE_APPLICATIONS } from "@/lib/tracker-sample";
+import { SAMPLE_APPLICATIONS, SAMPLE_DIAGNOSIS } from "@/lib/tracker-sample";
 import { computeMetrics } from "@/lib/tracker-metrics";
 import { useTrackerDBSync } from "@/lib/sync/useTrackerDBSync";
 
-import { SampleBanner } from "./components/SampleBanner";
 import { MetricsCards } from "./components/MetricsCards";
 import { DirectionBarChart } from "./components/DirectionBarChart";
 import { ApplicationTable } from "./components/ApplicationTable";
 import { ApplicationForm } from "./components/ApplicationForm";
 import { DiagnosisPanel } from "./components/DiagnosisPanel";
-import { NextActions } from "./components/NextActions";
-import { TrackerInsights } from "./components/TrackerInsights";
-import Link from "next/link";
+
+const DIRECTION_KEYS = Object.keys(DIRECTION_LABELS) as RoleDirection[];
+const STATUS_FILTER_KEYS: ApplicationStatus[] = [
+  "applied", "written_test", "interview", "offer", "rejected", "ghosted",
+];
+
+// offer/面试/笔试/已投递 排前面，拒绝/已挂 沉底
+const STATUS_PRIORITY: Record<ApplicationStatus, number> = {
+  offer: 0,
+  interview: 1,
+  written_test: 2,
+  applied: 3,
+  to_apply: 4,
+  rejected: 5,
+  ghosted: 6,
+};
 
 export default function TrackerPage() {
   const [applications, setApplications] = useLocalState<Application[]>(
     TRACKER_STORAGE_KEYS.APPLICATIONS,
-    SAMPLE_APPLICATIONS,
-  );
-  const [usingRealData, setUsingRealData] = useLocalState<boolean>(
-    TRACKER_STORAGE_KEYS.USING_REAL_DATA,
-    false,
+    [],
   );
   const [diagnosis, setDiagnosis] = useLocalState<Diagnosis | null>(
     TRACKER_STORAGE_KEYS.DIAGNOSIS_CACHE,
@@ -42,71 +55,92 @@ export default function TrackerPage() {
   const [showForm, setShowForm] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [viewingSample, setViewingSample] = useState(false);
 
-  // 登录用户且无真实数据时，尝试从 DB 恢复
+  // 筛选 + 分页状态
+  const [filterDirection, setFilterDirection] = useState<RoleDirection | "all">("all");
+  const [filterStatus, setFilterStatus] = useState<ApplicationStatus | "all">("all");
+  const [currentPage, setCurrentPage] = useState(1);
+  const PAGE_SIZE = 10;
+
   useEffect(() => {
-    if (usingRealData) return; // 已有真实数据，跳过
     loadFromDB().then((dbApps) => {
-      if (dbApps && dbApps.length > 0) {
-        setApplications(dbApps);
-        setUsingRealData(true);
-      }
+      if (dbApps && dbApps.length > 0) setApplications(dbApps);
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const metrics = useMemo(() => computeMetrics(applications), [applications]);
-  const isAllSample = applications.every((a) => a.isSample);
+  const displayApplications = viewingSample ? SAMPLE_APPLICATIONS : applications;
+  const metrics = useMemo(() => computeMetrics(displayApplications), [displayApplications]);
+  const isEmpty = applications.length === 0 && !viewingSample;
 
-  // 用户首次操作(新增/编辑)时,如果当前还全是 sample,自动清空 sample,只留新增的真实记录
+  // 筛选后的方向列表（只显示当前数据中存在的方向）
+  const activeDirections = useMemo(() => {
+    const dirs = new Set(displayApplications.map((a) => a.direction));
+    return DIRECTION_KEYS.filter((d) => dirs.has(d));
+  }, [displayApplications]);
+
+  // 筛选后的状态列表（只显示当前数据中存在的状态）
+  const activeStatuses = useMemo(() => {
+    const statuses = new Set(displayApplications.map((a) => a.status));
+    return STATUS_FILTER_KEYS.filter((s) => statuses.has(s));
+  }, [displayApplications]);
+
+  const sortedApps = useMemo(
+    () => [...displayApplications].sort((a, b) => {
+      const pd = STATUS_PRIORITY[a.status] - STATUS_PRIORITY[b.status];
+      if (pd !== 0) return pd;
+      return b.statusUpdatedAt.localeCompare(a.statusUpdatedAt);
+    }),
+    [displayApplications],
+  );
+
+  const filteredApps = useMemo(() => {
+    return sortedApps
+      .filter((a) => filterDirection === "all" || a.direction === filterDirection)
+      .filter((a) => filterStatus === "all" || a.status === filterStatus);
+  }, [sortedApps, filterDirection, filterStatus]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredApps.length / PAGE_SIZE));
+  const safePage = Math.min(currentPage, totalPages);
+  const pagedApps = filteredApps.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+
+  function resetFilters() {
+    setFilterDirection("all");
+    setFilterStatus("all");
+    setCurrentPage(1);
+  }
+  function enterSample() { setViewingSample(true); resetFilters(); }
+  function exitSample() { setViewingSample(false); resetFilters(); }
+
   function handleAddOrEdit(a: Application) {
+    setViewingSample(false);
     setApplications((prev) => {
       const exists = prev.some((p) => p.id === a.id);
-      if (exists) {
-        return prev.map((p) => (p.id === a.id ? a : p));
-      }
-      // 新增:如果当前全是 sample 且用户还没切到真实数据,先清空 sample
-      if (!usingRealData && prev.every((p) => p.isSample)) {
-        return [a];
-      }
+      if (exists) return prev.map((p) => (p.id === a.id ? a : p));
       return [a, ...prev];
     });
-    if (!usingRealData) setUsingRealData(true);
     setShowForm(false);
     setEditing(null);
     setDiagnosis(null);
-    // 同步到 DB（fire-and-forget）
     void upsertApplication(a);
   }
 
   function handleDelete(id: string) {
     setApplications((prev) => prev.filter((p) => p.id !== id));
     setDiagnosis(null);
-    // 同步到 DB
     void deleteApplication(id);
   }
 
-  function handleSwitchToMyData() {
-    setApplications([]);
-    setUsingRealData(true);
-    setDiagnosis(null);
-  }
-
-  function handleRestoreSample() {
-    setApplications(SAMPLE_APPLICATIONS);
-    setUsingRealData(false);
-    setDiagnosis(null);
-  }
-
   async function runDiagnosis() {
-    if (applications.length === 0) return;
+    if (displayApplications.length === 0) return;
     setLoading(true);
     setError(null);
     try {
       const res = await fetch("/api/tracker/diagnose", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ applications }),
+        body: JSON.stringify({ applications: displayApplications }),
       });
       if (!res.ok) {
         const txt = await res.text().catch(() => "");
@@ -115,162 +149,255 @@ export default function TrackerPage() {
       const data = (await res.json()) as Diagnosis;
       setDiagnosis(data);
     } catch (e) {
-      console.error(e);
-      setError(
-        e instanceof Error
-          ? `${e.message} — 已尝试本地规则版兜底,如果仍报错请重试。`
-          : "诊断失败,稍后再试。",
-      );
+      setError(e instanceof Error ? e.message : "诊断失败，稍后再试。");
     } finally {
       setLoading(false);
     }
   }
 
-  // 给"已挂率高"时的不二柔和提示;阈值跟规则版诊断对齐
-  const ghostedHigh = metrics.applied >= 5 && metrics.ghostedRate >= 0.4;
+  const pillBase = "inline-flex items-center rounded-full border px-3 py-1 text-xs font-medium transition-colors cursor-pointer";
+  const pillActive = "bg-esther-blue border-esther-blue text-white";
+  const pillInactive = "border-border bg-card text-ink-soft hover:border-esther-blue/50 hover:text-ink";
 
-  // 默认时间排序:状态更新日倒序
-  const sortedApps = useMemo(
-    () =>
-      [...applications].sort((a, b) =>
-        b.statusUpdatedAt.localeCompare(a.statusUpdatedAt),
-      ),
-    [applications],
-  );
-
-  // 状态分布(漏斗,用于子标题)
   return (
     <div className="min-h-screen bg-warm-bg text-ink pb-24">
       <Nav />
 
-      <main className="max-w-[1100px] mx-auto px-6 pt-28 sm:pt-32 space-y-8">
-        {/* Hero */}
-        <header className="space-y-3">
-          <div className="text-xs text-ink-muted tracking-wide uppercase">
-            DATA · 投递追踪 + 求职诊断
+      <main className="max-w-[1100px] mx-auto px-6 pt-28 sm:pt-32 space-y-6">
+        {/* Header */}
+        <header className="flex items-start justify-between gap-4">
+          <div>
+            <h1 className="text-3xl md:text-5xl font-bold text-ink leading-tight mb-3">
+              你卡在投递、面试，还是方向？
+            </h1>
+            <p className="text-base text-ink-soft leading-relaxed">
+              记录每次投递的真实结果，积累够了 AI 帮你找到卡点，告诉你该去改简历还是练面试。
+            </p>
           </div>
-          <h1 className="font-heading text-3xl sm:text-4xl text-ink leading-tight">
-            把投递结果变成下一步判断
-          </h1>
-          <p className="text-ink-soft leading-relaxed max-w-2xl">
-            不是只记录投了多少份,而是看回复率、面试转化和方向差异 —
-            判断问题到底出在
-            <span className="text-ink font-medium"> 方向、简历,还是面试</span>。
-            数据全部存在你浏览器本地,AI 诊断时只会读这份脱敏的指标快照(不含公司名)。
-          </p>
-          {/* §8.28 Wave 5: tracker → m5/debrief 反向联动入口 */}
-          <div className="flex gap-3 flex-wrap pt-2">
-            <Link
-              href="/m5/debrief"
-              className="inline-flex items-center text-xs text-esther-blue hover:text-esther-blue-dark hover:underline"
+          {!viewingSample && (
+            <button
+              type="button"
+              onClick={enterSample}
+              className="flex-shrink-0 mt-1 text-xs text-ink-muted hover:text-esther-blue border border-border rounded-lg px-3 py-2 whitespace-nowrap"
             >
-              🎤 看上一次面试复盘 →
-            </Link>
-            <Link
-              href="/m3"
-              className="inline-flex items-center text-xs text-esther-blue hover:text-esther-blue-dark hover:underline"
-            >
-              📝 回简历整理 →
-            </Link>
-          </div>
+              查看示例效果 →
+            </button>
+          )}
         </header>
 
-        <SampleBanner
-          isAllSample={isAllSample}
-          sampleCount={metrics.sampleCount}
-          realCount={metrics.realCount}
-          onSwitchToMyData={handleSwitchToMyData}
-          onRestoreSample={handleRestoreSample}
-        />
-
-        {/* 指标卡 */}
-        <section className="space-y-3">
-          <div className="flex items-baseline justify-between">
-            <h2 className="font-heading text-xl text-ink">指标快照</h2>
-            <span className="text-xs text-ink-muted">
-              已投递 = 已经投出的样本(不含"待投递")
-            </span>
+        {/* 示例预览 banner */}
+        {viewingSample && (
+          <div className="flex items-center justify-between text-xs text-ink-muted border-b border-border pb-3">
+            <span>📋 示例预览中 — 以下是模拟数据，帮你了解模块功能</span>
+            <button
+              type="button"
+              onClick={exitSample}
+              className="text-esther-blue hover:underline ml-4 whitespace-nowrap flex-shrink-0"
+            >
+              退出示例，开始记录我的数据 →
+            </button>
           </div>
-          <MetricsCards metrics={metrics} />
+        )}
+
+        {/* 转化漏斗 */}
+        {!isEmpty && (
+          <section>
+            <h2 className="font-bold text-base text-ink mb-3">转化漏斗</h2>
+            <MetricsCards metrics={metrics} sampleMode={viewingSample} />
+          </section>
+        )}
+
+        {/* 投递记录 */}
+        <section>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="font-bold text-base text-ink">投递记录</h2>
+            {!viewingSample && (
+              <button
+                type="button"
+                onClick={() => { setEditing(null); setShowForm(true); }}
+                className="inline-flex items-center justify-center rounded-full bg-esther-blue text-white px-4 py-2 text-sm font-medium hover:bg-esther-blue-dark"
+              >
+                + 新增投递
+              </button>
+            )}
+          </div>
+
+          {isEmpty ? (
+            <div className="rounded-xl border border-dashed border-border bg-warm-bg/40 px-6 py-12 text-center space-y-4">
+              <p className="text-sm text-ink-muted">
+                还没有投递记录，每投一份就来记一条，积累几条后 AI 帮你看规律。
+              </p>
+              <div className="flex items-center justify-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => { setEditing(null); setShowForm(true); }}
+                  className="rounded-full bg-esther-blue text-white px-5 py-2 text-sm font-medium hover:bg-esther-blue-dark"
+                >
+                  + 新增第一条投递
+                </button>
+                <button
+                  type="button"
+                  onClick={enterSample}
+                  className="text-sm text-ink-muted hover:text-esther-blue underline-offset-2 hover:underline"
+                >
+                  先看看示例效果
+                </button>
+              </div>
+            </div>
+          ) : (
+            <>
+              {/* 筛选条 */}
+              <div className="space-y-2 mb-4">
+                {/* 方向筛选 */}
+                <div className="flex flex-wrap gap-1.5 items-center">
+                  <span className="text-xs text-ink-muted mr-1">方向</span>
+                  <button
+                    type="button"
+                    onClick={() => { setFilterDirection("all"); setCurrentPage(1); }}
+                    className={`${pillBase} ${filterDirection === "all" ? pillActive : pillInactive}`}
+                  >
+                    全部
+                  </button>
+                  {activeDirections.map((d) => (
+                    <button
+                      key={d}
+                      type="button"
+                      onClick={() => { setFilterDirection(filterDirection === d ? "all" : d); setCurrentPage(1); }}
+                      className={`${pillBase} ${filterDirection === d ? pillActive : pillInactive}`}
+                    >
+                      {DIRECTION_LABELS[d]}
+                    </button>
+                  ))}
+                </div>
+
+                {/* 状态筛选 */}
+                <div className="flex flex-wrap gap-1.5 items-center">
+                  <span className="text-xs text-ink-muted mr-1">状态</span>
+                  <button
+                    type="button"
+                    onClick={() => { setFilterStatus("all"); setCurrentPage(1); }}
+                    className={`${pillBase} ${filterStatus === "all" ? pillActive : pillInactive}`}
+                  >
+                    全部
+                  </button>
+                  {activeStatuses.map((s) => (
+                    <button
+                      key={s}
+                      type="button"
+                      onClick={() => { setFilterStatus(filterStatus === s ? "all" : s); setCurrentPage(1); }}
+                      className={`${pillBase} ${filterStatus === s ? `ring-1 ${STATUS_COLORS[s]}` : pillInactive}`}
+                    >
+                      {STATUS_LABELS[s]}
+                    </button>
+                  ))}
+                </div>
+
+                {/* 筛选结果计数 */}
+                {(filterDirection !== "all" || filterStatus !== "all") && (
+                  <p className="text-xs text-ink-muted">
+                    筛选结果：{filteredApps.length} 条
+                    <button
+                      type="button"
+                      onClick={resetFilters}
+                      className="ml-2 text-esther-blue hover:underline"
+                    >
+                      清除筛选
+                    </button>
+                  </p>
+                )}
+              </div>
+
+              <ApplicationTable
+                applications={pagedApps}
+                onEdit={viewingSample ? () => {} : (a) => { setEditing(a); setShowForm(true); }}
+                onDelete={viewingSample ? () => {} : handleDelete}
+              />
+
+              {/* 分页 */}
+              {totalPages > 1 && (
+                <div className="flex items-center justify-between mt-3 text-sm">
+                  <span className="text-xs text-ink-muted">
+                    第 {(safePage - 1) * PAGE_SIZE + 1}–{Math.min(safePage * PAGE_SIZE, filteredApps.length)} 条，共 {filteredApps.length} 条
+                  </span>
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                      disabled={safePage === 1}
+                      className="rounded-lg border border-border px-3 py-1.5 text-xs text-ink-soft hover:text-ink disabled:opacity-40"
+                    >
+                      ← 上一页
+                    </button>
+                    {Array.from({ length: totalPages }, (_, i) => i + 1)
+                      .filter((p) => p === 1 || p === totalPages || Math.abs(p - safePage) <= 1)
+                      .reduce<(number | "…")[]>((acc, p, idx, arr) => {
+                        if (idx > 0 && p - (arr[idx - 1] as number) > 1) acc.push("…");
+                        acc.push(p);
+                        return acc;
+                      }, [])
+                      .map((p, idx) =>
+                        p === "…" ? (
+                          <span key={`ellipsis-${idx}`} className="px-1 text-xs text-ink-muted">…</span>
+                        ) : (
+                          <button
+                            key={p}
+                            type="button"
+                            onClick={() => setCurrentPage(p as number)}
+                            className={`rounded-lg border px-3 py-1.5 text-xs ${
+                              safePage === p
+                                ? "border-esther-blue bg-esther-blue text-white"
+                                : "border-border text-ink-soft hover:text-ink"
+                            }`}
+                          >
+                            {p}
+                          </button>
+                        )
+                      )}
+                    <button
+                      type="button"
+                      onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                      disabled={safePage === totalPages}
+                      className="rounded-lg border border-border px-3 py-1.5 text-xs text-ink-soft hover:text-ink disabled:opacity-40"
+                    >
+                      下一页 →
+                    </button>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
         </section>
 
         {/* 方向对比 */}
-        <section className="rounded-2xl ring-1 ring-foreground/10 bg-card p-5 space-y-4">
-          <div>
-            <h2 className="font-heading text-xl text-ink">按方向对比</h2>
-            <p className="text-xs text-ink-muted mt-1">
-              同样的简历投不同方向,转化可能差很多 — 这是判断"方向问题 vs 简历问题"最直接的视图。
+        {!isEmpty && metrics.byDirection.length > 1 && (
+          <section className="bg-card border border-border rounded-2xl p-5">
+            <h2 className="font-bold text-base text-ink mb-1">按方向对比</h2>
+            <p className="text-xs text-ink-muted mb-4">
+              同一份简历投不同方向，转化差距大时说明方向比简历更需要先解决。
             </p>
-          </div>
-          <DirectionBarChart rows={metrics.byDirection} />
-        </section>
+            <DirectionBarChart rows={metrics.byDirection} />
+          </section>
+        )}
 
-        {/* 投递记录 */}
-        <section className="space-y-3">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <h2 className="font-heading text-xl text-ink">投递记录</h2>
-              <p className="text-xs text-ink-muted">
-                只记录"行业 + 职位类型",不收集公司信息。
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={() => {
-                setEditing(null);
-                setShowForm(true);
-              }}
-              className="inline-flex items-center justify-center rounded-full bg-esther-blue text-white px-4 py-2 text-sm font-medium hover:bg-esther-blue-dark"
-            >
-              + 新增投递
-            </button>
-          </div>
-          <ApplicationTable
-            applications={sortedApps}
-            onEdit={(a) => {
-              setEditing(a);
-              setShowForm(true);
-            }}
-            onDelete={handleDelete}
-          />
-        </section>
-
-        {/* 复盘 Insights — §8.28 Wave 3 投递复盘补完 */}
-        <section className="space-y-3">
-          <div className="flex items-baseline justify-between">
-            <h2 className="font-heading text-xl text-ink">复盘卡点</h2>
-            <span className="text-xs text-ink-muted">
-              基于你填的"挂了 + 原因"自动聚合
-            </span>
-          </div>
-          <TrackerInsights applications={applications} />
-        </section>
-
-        {/* 诊断 */}
-        <section>
-          <DiagnosisPanel
-            diagnosis={diagnosis}
-            loading={loading}
-            error={error}
-            applicationsCount={applications.length}
-            onRun={runDiagnosis}
-          />
-        </section>
-
-        {/* 下一步 */}
-        <section className="space-y-3">
-          <h2 className="font-heading text-xl text-ink">回到 Offer 捕手主流程</h2>
-          <NextActions metrics={metrics} ghostedHigh={ghostedHigh} />
-        </section>
+        {/* AI 诊断 */}
+        {!isEmpty && (
+          <section>
+            <DiagnosisPanel
+              diagnosis={viewingSample ? SAMPLE_DIAGNOSIS : diagnosis}
+              loading={loading}
+              error={error}
+              applicationsCount={displayApplications.length}
+              onRun={viewingSample ? () => {} : runDiagnosis}
+              sampleMode={viewingSample}
+            />
+          </section>
+        )}
       </main>
 
       {showForm && (
         <ApplicationForm
           initial={editing}
-          onCancel={() => {
-            setShowForm(false);
-            setEditing(null);
-          }}
+          onCancel={() => { setShowForm(false); setEditing(null); }}
           onSubmit={handleAddOrEdit}
         />
       )}

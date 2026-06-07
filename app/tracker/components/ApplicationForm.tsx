@@ -41,8 +41,9 @@ export function ApplicationForm({ initial, onCancel, onSubmit }: Props) {
   const [form, setForm] = useState<Application>(
     initial ?? {
       id: genId(),
-      industry: "",
+      company: "",
       role: "",
+      industry: "",
       direction: "ai_pm",
       appliedAt: todayISO(),
       resumeVersion: "",
@@ -53,7 +54,6 @@ export function ApplicationForm({ initial, onCancel, onSubmit }: Props) {
     },
   );
 
-  // 状态变化时自动更新 statusUpdatedAt(只在用户改 status 时)
   const [statusTouched, setStatusTouched] = useState(false);
   useEffect(() => {
     if (statusTouched) {
@@ -62,12 +62,11 @@ export function ApplicationForm({ initial, onCancel, onSubmit }: Props) {
   }, [form.status, statusTouched]);
 
   const isEdit = !!initial;
-  const canSubmit = form.industry.trim() && form.role.trim();
+  const canSubmit = form.company.trim() && form.role.trim();
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!canSubmit) return;
-    // 新建/编辑后的记录始终标 isSample = false(真实数据)
     onSubmit({ ...form, isSample: false });
   }
 
@@ -84,61 +83,51 @@ export function ApplicationForm({ initial, onCancel, onSubmit }: Props) {
         className="bg-card w-full max-w-xl rounded-2xl p-6 ring-1 ring-foreground/10 shadow-xl space-y-4 max-h-[90vh] overflow-y-auto"
       >
         <div className="flex items-center justify-between">
-          <h3 className="font-heading text-xl text-ink">
+          <h3 className="font-bold text-lg text-ink">
             {isEdit ? "编辑投递记录" : "新增投递记录"}
           </h3>
-          <button
-            type="button"
-            onClick={onCancel}
-            className="text-ink-muted hover:text-ink text-sm"
-          >
+          <button type="button" onClick={onCancel} className="text-ink-muted hover:text-ink text-sm">
             取消
           </button>
         </div>
 
-        <div className="rounded-lg bg-warm-bg/60 px-3 py-2 text-xs text-ink-soft">
-          只填行业 + 职位类型,不需要写公司名 — Offer 捕手不收集公司信息。
-        </div>
-
+        {/* 公司 + 岗位 */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <label className="text-sm text-ink-soft">
-            行业
+            公司名称 <span className="text-rose-400">*</span>
             <input
               type="text"
               required
-              value={form.industry}
-              onChange={(e) => setForm({ ...form, industry: e.target.value })}
-              placeholder="互联网 / AI 工具"
+              value={form.company}
+              onChange={(e) => setForm({ ...form, company: e.target.value })}
+              placeholder="字节跳动 / 腾讯 / 小米…"
               className="mt-1 w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-esther-blue/40"
             />
           </label>
           <label className="text-sm text-ink-soft">
-            职位类型
+            投递岗位 <span className="text-rose-400">*</span>
             <input
               type="text"
               required
               value={form.role}
               onChange={(e) => setForm({ ...form, role: e.target.value })}
-              placeholder="AI 产品经理(实习)"
+              placeholder="AI 产品经理实习 / 数据分析师…"
               className="mt-1 w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-esther-blue/40"
             />
           </label>
         </div>
 
+        {/* 方向 + 投递日期 */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <label className="text-sm text-ink-soft">
-            方向
+            方向分类
             <select
               value={form.direction}
-              onChange={(e) =>
-                setForm({ ...form, direction: e.target.value as RoleDirection })
-              }
+              onChange={(e) => setForm({ ...form, direction: e.target.value as RoleDirection })}
               className="mt-1 w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-ink"
             >
               {DIRECTION_KEYS.map((d) => (
-                <option key={d} value={d}>
-                  {DIRECTION_LABELS[d]}
-                </option>
+                <option key={d} value={d}>{DIRECTION_LABELS[d]}</option>
               ))}
             </select>
           </label>
@@ -153,82 +142,44 @@ export function ApplicationForm({ initial, onCancel, onSubmit }: Props) {
           </label>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <label className="text-sm text-ink-soft">
-            状态
-            <select
-              value={form.status}
-              onChange={(e) => {
-                setStatusTouched(true);
-                setForm({
-                  ...form,
-                  status: e.target.value as ApplicationStatus,
-                });
-              }}
-              className="mt-1 w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-ink"
-            >
-              {STATUS_KEYS.map((s) => (
-                <option key={s} value={s}>
-                  {STATUS_LABELS[s]}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="text-sm text-ink-soft">
-            状态更新日期
-            <input
-              type="date"
-              value={form.statusUpdatedAt}
-              onChange={(e) =>
-                setForm({ ...form, statusUpdatedAt: e.target.value })
-              }
-              className="mt-1 w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-ink"
-            />
-          </label>
-        </div>
-
+        {/* 状态 */}
         <label className="text-sm text-ink-soft block">
-          简历版本(可选)
-          <input
-            type="text"
-            value={form.resumeVersion}
-            onChange={(e) =>
-              setForm({ ...form, resumeVersion: e.target.value })
-            }
-            placeholder="v3 · AI PM 主投版"
+          当前状态
+          <select
+            value={form.status}
+            onChange={(e) => {
+              setStatusTouched(true);
+              setForm({ ...form, status: e.target.value as ApplicationStatus });
+            }}
             className="mt-1 w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-ink"
-          />
+          >
+            {STATUS_KEYS.map((s) => (
+              <option key={s} value={s}>{STATUS_LABELS[s]}</option>
+            ))}
+          </select>
         </label>
 
+        {/* 备注 */}
         <label className="text-sm text-ink-soft block">
           备注(可选)
           <textarea
             value={form.notes}
             onChange={(e) => setForm({ ...form, notes: e.target.value })}
-            rows={3}
-            placeholder="JD 强调的关键词、面试反馈、卡点等"
+            rows={2}
+            placeholder="面试反馈、JD 关键要求、卡点等…"
             className="mt-1 w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-ink"
           />
         </label>
 
-        {/* 面试轮次链 — §8.28 Wave 3 投递复盘补完 */}
+        {/* 面试记录 */}
         <div className="border-t border-border pt-4">
-          <div className="flex items-center justify-between mb-2">
-            <p className="text-sm font-medium text-ink">
-              📊 面试轮次复盘(可选)
-            </p>
+          <div className="flex items-center justify-between mb-1">
+            <p className="text-sm font-medium text-ink">真实面试记录(可选)</p>
             <button
               type="button"
               onClick={() => {
-                const newRound: InterviewRound = {
-                  id: genRoundId(),
-                  type: "first_round",
-                  outcome: "pending",
-                };
-                setForm({
-                  ...form,
-                  rounds: [...(form.rounds ?? []), newRound],
-                });
+                const newRound: InterviewRound = { id: genRoundId(), type: "first_round", outcome: "pending" };
+                setForm({ ...form, rounds: [...(form.rounds ?? []), newRound] });
               }}
               className="text-xs text-esther-blue hover:text-esther-blue-dark"
             >
@@ -236,64 +187,43 @@ export function ApplicationForm({ initial, onCancel, onSubmit }: Props) {
             </button>
           </div>
           <p className="text-[11px] text-ink-muted mb-3">
-            笔试 → 一面 → 二面 → HR 面 — 挂在哪一步、什么原因,后面 AI 帮你找规律
+            记录真实面试发生了什么 — 哪轮过了、哪轮挂了、挂在哪里
           </p>
 
           {!form.rounds?.length ? (
             <p className="text-xs text-ink-muted italic px-3 py-2 rounded bg-warm-bg/40">
-              还没添加任何轮次
+              还没有面试轮次
             </p>
           ) : (
             <ul className="space-y-3">
               {form.rounds.map((r, idx) => (
-                <li
-                  key={r.id}
-                  className="rounded-lg border border-border bg-warm-bg/30 p-3 space-y-2"
-                >
-                  <div className="flex items-center gap-2">
+                <li key={r.id} className="rounded-lg border border-border bg-warm-bg/30 p-3 space-y-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <span className="text-xs text-ink-muted">第 {idx + 1} 轮</span>
                     <select
                       value={r.type}
                       onChange={(e) => {
                         const next = [...(form.rounds ?? [])];
-                        next[idx] = {
-                          ...r,
-                          type: e.target.value as InterviewRoundType,
-                        };
+                        next[idx] = { ...r, type: e.target.value as InterviewRoundType };
                         setForm({ ...form, rounds: next });
                       }}
                       className="rounded border border-border bg-card px-2 py-1 text-xs"
                     >
                       {ROUND_TYPE_KEYS.map((t) => (
-                        <option key={t} value={t}>
-                          {ROUND_TYPE_LABELS[t]}
-                        </option>
+                        <option key={t} value={t}>{ROUND_TYPE_LABELS[t]}</option>
                       ))}
                     </select>
                     <select
                       value={r.outcome}
                       onChange={(e) => {
                         const next = [...(form.rounds ?? [])];
-                        next[idx] = {
-                          ...r,
-                          outcome: e.target.value as RoundOutcome,
-                          failReason:
-                            e.target.value === "failed" ? r.failReason : undefined,
-                        };
+                        next[idx] = { ...r, outcome: e.target.value as RoundOutcome, failReason: e.target.value === "failed" ? r.failReason : undefined };
                         setForm({ ...form, rounds: next });
                       }}
-                      className={`rounded border px-2 py-1 text-xs ${
-                        r.outcome === "passed"
-                          ? "border-emerald-300 bg-emerald-50 text-emerald-800"
-                          : r.outcome === "failed"
-                            ? "border-rose-300 bg-rose-50 text-rose-800"
-                            : "border-border bg-card"
-                      }`}
+                      className={`rounded border px-2 py-1 text-xs ${r.outcome === "passed" ? "border-emerald-300 bg-emerald-50 text-emerald-800" : r.outcome === "failed" ? "border-rose-300 bg-rose-50 text-rose-800" : "border-border bg-card"}`}
                     >
                       {OUTCOME_KEYS.map((o) => (
-                        <option key={o} value={o}>
-                          {OUTCOME_LABELS[o]}
-                        </option>
+                        <option key={o} value={o}>{OUTCOME_LABELS[o]}</option>
                       ))}
                     </select>
                     <input
@@ -308,40 +238,26 @@ export function ApplicationForm({ initial, onCancel, onSubmit }: Props) {
                     />
                     <button
                       type="button"
-                      onClick={() => {
-                        const next = (form.rounds ?? []).filter(
-                          (_, i) => i !== idx
-                        );
-                        setForm({ ...form, rounds: next });
-                      }}
+                      onClick={() => setForm({ ...form, rounds: (form.rounds ?? []).filter((_, i) => i !== idx) })}
                       className="ml-auto text-xs text-rose-500 hover:text-rose-700"
-                      aria-label="删除这一轮"
                     >
                       ✕
                     </button>
                   </div>
-
                   {r.outcome === "failed" && (
                     <div className="space-y-2 pl-2 border-l-2 border-rose-200">
                       <select
                         value={r.failReason ?? ""}
                         onChange={(e) => {
                           const next = [...(form.rounds ?? [])];
-                          next[idx] = {
-                            ...r,
-                            failReason: (e.target.value || undefined) as
-                              | FailReason
-                              | undefined,
-                          };
+                          next[idx] = { ...r, failReason: (e.target.value || undefined) as FailReason | undefined };
                           setForm({ ...form, rounds: next });
                         }}
                         className="rounded border border-border bg-card px-2 py-1 text-xs w-full"
                       >
                         <option value="">挂的原因…</option>
                         {FAIL_REASON_KEYS.map((k) => (
-                          <option key={k} value={k}>
-                            {FAIL_REASON_LABELS[k]}
-                          </option>
+                          <option key={k} value={k}>{FAIL_REASON_LABELS[k]}</option>
                         ))}
                       </select>
                       <input
@@ -352,7 +268,7 @@ export function ApplicationForm({ initial, onCancel, onSubmit }: Props) {
                           next[idx] = { ...r, note: e.target.value };
                           setForm({ ...form, rounds: next });
                         }}
-                        placeholder="比如:Transformer 原理答不上 / JD 强调 SQL 我不会"
+                        placeholder="比如：Transformer 原理答不上 / 被追问 SQL 窗口函数"
                         className="w-full rounded border border-border bg-card px-2 py-1 text-xs"
                       />
                     </div>
@@ -364,11 +280,7 @@ export function ApplicationForm({ initial, onCancel, onSubmit }: Props) {
         </div>
 
         <div className="flex justify-end gap-2 pt-2">
-          <button
-            type="button"
-            onClick={onCancel}
-            className="rounded-full px-4 py-2 text-sm text-ink-soft hover:text-ink"
-          >
+          <button type="button" onClick={onCancel} className="rounded-full px-4 py-2 text-sm text-ink-soft hover:text-ink">
             取消
           </button>
           <button

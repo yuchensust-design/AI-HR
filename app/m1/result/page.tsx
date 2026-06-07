@@ -735,16 +735,6 @@ export default function Module1ResultPage() {
           </>
         )}
 
-        {/* 重新测评入口 */}
-        <div className="max-w-[1100px] mx-auto px-6 py-8">
-          <p className="text-xs text-ink-muted">
-            也可以
-            <ResetQuizButton className="ml-1 underline text-ink-soft hover:text-esther-blue text-xs">
-              重新做一次测评
-            </ResetQuizButton>
-          </p>
-        </div>
-
         {/* Footer disclaimer */}
         <footer className="bg-warm-bg">
           <div className="max-w-[1100px] mx-auto px-6 py-12 text-center">
