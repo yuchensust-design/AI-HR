@@ -14,6 +14,7 @@ import { extractTextFromPdf } from "@/lib/pdf-extract";
 import { extractTextFromDocx } from "@/lib/docx-extract";
 import {
   M3_OPTIMIZATION_GOALS,
+  M3_DIFFERENTIATORS,
   M3_DEFAULT_GOALS,
   type M3OptimizationGoalKey,
 } from "@/lib/m3-optimization-goals";
@@ -447,7 +448,7 @@ function Module3Content() {
                   </div>
                 </Step>
 
-                {/* ============ Step 3 · 优化目标(6 chip 多选) ============ */}
+                {/* ============ Step 3 · 优化目标(8 chip 多选 + 4 差异化常驻) ============ */}
                 <Step
                   no="3"
                   title="优化目标"
@@ -490,9 +491,30 @@ function Module3Content() {
                       );
                     })}
                   </div>
-                  <p className="text-[11px] text-ink-muted mt-2">
+                  <p className="text-xs text-ink-muted mt-2">
                     选中的方向会作为 AI 生成建议的优先级提示 · 全选 = 默认全做
                   </p>
+
+                  {/* 常驻差异化能力(不可勾,别家没有)*/}
+                  <div className="mt-5 rounded-xl border border-esther-blue/20 bg-esther-blue/[0.03] p-4">
+                    <p className="text-sm font-semibold text-ink mb-3">
+                      我们还会多做这些 · <span className="text-esther-blue">别家没有</span>
+                    </p>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-x-5 gap-y-3">
+                      {M3_DIFFERENTIATORS.map((d) => (
+                        <div key={d.title} className="flex gap-2.5">
+                          <span className="text-base flex-shrink-0">{d.emoji}</span>
+                          <div>
+                            <p className="text-sm font-medium text-ink leading-snug">{d.title}</p>
+                            <p className="text-xs text-ink-soft leading-relaxed mt-0.5">{d.desc}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <p className="text-xs text-ink-muted mt-3 pt-3 border-t border-esther-blue/15">
+                      这 4 项全程自动生效,不用勾。
+                    </p>
+                  </div>
                 </Step>
 
                 {/* ============ Step 4 · 开始优化 ============ */}

@@ -209,6 +209,53 @@ function scrubCompanyInSummary(s: string): string {
   return out;
 }
 
+// ============ JD 关键词抽取(独立 LLM 调用,只看 JD,不看简历)============
+//
+// keyword-fix 2026-06-07:关键词命中"不准 + 不一致"两个 bug 的根治。
+//   - 旧逻辑在 diff-metrics 里让 LLM"扩展到 30-50 个 token"+ 同 prompt 塞了简历技能
+//     → 凑数 + 把简历词漏当 JD 词 + 每次现生成不可复现
+//   - 新逻辑:这里 JD-only prompt + temperature 0 + 不凑数,一次性抽好存住
+//     命中判定改到前端 lib/keyword-match.ts 用代码做(确定性)
+async function extractJdKeywords(
+  mode: "full" | "role",
+  jdText: string,
+  roleName: string,
+  company: string | undefined
+): Promise<string[]> {
+  const source =
+    mode === "full"
+      ? `JD 文本:\n---\n${jdText}\n---`
+      : `目标岗位:${roleName}${company ? ` @ ${company}` : ""}\n(无完整 JD,基于该岗位行业通用要求,列招聘方常看重的核心硬技能/工具/方法/概念)`;
+
+  const sys = `你是 JD 关键词抽取器。从下面内容抽出"招聘方真正要求或看重的核心关键词"——技能、工具、方法、领域概念、关键职责动作。
+
+【铁律 — 违反即失败】
+1. 只抽 JD 里真实出现或明确要求的词;**绝不扩展同义词,绝不脑补 JD 没提到的技能/工具**
+2. **不硬凑数量**:JD 有几个核心词就给几个(通常 8~25 个),宁缺毋滥
+3. 每个关键词是简洁概念(2~12 字),如"用户访谈""A/B测试""SQL""产品规划""PRD";**不要整句、不要解释**
+4. 不含公司名;去重;按 JD 里的重要性大致排序
+
+返 JSON:{ "keywords": ["关键词1", "关键词2", ...] }`;
+
+  try {
+    const raw = await chat(
+      [
+        { role: "system", content: sys },
+        { role: "user", content: source },
+      ],
+      { model: "chat", temperature: 0, max_tokens: 800, jsonMode: true }
+    );
+    const parsed = JSON.parse(raw) as { keywords?: unknown };
+    if (!Array.isArray(parsed.keywords)) return [];
+    return parsed.keywords
+      .map((k) => scrubCompanyInSummary(String(k).trim()))
+      .filter((k) => k.length >= 2 && k.length <= 20);
+  } catch (e) {
+    console.error("[parse-jd] extractJdKeywords failed:", e);
+    return [];
+  }
+}
+
 // ============ POST ============
 
 export async function POST(request: NextRequest) {
@@ -271,18 +318,26 @@ export async function POST(request: NextRequest) {
 
     const phase2Ref = await loadPhase2Prompt();
 
-    const raw = await chat(
-      [
-        { role: "system", content: buildSystemPrompt(phase2Ref, mode) },
-        { role: "user", content: userPrompt },
-      ],
-      {
-        model: "chat",
-        temperature: 0.3,
-        max_tokens: 2500,
-        jsonMode: true,
-      }
-    );
+    // 主匹配分析 + JD 关键词抽取 并行(关键词抽取是独立 JD-only 调用,不看简历)
+    const jdTextForKw = mode === "full" ? String(body.jdText ?? "").trim() : "";
+    const roleNameForKw = mode === "role" ? String(body.roleName ?? "").trim() : "";
+    const companyForKw = body.company ? String(body.company).trim() : undefined;
+
+    const [raw, jdKeywords] = await Promise.all([
+      chat(
+        [
+          { role: "system", content: buildSystemPrompt(phase2Ref, mode) },
+          { role: "user", content: userPrompt },
+        ],
+        {
+          model: "chat",
+          temperature: 0.3,
+          max_tokens: 2500,
+          jsonMode: true,
+        }
+      ),
+      extractJdKeywords(mode, jdTextForKw, roleNameForKw, companyForKw),
+    ]);
 
     let parsed: Record<string, unknown>;
     try {
@@ -317,6 +372,8 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       jd_summary: jdSummary,
+      // 确定性关键词清单(只忠于 JD,前端用 lib/keyword-match.ts 算命中)
+      jd_keywords: jdKeywords,
       must_have: mustHave,
       nice_to_have: niceToHave,
       jd_requirements_parsed: jdReqs,

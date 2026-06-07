@@ -57,6 +57,7 @@ export default function ConversationSwitcher({
   const [renameId, setRenameId] = useState<string | null>(null);
   const [renameText, setRenameText] = useState("");
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -72,16 +73,17 @@ export default function ConversationSwitcher({
   }, [user, userLoading, module]);
 
   useEffect(() => {
-    if (!menuOpenId && !renameId) return;
+    if (!menuOpenId && !renameId && !confirmDeleteId) return;
     function onDocClick(e: MouseEvent) {
       if (ref.current && !ref.current.contains(e.target as Node)) {
         setMenuOpenId(null);
         setRenameId(null);
+        setConfirmDeleteId(null);
       }
     }
     document.addEventListener("mousedown", onDocClick);
     return () => document.removeEventListener("mousedown", onDocClick);
-  }, [menuOpenId, renameId]);
+  }, [menuOpenId, renameId, confirmDeleteId]);
 
   async function onNew() {
     const id = await createConversation(module, `${defaultTitle} ${list.length + 1}`);
@@ -104,11 +106,10 @@ export default function ConversationSwitcher({
   }
 
   async function onDelete(id: string) {
-    if (!confirm("删除这份会话?数据无法恢复")) return;
     const ok = await deleteConversation(id);
     if (ok) {
       setList((prev) => prev.filter((c) => c.id !== id));
-      setMenuOpenId(null);
+      setConfirmDeleteId(null);
       if (id === currentId) router.push(basePath);
     }
   }
@@ -181,7 +182,23 @@ export default function ConversationSwitcher({
                     : "hover:bg-warm-bg-deep"
                 }`}
               >
-                {renameId === c.id ? (
+                {confirmDeleteId === c.id ? (
+                  <div className="flex items-center gap-1.5 px-3 py-2">
+                    <span className="text-xs text-esther-red flex-1 truncate">删除「{c.title}」?</span>
+                    <button
+                      onClick={() => setConfirmDeleteId(null)}
+                      className="text-xs px-2 py-0.5 rounded-lg border border-black/15 text-ink-muted hover:bg-warm-bg-deep transition"
+                    >
+                      取消
+                    </button>
+                    <button
+                      onClick={() => onDelete(c.id)}
+                      className="text-xs px-2 py-0.5 rounded-lg bg-esther-red text-white hover:opacity-80 transition"
+                    >
+                      确认
+                    </button>
+                  </div>
+                ) : renameId === c.id ? (
                   <input
                     autoFocus
                     value={renameText}
@@ -226,7 +243,10 @@ export default function ConversationSwitcher({
                           ✎ 改名
                         </button>
                         <button
-                          onClick={() => onDelete(c.id)}
+                          onClick={() => {
+                            setConfirmDeleteId(c.id);
+                            setMenuOpenId(null);
+                          }}
                           className="block w-full text-left px-3 py-1.5 text-sm text-esther-red hover:bg-warm-bg-deep transition"
                         >
                           ✕ 删除
