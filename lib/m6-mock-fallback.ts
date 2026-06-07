@@ -33,8 +33,36 @@ const CITY_DISTRICTS: Record<string, string[]> = {
   南京: ["建邺区", "鼓楼区", "雨花台区"],
   武汉: ["东湖高新区", "江汉区", "武昌区"],
   西安: ["高新区", "雁塔区"],
+  重庆: ["渝北区", "江北区", "南岸区"],
+  苏州: ["工业园区", "相城区", "姑苏区"],
+  天津: ["滨海新区", "南开区", "河西区"],
+  长沙: ["岳麓区", "芙蓉区", "开福区"],
+  厦门: ["思明区", "湖里区", "集美区"],
+  郑州: ["郑东新区", "金水区", "高新区"],
+  青岛: ["崂山区", "市南区", "城阳区"],
+  合肥: ["高新区", "包河区", "蜀山区"],
+  宁波: ["鄞州区", "镇海区", "江北区"],
   全国: ["远程", "总部"],
 };
+
+/** 未识别城市使用通用区名,不暴露上海区 */
+const FALLBACK_DISTRICTS = ["市区", "经开区", "高新区"];
+
+/**
+ * 城市薪资系数 — 基准是一线(上海/北京/深圳=1.0)
+ * 新一线 ~0.75-0.85,二线 ~0.6-0.7,三线及以下 ~0.45-0.55
+ */
+const CITY_SALARY_FACTOR: Record<string, number> = {
+  北京: 1.0, 上海: 1.0, 深圳: 1.0,
+  广州: 0.9,
+  杭州: 0.85, 苏州: 0.82, 南京: 0.8, 天津: 0.78,
+  成都: 0.75, 武汉: 0.75, 长沙: 0.72, 郑州: 0.7,
+  西安: 0.68, 重庆: 0.68, 合肥: 0.68,
+  青岛: 0.7, 厦门: 0.75, 宁波: 0.78,
+  全国: 1.0,
+};
+/** 未在表里的城市(三线及以下)默认系数 */
+const DEFAULT_SALARY_FACTOR = 0.5;
 
 const COMPANY_TEMPLATES: MockTemplate[] = [
   {
@@ -123,7 +151,10 @@ export function generateMockJobs(
   limit: number = 6
 ): Job[] {
   const now = new Date().toISOString();
-  const districts = CITY_DISTRICTS[city] ?? CITY_DISTRICTS["上海"]!;
+  const districts = CITY_DISTRICTS[city] ?? FALLBACK_DISTRICTS;
+  const salaryFactor = CITY_SALARY_FACTOR[city] ?? DEFAULT_SALARY_FACTOR;
+  // 低系数城市(三线)去掉 14薪,改为 12薪,更贴近现实
+  const bonus = salaryFactor >= 0.75 ? "14薪" : salaryFactor >= 0.6 ? "13薪" : "12薪";
   const platforms: Platform[] = ["51job", "liepin", "zhilian"];
 
   // 确定性轮换(不用 Math.random,保证同 query 同结果,demo 时可重现)
@@ -137,6 +168,8 @@ export function generateMockJobs(
     const platform = platforms[idx % platforms.length]!;
     const district = districts[idx % districts.length]!;
     const id = `mock-${platform}-${idx}-${Math.abs(hashCode(role + city + idx))}`;
+    const sMin = Math.round(tpl.salaryMin * salaryFactor);
+    const sMax = Math.round(tpl.salaryMax * salaryFactor);
     return {
       id,
       platform,
@@ -144,9 +177,9 @@ export function generateMockJobs(
       company: tpl.companyType,
       city,
       district,
-      salary: `${tpl.salaryMin}-${tpl.salaryMax}K · 14薪`,
-      salaryMin: tpl.salaryMin,
-      salaryMax: tpl.salaryMax,
+      salary: `${sMin}-${sMax}K · ${bonus}`,
+      salaryMin: sMin,
+      salaryMax: sMax,
       experience: tpl.experience,
       education: tpl.education,
       tags: tpl.tags,
