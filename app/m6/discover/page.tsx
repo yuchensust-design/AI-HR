@@ -14,7 +14,6 @@ import type {
   SearchResponse,
 } from "@/components/m6/types";
 
-const POPULAR_CITIES = ["上海", "北京", "深圳", "广州", "杭州", "成都", "南京", "武汉", "西安", "全国"];
 
 interface ParsedResume {
   basic?: { name?: string; [k: string]: unknown };
@@ -424,18 +423,13 @@ function SearchTab({
           className="flex-1 px-4 py-2.5 rounded-lg border-2 border-border focus:border-esther-blue focus:outline-none text-sm bg-warm-bg"
         />
         <input
-          list="city-suggestions"
+          type="text"
           value={filters.city}
           onChange={(e) => setFilters({ ...filters, city: e.target.value })}
           onKeyDown={(e) => e.key === "Enter" && !loading && runSearch()}
-          placeholder="城市,如 上海 / 全国"
-          className="px-4 py-2.5 rounded-lg border-2 border-border focus:border-esther-blue focus:outline-none text-sm bg-warm-bg w-full sm:w-[140px]"
+          placeholder="城市(可选)"
+          className="px-4 py-2.5 rounded-lg border-2 border-border focus:border-esther-blue focus:outline-none text-sm bg-warm-bg w-full sm:w-[120px]"
         />
-        <datalist id="city-suggestions">
-          {POPULAR_CITIES.map((c) => (
-            <option key={c} value={c} />
-          ))}
-        </datalist>
         <button
           onClick={runSearch}
           disabled={loading || !filters.role.trim()}
