@@ -33,6 +33,8 @@ type ParsedResume = {
 
 type JdContext = {
   jd_summary?: string;
+  /** parse-jd 确定性抽取的 JD 关键词清单(命中由前端 lib/keyword-match 代码层算) */
+  jd_keywords?: string[];
   must_have?: string[];
   nice_to_have?: string[];
   jd_requirements_parsed?: { type: string; text: string }[];

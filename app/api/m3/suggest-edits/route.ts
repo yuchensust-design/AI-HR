@@ -31,6 +31,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { chat } from "@/lib/llm";
+import { goalsToPromptHint } from "@/lib/m3-optimization-goals";
 import {
   decideSkillRoute,
   inferPersona,
@@ -162,13 +163,45 @@ const PROMPT_MAIN = `你是「Offer 捕手」模块 3 简历整理 Phase 5 改�
       "priority": "high" | "medium" | "low",
       "fab_warning": null | "⚠️ ...",
       "jd_requirement_text": "(仅 gap-alert,完整 JD 要求)",
-      "fixable": "(仅 gap-alert: 易补<2周 / 中等1-2月)"
+      "fixable": "(仅 gap-alert: 易补<2周 / 中等1-2月)",
+      "sr_question": null | {
+        "type": "数字怎来" | "角色是什么" | "结果是否归你",
+        "question": "HR 会问的具体问句 ≤ 40 字",
+        "options": ["选项 A", "选项 B", "选项 C", "选项 D"]
+      }
     },
     ...
   ],
   "default_accept_count": 3-5,
-  "optimization_summary": "本次找了 N 处可改,K 处推荐你优先看"
+  "optimization_summary": "本次找了 N 处可改,K 处推荐你优先看",
+  "original_issues": [
+    "原简历问题 1(针对目标 JD,≤ 40 字,具体指出哪里不足)",
+    "原简历问题 2",
+    "..."
+  ],
+  "optimization_directions": [
+    "优化方向 1(可执行的改进建议,≤ 40 字)",
+    "优化方向 2",
+    "..."
+  ]
 }
+
+【original_issues / optimization_directions 规则(对标竞品"原始简历问题总结/核心优化方向")】
+- original_issues:3-7 条,基于 parsed_resume vs jd_context,客观指出原简历针对该 JD 的不足(eg "未体现 X 经验"、"成果描述模糊无量化"、"缺少 JD 要求的 Y 工具")。**anti-fab:只说简历真实的缺,不臆断**
+- optimization_directions:3-6 条,对应 issues 给可执行方向(eg "补充 X 的量化产出"、"把 Y 经历用 STAR 重写")。**不要承诺具体数字提升**
+- 两者用用户能懂的话,不用内部 jargon
+
+【sr_question 字段规则(Skeptical Recruiter 时机 3)】
+- **触发条件**:suggested_text 里有以下任一信号:
+  a) 有具体数字但来源不确定(eg "主导 5 人团队" 但实习只有 3 个月)
+  b) 有强动词但角色不明(eg "主导" / "独立" 但 claim_type = inferred)
+  c) 有成果但归因模糊(eg "提升 30%" 但不清楚是用户贡献还是团队整体)
+- **三类问题**(每条 bullet 最多 1 个,按 a→b→c 优先级选最紧迫的):
+  · 数字怎来 → question: "这个[具体数字]是你单独统计的?还是团队整体?", options: ["我独立统计","团队数据我占主要贡献","部门整体数字","坦白说我不太确定"]
+  · 角色是什么 → question: "你在这件事里具体负责哪部分?", options: ["PM/Owner全权负责","IC负责某个模块","协调者但不做决策","另外说明"]
+  · 结果是否归你 → question: "这个提升主要是因为你做了什么?", options: ["主要是我主导的方案","我是关键贡献者之一","团队整体成果","说不太清楚"]
+- **不触发 sr_question 的情况**:claim_type=explicit 且 confidence≥0.95 且 suggested_text 无强动词争议
+- **最多 3 条 edit 带 sr_question**(防止用户被追问淹没)
 
 【自检 checklist(返 JSON 前内部过一遍)】
 □ 每条 edit 都有 evidence_source 指向具体字段
@@ -181,17 +214,24 @@ const PROMPT_MAIN = `你是「Offer 捕手」模块 3 简历整理 Phase 5 改�
 □ confidence < 0.7 的 edit 必须 fab_warning != null 且 priority = "low"
 □ **每条 edit 都填 claim_type**(explicit/inferred/needs_confirmation 三选一,不要输出 forbidden);宁可降级为 needs_confirmation
 □ **每条 edit 都填 evidence_audit**(数组,1-3 条,excerpt 必须是真实原文片段,不要改写)
+□ **sr_question 最多出现在 3 条 edit 里**;触发条件不满足则 sr_question = null
 
-【输出长度硬约束(防止 JSON 截断)】
+【信息密度铁律(2026-06-07 重要 — 防过度压缩)】
+- **提升信息密度 ≠ 删信息**。原文已经信息丰富(有具体数字 / 方法 / 洞察 / 链路)的 bullet,**必须保留这些有效细节**,只做表达优化 + 关键词补充,改后**不能比原文更短到丢信息**
+- 只有"啰嗦 / 重复 / 低密度"的 bullet 才精简
+- **绝不删除原文里的关键洞察 / 量化 / 专业细节**(eg "$3000 门槛""意图理解→自动执行链路""10 个用户故事")— 这些正是简历的竞争力
+- 不要把原文没有的交付物凭空补上(eg 原文没说"8 页报告"就别加)
+
+【输出长度约束(防止 JSON 截断)】
 - 数量:**6-10 条建议**(质量优先,不堆数量;DeepSeek 输出 8K 上限)
-- 每条 suggested_text ≤ 80 字 / reason ≤ 50 字 / evidence_audit 默认 1 条且 excerpt ≤ 80 字
+- suggested_text:信息丰富的原文保留细节(可到 150 字);啰嗦的才精简 / reason ≤ 50 字 / evidence_audit 默认 1 条且 excerpt ≤ 80 字
 - high priority 占 30-50%
-- **输出 JSON 总长目标 ≤ 5000 字符**,绝不超过 7500 字符 — 接近 8K 上限就立即收尾,宁可少 1-2 条`;
+- **输出 JSON 总长目标 ≤ 6500 字符**,接近 8K 上限就立即收尾,宁可少 1-2 条`;
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { parsedResume, jdContext, hiddenExperiences, fromDebriefHighlight } = body;
+    const { parsedResume, jdContext, hiddenExperiences, fromDebriefHighlight, optimizationGoals } = body;
 
     if (!parsedResume) {
       return NextResponse.json({ error: "parsedResume required" }, { status: 400 });
@@ -230,7 +270,7 @@ ${segmentsText}
 - has_jd: ${jdContext ? "yes" : "no(快速模式 - 只做通用 polish,不针对 JD 关键词)"}
 - has_hidden_experiences: ${
       Array.isArray(hiddenExperiences) && hiddenExperiences.length > 0 ? "yes" : "no"
-    }`;
+    }${goalsToPromptHint(Array.isArray(optimizationGoals) ? optimizationGoals : [])}`;
 
     const userPrompt = `parsed_resume(用户简历结构化):
 ${JSON.stringify(parsedResume, null, 2)}
@@ -690,6 +730,12 @@ ${JSON.stringify(fromDebriefHighlight ?? null, null, 2)}
       edits: allEdits,
       default_accept_count: Number(parsed.default_accept_count ?? 3),
       optimization_summary: String(parsed.optimization_summary ?? `本次找了 ${allEdits.length} 处可改`),
+      original_issues: Array.isArray(parsed.original_issues)
+        ? parsed.original_issues.map(String).filter(Boolean).slice(0, 7)
+        : [],
+      optimization_directions: Array.isArray(parsed.optimization_directions)
+        ? parsed.optimization_directions.map(String).filter(Boolean).slice(0, 6)
+        : [],
       used_supplements: route,
       inferred_persona: persona,
       anti_fab_filtered: filteredOutCount,

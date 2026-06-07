@@ -52,6 +52,14 @@ export type EditSuggestion = {
   // gap-alert 特有字段(2026-06-02 v2)
   jd_requirement_text?: string | null;
   fixable?: string | null;
+  // Skeptical Recruiter 时机 3(anti-fab oc-m3-antifab)
+  sr_question?: SRQuestion | null;
+};
+
+export type SRQuestion = {
+  type: "数字怎来" | "角色是什么" | "结果是否归你";
+  question: string;
+  options: string[];
 };
 
 /** claimType → UI badge meta */
@@ -268,6 +276,11 @@ export function EditSuggestionCard({
   onReject,
   onRegen,
   onCustomEdit,
+  onRevert,
+  onTalkToAI,
+  talkActive,
+  srAnswer,
+  onSrAnswer,
   regenBusy,
   onKeywordClick,
 }: {
@@ -279,6 +292,15 @@ export function EditSuggestionCard({
   onRegen: () => void;
   /** §8.28 Wave 4: 用户自己改文案后保存,以 acceptWith custom text 落地 */
   onCustomEdit?: (text: string) => void;
+  /** 已决策后直接切换回另一态(改回原文 / 改用建议),不弹 popover */
+  onRevert?: (to: Decision) => void;
+  /** 点击"针对这条跟 AI 说" — 把 chat 聚焦到这条 edit */
+  onTalkToAI?: () => void;
+  /** 当前 chat 是否正聚焦在这条 */
+  talkActive?: boolean;
+  /** ⚡ HR 追问预演:用户对 sr_question 的回答(已答则不为空) */
+  srAnswer?: string;
+  onSrAnswer?: (option: string) => void;
   regenBusy: boolean;
   onKeywordClick?: (keyword: string) => void;
 }) {
@@ -297,14 +319,9 @@ export function EditSuggestionCard({
   const claimMeta = CLAIM_TYPE_META[claimType];
 
   const [showRejectPopover, setShowRejectPopover] = useState(false);
-  const [showEvidenceAudit, setShowEvidenceAudit] = useState(false);
   /** §8.28 Wave 4: inline 编辑模式 — 用户自己改文案 */
   const [editing, setEditing] = useState(false);
   const [draftText, setDraftText] = useState(finalSuggested);
-
-  // 第一手来源 excerpt(顶部 📌 显眼行)— 优先 evidence_audit[0] → evidence_source
-  const primaryExcerpt =
-    edit.evidence_audit?.[0]?.excerpt ?? edit.evidence_source ?? null;
 
   // 中文优先级 label
   const priorityCnLabel =
@@ -366,23 +383,12 @@ export function EditSuggestionCard({
         <span className="text-[10px] text-ink-muted font-mono">{edit.id}</span>
       </div>
 
-      {/* 📌 显眼来源行 — §8.28 Wave 4: 借鉴原型 m3-result.html 的"📌 依据"行 */}
-      {primaryExcerpt && (
-        <div className="mb-2 flex items-start gap-1.5 text-[11px] text-ink-soft bg-warm-bg-deep/30 border-l-2 border-esther-blue/40 pl-2 py-1 rounded-r">
-          <span className="flex-shrink-0">📌</span>
-          <span className="leading-snug">
-            <span className="text-ink-muted">依据:</span>
-            <span className="italic">&ldquo;{primaryExcerpt.length > 80 ? primaryExcerpt.slice(0, 80) + "…" : primaryExcerpt}&rdquo;</span>
-          </span>
-        </div>
-      )}
-
       {/* 原文 → 改写 */}
       {edit.original_text && edit.original_text !== "(新增)" ? (
         <>
           <div className="bg-card border border-border rounded p-2.5 mb-2">
-            <p className="text-[10px] text-ink-muted mb-1 font-display italic">原文</p>
-            <p className="text-xs text-ink-soft leading-relaxed">{edit.original_text}</p>
+            <p className="text-xs text-ink-muted mb-1 font-display italic">原文</p>
+            <p className="text-sm text-ink-soft leading-relaxed">{edit.original_text}</p>
           </div>
           <p className="text-center text-ink-muted my-1 text-xs">↓</p>
         </>
@@ -399,7 +405,7 @@ export function EditSuggestionCard({
             : "bg-warm-bg-deep/40 border-border"
         }`}
       >
-        <p className="text-[10px] text-esther-blue mb-1 font-display italic">改为</p>
+        <p className="text-xs text-esther-blue mb-1 font-display italic">改为</p>
         {editing ? (
           <>
             <textarea
@@ -436,62 +442,45 @@ export function EditSuggestionCard({
             </div>
           </>
         ) : (
-          <p className="text-xs text-ink leading-relaxed font-medium">{finalSuggested}</p>
+          <p className="text-sm text-ink leading-relaxed font-medium">{finalSuggested}</p>
         )}
       </div>
 
       {/* reason */}
       <div className="mb-2 px-2 py-1.5 rounded bg-warm-bg-deep/30 border-l-2 border-esther-blue/40">
-        <p className="text-[10px] text-ink-muted leading-relaxed">
+        <p className="text-xs text-ink-muted leading-relaxed">
           💬 {edit.reason}
         </p>
       </div>
 
-      {/* evidence_source — Anti-fabrication 透明化(向后兼容字符串字段) */}
-      {edit.evidence_source && !edit.evidence_audit?.length && (
-        <div className="mb-2 px-2 py-1 rounded bg-card border border-border">
-          <p className="text-[10px] text-ink-muted leading-relaxed">
-            📎 素材来源:
-            <code className="ml-1 text-ink font-mono text-[10px]">
-              {edit.evidence_source}
-            </code>
-          </p>
-        </div>
-      )}
-
-      {/* evidence_audit — 反编造工程化(offer-1-sparkling-hippo):可展开查看原始证据 */}
-      {edit.evidence_audit && edit.evidence_audit.length > 0 && (
-        <div className="mb-2 rounded border border-border bg-card overflow-hidden">
-          <button
-            type="button"
-            onClick={() => setShowEvidenceAudit((v) => !v)}
-            className="w-full px-2 py-1.5 flex items-center justify-between text-left hover:bg-warm-bg-deep/30 transition-colors"
-          >
-            <p className="text-[10px] text-ink-muted">
-              📎 证据审计 · {edit.evidence_audit.length} 处来源(点击{showEvidenceAudit ? "收起" : "展开"})
+      {/* ⚡ HR 追问预演 — Skeptical Recruiter(差异化卖点,直接在卡片上露出)*/}
+      {edit.sr_question && (
+        srAnswer ? (
+          <div className="mb-2 px-2.5 py-1.5 rounded bg-amber-50 border border-amber-200">
+            <p className="text-xs text-amber-700 leading-relaxed">
+              ⚡ HR 追问已确认 · <span className="font-medium">{srAnswer}</span>
             </p>
-            <span className="text-[10px] text-ink-muted">{showEvidenceAudit ? "▴" : "▾"}</span>
-          </button>
-          {showEvidenceAudit && (
-            <div className="border-t border-border divide-y divide-border">
-              {edit.evidence_audit.map((ev, i) => {
-                const meta = SOURCE_META[ev.source];
-                return (
-                  <div key={i} className="px-2 py-1.5">
-                    <p className="text-[9px] text-ink-muted mb-0.5">
-                      <span className={`inline-block px-1 py-0 rounded text-[9px] font-medium ${meta.color} mr-1`}>
-                        {meta.label}
-                      </span>
-                    </p>
-                    <p className="text-[10px] text-ink leading-relaxed italic">
-                      &ldquo;{ev.excerpt}&rdquo;
-                    </p>
-                  </div>
-                );
-              })}
+          </div>
+        ) : (
+          <div className="mb-2 px-2.5 py-2 rounded bg-amber-50 border border-amber-200">
+            <p className="text-xs font-medium text-amber-700 mb-1.5">
+              ⚡ HR 可能追问 · {edit.sr_question.type}
+            </p>
+            <p className="text-sm text-ink mb-2 leading-relaxed">{edit.sr_question.question}</p>
+            <div className="flex flex-col gap-1">
+              {edit.sr_question.options.map((opt) => (
+                <button
+                  key={opt}
+                  type="button"
+                  onClick={() => onSrAnswer?.(opt)}
+                  className="text-left text-sm px-2.5 py-1.5 rounded bg-white hover:bg-amber-100 border border-amber-200 text-ink transition-colors"
+                >
+                  {opt}
+                </button>
+              ))}
             </div>
-          )}
-        </div>
+          </div>
+        )
       )}
 
       {/* fab_warning — 未验证经历显式标 */}
@@ -506,29 +495,45 @@ export function EditSuggestionCard({
       {/* confidence — PM §3.4 #2 */}
       {hasConfidence && <ConfidenceBar value={edit.confidence ?? 0} />}
 
-      {/* 3 按钮 */}
-      <div className="flex items-center gap-2 mt-3 relative">
+      {/* 操作按钮 — 采纳/不采纳 可随时来回切换 */}
+      <div className="flex items-center gap-2 mt-3 relative flex-wrap">
         {decision === "accept" && (
-          <span className="inline-flex items-center px-3 py-1.5 rounded-full bg-esther-blue text-white text-xs font-medium">
-            ✓ 已采纳
-          </span>
+          <>
+            <span className="inline-flex items-center px-3 py-1.5 rounded-full bg-esther-blue text-white text-sm font-medium">
+              ✓ 已采纳
+            </span>
+            <button
+              onClick={() => onRevert?.("reject")}
+              className="inline-flex items-center justify-center rounded-full border border-border bg-card text-ink-soft px-3 py-1.5 text-sm hover:border-esther-red hover:text-esther-red transition-colors"
+            >
+              ↩ 改回原文
+            </button>
+          </>
         )}
         {decision === "reject" && (
-          <span className="inline-flex items-center px-3 py-1.5 rounded-full bg-warm-bg-deep text-ink-soft text-xs">
-            ✗ 维持原文
-          </span>
+          <>
+            <span className="inline-flex items-center px-3 py-1.5 rounded-full bg-warm-bg-deep text-ink-soft text-sm">
+              ✗ 维持原文
+            </span>
+            <button
+              onClick={() => onRevert?.("accept")}
+              className="inline-flex items-center justify-center rounded-full bg-esther-blue text-white px-3 py-1.5 text-sm font-medium hover:bg-esther-blue-dark transition-colors"
+            >
+              ✓ 改用建议
+            </button>
+          </>
         )}
         {decision === null && (
           <>
             <button
               onClick={onAccept}
-              className="inline-flex items-center justify-center rounded-full bg-esther-blue text-white px-3 py-1.5 text-xs font-medium hover:bg-esther-blue-dark transition-colors"
+              className="inline-flex items-center justify-center rounded-full bg-esther-blue text-white px-3 py-1.5 text-sm font-medium hover:bg-esther-blue-dark transition-colors"
             >
               ✓ 采纳
             </button>
             <button
               onClick={handleRejectClick}
-              className="inline-flex items-center justify-center rounded-full border border-border bg-card text-ink-soft px-3 py-1.5 text-xs hover:border-esther-red hover:text-esther-red transition-colors"
+              className="inline-flex items-center justify-center rounded-full border border-border bg-card text-ink-soft px-3 py-1.5 text-sm hover:border-esther-red hover:text-esther-red transition-colors"
             >
               ✗ 维持原文
             </button>
@@ -538,26 +543,38 @@ export function EditSuggestionCard({
                 onCancel={() => setShowRejectPopover(false)}
               />
             )}
+            {!editing && onCustomEdit && (
+              <button
+                onClick={() => {
+                  setDraftText(finalSuggested);
+                  setEditing(true);
+                }}
+                className="inline-flex items-center justify-center rounded-full border border-border bg-card text-ink-soft px-3 py-1.5 text-sm hover:border-esther-blue hover:text-esther-blue transition-colors"
+              >
+                ✎ 我自己改
+              </button>
+            )}
           </>
-        )}
-        {decision === null && !editing && onCustomEdit && (
-          <button
-            onClick={() => {
-              setDraftText(finalSuggested);
-              setEditing(true);
-            }}
-            className="inline-flex items-center justify-center rounded-full border border-border bg-card text-ink-soft px-3 py-1.5 text-xs hover:border-esther-blue hover:text-esther-blue transition-colors"
-          >
-            ✎ 我自己改
-          </button>
         )}
         <button
           onClick={onRegen}
           disabled={regenBusy}
-          className="inline-flex items-center justify-center rounded-full border border-border bg-card text-ink-soft px-3 py-1.5 text-xs hover:border-esther-blue hover:text-esther-blue transition-colors disabled:opacity-40"
+          className="inline-flex items-center justify-center rounded-full border border-border bg-card text-ink-soft px-3 py-1.5 text-sm hover:border-esther-blue hover:text-esther-blue transition-colors disabled:opacity-40"
         >
           {regenBusy ? "..." : "🔁 换个拟法"}
         </button>
+        {onTalkToAI && (
+          <button
+            onClick={onTalkToAI}
+            className={`inline-flex items-center justify-center rounded-full px-3 py-1.5 text-sm transition-colors ${
+              talkActive
+                ? "bg-esther-yellow text-ink font-medium"
+                : "border border-border bg-card text-ink-soft hover:border-esther-blue hover:text-esther-blue"
+            }`}
+          >
+            💬 {talkActive ? "正在改这条" : "改这条"}
+          </button>
+        )}
       </div>
     </Card>
   );
