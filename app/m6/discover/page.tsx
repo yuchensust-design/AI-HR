@@ -14,6 +14,16 @@ import type {
   SearchResponse,
 } from "@/components/m6/types";
 
+// 已知城市白名单(含常见拼写);不在列表里时显示软提示,不阻断搜索
+const KNOWN_CITIES = new Set([
+  "上海", "北京", "深圳", "广州", "杭州", "成都", "南京", "武汉", "西安",
+  "重庆", "苏州", "天津", "长沙", "郑州", "青岛", "合肥", "宁波", "厦门",
+  "福州", "济南", "大连", "沈阳", "哈尔滨", "长春", "南昌", "昆明", "贵阳",
+  "南宁", "太原", "石家庄", "乌鲁木齐", "呼和浩特", "兰州", "西宁", "银川",
+  "海口", "三亚", "珠海", "东莞", "佛山", "中山", "惠州", "汕头", "温州",
+  "金华", "宁波", "无锡", "常州", "南通", "泉州", "徐州", "保定",
+  "全国",
+]);
 
 interface ParsedResume {
   basic?: { name?: string; [k: string]: unknown };
@@ -438,6 +448,11 @@ function SearchTab({
           {loading ? "搜索中..." : "搜索 →"}
         </button>
       </div>
+      {filters.city.trim() && !KNOWN_CITIES.has(filters.city.trim()) && (
+        <p className="text-xs text-ink-muted mt-2">
+          ⚠️ 未收录该城市,招聘数据可能较少或不准确
+        </p>
+      )}
       {loading && (
         <p className="text-xs text-ink-soft mt-3 flex items-center gap-2">
           <span className="inline-block w-3 h-3 border-2 border-esther-blue border-t-transparent rounded-full animate-spin" />
