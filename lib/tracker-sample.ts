@@ -80,8 +80,8 @@ const AI_PM: Application[] = [
   app("s-pm-15", "某 B2B 工具公司", "SaaS 产品经理(实习)", "ai_pm", "2026-05-15", "ghosted", "2026-06-05"),
   {
     ...app("s-pm-16", "某电商物流平台", "履约产品(实习)", "ai_pm", "2026-04-05", "rejected", "2026-04-25", "简历被初筛，但一面聊履约业务时明显没有相关经验。"),
-    rounds: [{ id: "r-pm16-1", type: "first_round", outcome: "failed", failReason: "experience", note: "履约/供应链业务背景薄弱", date: "2026-04-25" }],
-    finalFailReason: "experience",
+    rounds: [{ id: "r-pm16-1", type: "first_round", outcome: "failed", failReason: "jd_mismatch", note: "履约/供应链业务背景薄弱，JD 与经历错配", date: "2026-04-25" }],
+    finalFailReason: "jd_mismatch",
   },
   app("s-pm-17", "某头部资讯 App", "信息流产品(实习)", "ai_pm", "2026-04-28", "ghosted", "2026-05-28"),
   app("s-pm-18", "某在线音乐平台", "音乐产品经理(实习)", "ai_pm", "2026-05-02", "applied", "2026-05-02"),
@@ -257,6 +257,15 @@ export const SAMPLE_DIAGNOSIS: Diagnosis = {
   confidence: 0.78,
   source: "ai",
   containsSample: true,
+  generatedAt: "2026-06-01T10:00:00.000Z",
+  metrics: {
+    total: 63,
+    responseRate: 0.40,
+    interviewRate: 0.17,
+    offerRate: 0.048,
+    ghostedRate: 0.41,
+    avgWaitDays: 24.5,
+  },
   summary:
     "整体拿到 3 个 offer（4.8%），但方向差距悬殊。最大瓶颈不是简历质量，而是数据分析方向的 SQL 和实验设计短板——22 投 0 offer，6 次技术轮全军覆没。当前优先跟进在途 offer 谈判，数据分析方向暂停投递、先补短板。",
   evidence: [
