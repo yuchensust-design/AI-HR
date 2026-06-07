@@ -22,6 +22,11 @@ export type M3Row = {
   hidden_experience_json: unknown[] | null;
   final_resume_md: string | null;
   final_resume_docx_url: string | null;
+  // 分析产物落库(m3-db-persistence)
+  edits_json: unknown | null;
+  decisions_json: unknown | null;
+  metrics_json: unknown | null;
+  interview_prep_json: unknown | null;
   updated_at: string;
 };
 

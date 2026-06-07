@@ -6,7 +6,7 @@ import { Card } from "@/components/ui/card";
 import { Nav } from "@/components/Nav";
 import { BuerFloatingButton } from "@/components/BuerFloatingButton";
 import { useLocalState, STORAGE_KEYS } from "@/lib/use-local-state";
-import { useM3DBSync } from "@/lib/sync/useM3DBSync";
+import { useM3DBSync, type M3Row } from "@/lib/sync/useM3DBSync";
 import { type M3OptimizationGoalKey } from "@/lib/m3-optimization-goals";
 import {
   EditSuggestionCard,
@@ -239,20 +239,59 @@ function ResultContent() {
     setStatus("ready");
   }
 
+  // 统一产物读写:登录 → DB 列(jsonb),游客 → localStorage(plan m3-db-persistence)
+  const readArtifact = useCallback(
+    <T,>(dbField: keyof M3Row, lsKey: string): T | null => {
+      if (isLoggedInWithConv) {
+        const v = (dbData as Partial<M3Row> | null)?.[dbField];
+        return (v ?? null) as T | null;
+      }
+      if (typeof window === "undefined") return null;
+      try {
+        const raw = window.localStorage.getItem(lsKey);
+        return raw ? (JSON.parse(raw) as T) : null;
+      } catch {
+        return null;
+      }
+    },
+    [isLoggedInWithConv, dbData],
+  );
+
+  const writeArtifact = useCallback(
+    (dbField: keyof M3Row, lsKey: string, value: unknown) => {
+      if (isLoggedInWithConv) {
+        void saveField(dbField, value);
+        return;
+      }
+      if (typeof window === "undefined") return;
+      try {
+        window.localStorage.setItem(lsKey, JSON.stringify(value));
+      } catch {
+        /* quota — ignore */
+      }
+    },
+    [isLoggedInWithConv, saveField],
+  );
+
+  // metrics 内容签名(内容 + 决策变 → v2 bullets 变 → STAR/硬门槛要重算)
+  const metricsSig = useMemo(
+    () => cheapSig(contentSig + JSON.stringify({ d: decisions, r: rewritten })),
+    [contentSig, decisions, rewritten],
+  );
+
   const loadSuggestions = useCallback(async (force = false) => {
     if (!parsedResume) return;
     setStatus("loading");
     setErrorMsg("");
-    // 命中缓存 → 直接出(像竞品:加载一次后再进来秒开)
-    if (!force && typeof window !== "undefined") {
-      try {
-        const cached = window.localStorage.getItem(editsCacheKey);
-        if (cached) {
-          applyEditsResult(JSON.parse(cached) as SuggestEditsResult);
-          return;
-        }
-      } catch {
-        /* ignore */
+    // 命中缓存(登录=DB / 游客=localStorage)+ sig 匹配 → 直接出,不重算
+    if (!force) {
+      const cached = readArtifact<{ sig: string; result: SuggestEditsResult }>(
+        "edits_json",
+        editsCacheKey,
+      );
+      if (cached?.result && cached.sig === contentSig) {
+        applyEditsResult(cached.result);
+        return;
       }
     }
     try {
@@ -272,11 +311,7 @@ function ResultContent() {
         throw new Error(j.error ?? `HTTP ${res.status}`);
       }
       const parsed = (await res.json()) as SuggestEditsResult;
-      try {
-        window.localStorage.setItem(editsCacheKey, JSON.stringify(parsed));
-      } catch {
-        /* ignore quota */
-      }
+      writeArtifact("edits_json", editsCacheKey, { sig: contentSig, result: parsed });
       applyEditsResult(parsed);
     } catch (err) {
       const message = err instanceof Error ? err.message : "加载失败";
@@ -284,7 +319,7 @@ function ResultContent() {
       setStatus("error");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [parsedResume, jdContext, hiddenExperiences, fromDebriefHighlight, optimizationGoals, editsCacheKey]);
+  }, [parsedResume, jdContext, hiddenExperiences, fromDebriefHighlight, optimizationGoals, editsCacheKey, contentSig, readArtifact, writeArtifact]);
 
   useEffect(() => {
     if (parsedResume && !data && status === "loading") {
@@ -295,15 +330,14 @@ function ResultContent() {
   // === LLM diff-metrics(只取顶部 1 行评分需要的 JD 关键词命中数 + STAR/hard_req 提升)===
   const loadLlmMetrics = useCallback(async () => {
     if (!parsedResume) return;
-    // B:先查缓存 — 同内容 + 同决策直接复用,避免每次刷新现算导致分数忽高忽低
-    try {
-      const cached = window.localStorage.getItem(metricsCacheKey);
-      if (cached) {
-        setLlmMetrics(JSON.parse(cached) as LlmMetrics);
-        return;
-      }
-    } catch {
-      /* ignore */
+    // 先查缓存(登录=DB / 游客=localStorage)+ sig 匹配 → 复用,避免刷新现算导致分数忽高忽低
+    const cachedMetrics = readArtifact<{ sig: string; metrics: LlmMetrics }>(
+      "metrics_json",
+      metricsCacheKey,
+    );
+    if (cachedMetrics?.metrics && cachedMetrics.sig === metricsSig) {
+      setLlmMetrics(cachedMetrics.metrics);
+      return;
     }
     setLlmMetricsRefreshing(true);
     try {
@@ -389,18 +423,14 @@ function ResultContent() {
         llm_explain: parsed.llm_explain ?? "",
       };
       setLlmMetrics(metrics);
-      // B:缓存,同内容 + 同决策 → 同分数,不再每次刷新现算
-      try {
-        window.localStorage.setItem(metricsCacheKey, JSON.stringify(metrics));
-      } catch {
-        /* quota — ignore */
-      }
+      // 缓存(登录=DB / 游客=localStorage),同内容 + 同决策 → 同分数
+      writeArtifact("metrics_json", metricsCacheKey, { sig: metricsSig, metrics });
     } catch (err) {
       console.error("[loadLlmMetrics] failed:", err);
     } finally {
       setLlmMetricsRefreshing(false);
     }
-  }, [parsedResume, jdContext, data, decisions, rewritten, metricsCacheKey]);
+  }, [parsedResume, jdContext, data, decisions, rewritten, metricsCacheKey, metricsSig, readArtifact, writeArtifact]);
 
   // 进 ready 状态后自动跑 1 次 LLM diff-metrics
   useEffect(() => {
@@ -415,15 +445,14 @@ function ResultContent() {
   const loadInterviewPrep = useCallback(
     async (force = false) => {
       if (!parsedResume) return;
-      if (!force && typeof window !== "undefined") {
-        try {
-          const cached = window.localStorage.getItem(prepCacheKey);
-          if (cached) {
-            setInterviewPrep(JSON.parse(cached) as PrepCategory[]);
-            return;
-          }
-        } catch {
-          /* ignore */
+      if (!force) {
+        const cached = readArtifact<{ sig: string; prep: PrepCategory[] }>(
+          "interview_prep_json",
+          prepCacheKey,
+        );
+        if (cached?.prep && cached.sig === contentSig) {
+          setInterviewPrep(cached.prep);
+          return;
         }
       }
       setInterviewPrepLoading(true);
@@ -438,11 +467,7 @@ function ResultContent() {
         const json = (await res.json()) as { categories?: PrepCategory[] };
         const cats = Array.isArray(json.categories) ? json.categories : [];
         setInterviewPrep(cats);
-        try {
-          window.localStorage.setItem(prepCacheKey, JSON.stringify(cats));
-        } catch {
-          /* ignore quota */
-        }
+        writeArtifact("interview_prep_json", prepCacheKey, { sig: contentSig, prep: cats });
       } catch (err) {
         console.error("[interview-prep] failed:", err);
         setInterviewPrepError("生成失败,点重试再来一次");
@@ -450,7 +475,7 @@ function ResultContent() {
         setInterviewPrepLoading(false);
       }
     },
-    [parsedResume, jdContext, prepCacheKey],
+    [parsedResume, jdContext, prepCacheKey, contentSig, readArtifact, writeArtifact],
   );
 
   // ready 后后台预取面试准备(只跑一次)
@@ -465,39 +490,40 @@ function ResultContent() {
   useEffect(() => {
     if (status !== "ready" || !data || decisionsRestoredRef.current) return;
     decisionsRestoredRef.current = true;
-    if (typeof window === "undefined") return;
-    try {
-      const raw = window.localStorage.getItem(decisionsKey);
-      if (!raw) return;
-      const saved = JSON.parse(raw) as {
-        decisions?: DecisionsMap;
-        rewritten?: RewrittenMap;
-        srAnswers?: Record<string, string>;
-        keywordResponses?: Record<string, "can" | "vague" | "no">;
-      };
-      if (saved.decisions) setDecisions((d) => ({ ...d, ...saved.decisions }));
-      if (saved.rewritten) setRewritten((r) => ({ ...r, ...saved.rewritten }));
-      if (saved.srAnswers) setSrAnswers((a) => ({ ...a, ...saved.srAnswers }));
-      if (saved.keywordResponses) setKeywordResponses((k) => ({ ...k, ...saved.keywordResponses }));
-    } catch {
-      /* ignore */
-    }
+    const saved = readArtifact<{
+      decisions?: DecisionsMap;
+      rewritten?: RewrittenMap;
+      srAnswers?: Record<string, string>;
+      keywordResponses?: Record<string, "can" | "vague" | "no">;
+    }>("decisions_json", decisionsKey);
+    if (!saved) return;
+    if (saved.decisions) setDecisions((d) => ({ ...d, ...saved.decisions }));
+    if (saved.rewritten) setRewritten((r) => ({ ...r, ...saved.rewritten }));
+    if (saved.srAnswers) setSrAnswers((a) => ({ ...a, ...saved.srAnswers }));
+    if (saved.keywordResponses) setKeywordResponses((k) => ({ ...k, ...saved.keywordResponses }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status, data]);
 
-  // 决策持久化:变更即存(恢复完成后才开始写,避免空值覆盖)
+  // 决策持久化:变更即存(恢复完成后才写,避免空值覆盖)
+  // 游客 → localStorage 即时;登录 → DB,debounce 800ms 防止每次点击都打 DB
   useEffect(() => {
-    if (!decisionsRestoredRef.current || typeof window === "undefined") return;
-    try {
-      window.localStorage.setItem(
-        decisionsKey,
-        JSON.stringify({ decisions, rewritten, srAnswers, keywordResponses }),
-      );
-    } catch {
-      /* ignore */
+    if (!decisionsRestoredRef.current) return;
+    const payload = { decisions, rewritten, srAnswers, keywordResponses };
+    if (!isLoggedInWithConv) {
+      if (typeof window === "undefined") return;
+      try {
+        window.localStorage.setItem(decisionsKey, JSON.stringify(payload));
+      } catch {
+        /* ignore */
+      }
+      return;
     }
+    const t = setTimeout(() => {
+      void saveField("decisions_json", payload);
+    }, 800);
+    return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [decisions, rewritten, srAnswers, keywordResponses]);
+  }, [decisions, rewritten, srAnswers, keywordResponses, isLoggedInWithConv]);
 
   // Tab3 一键复制纯文本(走 finalize-resume 拿 markdown)
   async function handleCopyText() {
