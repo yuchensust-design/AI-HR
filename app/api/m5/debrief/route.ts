@@ -15,8 +15,9 @@
  *   - 反 rationalization:不让态度/长度=高分
  */
 
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { chat } from "@/lib/llm";
+import { recordTrace } from "@/lib/m5/trace";
 import { scrubCompanyNames } from "@/lib/scrub-company";
 import {
   VALID_DIMS,
@@ -375,7 +376,22 @@ export async function POST(request: NextRequest) {
 
     // V3.1 (deepseek-chat) 优先 — 速度 5-10s,demo 可接受
     // R1 (reasoner) 留作 P3 升级:深度更好但 30s+,演示太慢
+    const t0 = Date.now();
     const raw = await callDebriefLLM(SYSTEM_PROMPT, userPrompt, "chat");
+    const llmMs = Date.now() - t0;
+    // v5-O1 可观测性：fire-and-forget 记 trace
+    after(() =>
+      recordTrace({
+        session_id: session.id,
+        route: "debrief",
+        methodology_id: session.config?.target_role,
+        model: "chat",
+        input_snapshot: userPrompt,
+        output_snapshot: raw,
+        latency_ms: llmMs,
+        ok: true,
+      }),
+    );
 
     let parsed: Record<string, unknown>;
     try {

@@ -13,8 +13,9 @@
  *   - 反 rationalization:每性格的 forbidden_phrases 不许出现
  */
 
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { chat } from "@/lib/llm";
+import { recordTrace } from "@/lib/m5/trace";
 import { scrubCompanyNames } from "@/lib/scrub-company";
 import { buildPersonaBlock, PERSONA_SPECS } from "@/lib/interviewer-personas";
 import { buildTypeBlock, TYPE_SPECS } from "@/lib/interview-type-prompts";
@@ -315,6 +316,8 @@ export async function POST(request: NextRequest) {
     );
     const userPrompt = buildUserPrompt(resume_text, jd_text);
 
+    const sessionId = generateSessionId();
+    const t0 = Date.now();
     const raw = await chat(
       [
         { role: "system", content: systemPrompt },
@@ -326,6 +329,20 @@ export async function POST(request: NextRequest) {
         max_tokens: 2500,
         jsonMode: true,
       }
+    );
+    // v5-O1 可观测性：fire-and-forget 记 trace（after 不阻塞响应；写失败仅 warn）
+    const llmMs = Date.now() - t0;
+    after(() =>
+      recordTrace({
+        session_id: sessionId,
+        route: "prep",
+        methodology_id: methodologyId || undefined,
+        model: "chat",
+        input_snapshot: userPrompt,
+        output_snapshot: raw,
+        latency_ms: llmMs,
+        ok: true,
+      }),
     );
 
     let parsed: Record<string, unknown>;
@@ -372,7 +389,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       questions,
-      session_id: generateSessionId(),
+      session_id: sessionId,
       // m5 v5：本场方法论 id（"" = 回退到旧 TYPE_SPECS 行为）。客户端存入 config 供 follow-up/capability/雷达用
       methodology_id: methodologyId || undefined,
     });

@@ -18,8 +18,9 @@
  * 客户端超时 abort 后的迟到响应由 live 页幂等守卫处理（spec §5 B1）。
  */
 
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { chat } from "@/lib/llm";
+import { recordTrace } from "@/lib/m5/trace";
 import { scrubCompanyNames } from "@/lib/scrub-company";
 import { PERSONA_SPECS } from "@/lib/interviewer-personas";
 import type { InterviewQuestion, PersonaKey } from "@/lib/interview-types";
@@ -110,6 +111,7 @@ export async function POST(request: NextRequest) {
       follow_ups_used?: number;
       follow_up_budget?: number;
       asked_texts?: string[];
+      session_id?: string;
     };
 
     const mainQuestion = body.main_question;
@@ -141,6 +143,7 @@ export async function POST(request: NextRequest) {
     const systemPrompt = buildSystemPrompt(persona, body.methodology_id);
     const userPrompt = buildUserPrompt(mainQuestion, transcript, fillerCount);
 
+    const t0 = Date.now();
     const raw = await chat(
       [
         { role: "system", content: systemPrompt },
@@ -152,6 +155,19 @@ export async function POST(request: NextRequest) {
         max_tokens: 300,
         jsonMode: true,
       },
+    );
+    const llmMs = Date.now() - t0;
+    after(() =>
+      recordTrace({
+        session_id: body.session_id,
+        route: "follow-up",
+        methodology_id: body.methodology_id,
+        model: "chat",
+        input_snapshot: userPrompt,
+        output_snapshot: raw,
+        latency_ms: llmMs,
+        ok: true,
+      }),
     );
 
     let parsed: Record<string, unknown>;
