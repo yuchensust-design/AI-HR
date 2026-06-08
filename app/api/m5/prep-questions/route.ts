@@ -27,6 +27,8 @@ import {
   type QuestionCategory,
   type SceneType,
 } from "@/lib/interview-types";
+import { selectMethodology } from "@/lib/m5/methodology/registry";
+import { buildMethodologyBlock } from "@/lib/m5/context";
 
 // 线上必须显式声明，否则 Vercel 默认 10s 超时静默退化（本地正常、线上坏）
 export const maxDuration = 60;
@@ -64,7 +66,8 @@ function buildSkepticalLine(persona: PersonaKey): string {
 function buildSystemPrompt(
   type: InterviewType,
   persona: PersonaKey,
-  numQuestions: number
+  numQuestions: number,
+  methodologyBlock: string
 ): string {
   const personaBlock = buildPersonaBlock(persona);
   const typeBlock = buildTypeBlock(type);
@@ -76,11 +79,13 @@ function buildSystemPrompt(
 【★ 决策优先级 ★】
 - 性格 + 类型 = 出题风格(语气 / 追问深度 / 类别配比)
 - 简历 + JD = 出题素材(具体追问点 / 技术栈)
-- 两者结合后输出严格 JSON 题库
+- 岗位方法论 = 考察维度 / 出题节奏(决定考什么深度)
+- 三者结合后输出严格 JSON 题库
 
 ${typeBlock}
 
 ${personaBlock}
+${methodologyBlock ? `\n${methodologyBlock}\n` : ""}
 
 【硬约束 — 永远不许违反】
 1. **永远不输出公司名**:简历 / JD 含"字节跳动 / 阿里 / 腾讯 / 美团 / 百度 / 华为 / 京东 / 拼多多 / 网易 / 小米 / Google / Microsoft / Meta / Amazon / Apple"等大厂 → 题目里抽象到"某互联网大厂 / 某科技公司 / 某高校实验室"。直接 echo 公司名 = 违反。
@@ -113,7 +118,8 @@ ${typeSpec.category_mix.replace(/N/g, String(numQuestions))}
       "interviewerStyle": "warm | tough | rigor",
       "sceneType": "semi_structured | behavioral | technical",
       "followUpReason": "opener / 追问 X 段经历的具体动作 / 压力测试候选人 trade-off 意识 …(1 句话,首问统一写 opener)",
-      "whatItTests": "本题考察候选人的什么具体能力(1 句,挂钩岗位能力链,比 intent 更细)"
+      "whatItTests": "本题考察候选人的什么具体能力(1 句,挂钩上方岗位方法论的能力维度,比 intent 更细)",
+      "digHint": "若该题答得浅,该往哪挖(1 句,结合简历真实经历的挖掘方向,**不是标准答案**;首问可写空串)"
     }
   ]
 }
@@ -122,7 +128,8 @@ ${typeSpec.category_mix.replace(/N/g, String(numQuestions))}
 - interviewerStyle 一定填 "${STYLE_BY_PERSONA[persona]}"(由 persona 反推),不要乱给
 - sceneType 一定填 "${SCENE_BY_TYPE[type]}"(由 type 反推),不要乱给
 - followUpReason 必填,体现追问设计意图。首问(category=warmup 或 closing 的第 1 题)写 "opener"
-- whatItTests 跟 intent 配合,whatItTests 写"考察候选人的什么能力"(候选人视角),intent 写"4 维评分挂钩点"(评分视角)
+- whatItTests 跟 intent 配合,whatItTests 写"考察候选人的什么能力"(候选人视角,挂钩岗位方法论能力维度),intent 写"4 维评分挂钩点"(评分视角)
+- digHint:为动态追问预设的挖掘方向 — 设想用户答得很浅时,面试官该追问哪个简历真实细节/哪个能力维度。写挖掘方向,**不要写标准答案**(anti-fabrication)。
 
 正好 ${numQuestions} 题。请返 JSON。`;
 }
@@ -203,6 +210,11 @@ function normalizeQuestion(
     (q.what_it_tests as string) ??
     (q.tests as string) ??
     "";
+  const digHintRaw =
+    (q.digHint as string) ??
+    (q.dig_hint as string) ??
+    (q.dig as string) ??
+    "";
   return {
     id: (q.id as string) ?? `Q${idx + 1}`,
     text: scrubCompanyNames(text.trim()),
@@ -220,6 +232,10 @@ function normalizeQuestion(
     whatItTests: scrubCompanyNames(
       (whatItTestsRaw || intent || "未标注").trim()
     ),
+    // A1：动态追问预设挖掘点（可空，scrub 兜底）
+    digHint: scrubCompanyNames((digHintRaw || "").trim()) || undefined,
+    // 主题库题目统一标记 source=main，便于 live 页区分追问 + 持久化
+    source: "main",
   };
 }
 
@@ -278,10 +294,24 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // 选岗位方法论（纯静态，理论不抛；仍 try/catch 守"加载失败→回退现有 TYPE_SPECS"契约）
+    let methodologyId = "";
+    let methodologyBlock = "";
+    try {
+      const methodology = selectMethodology(typeRaw, jd_text);
+      methodologyId = methodology.id;
+      methodologyBlock = buildMethodologyBlock(methodology);
+    } catch (e) {
+      console.warn("[m5/prep] methodology load failed, fallback to TYPE_SPECS", e);
+      methodologyId = "";
+      methodologyBlock = "";
+    }
+
     const systemPrompt = buildSystemPrompt(
       typeRaw,
       personaRaw,
-      num_questions
+      num_questions,
+      methodologyBlock
     );
     const userPrompt = buildUserPrompt(resume_text, jd_text);
 
@@ -343,6 +373,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       questions,
       session_id: generateSessionId(),
+      // m5 v5：本场方法论 id（"" = 回退到旧 TYPE_SPECS 行为）。客户端存入 config 供 follow-up/capability/雷达用
+      methodology_id: methodologyId || undefined,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
