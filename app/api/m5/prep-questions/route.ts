@@ -28,6 +28,9 @@ import {
   type SceneType,
 } from "@/lib/interview-types";
 
+// 线上必须显式声明，否则 Vercel 默认 10s 超时静默退化（本地正常、线上坏）
+export const maxDuration = 60;
+
 const SCENE_BY_TYPE: Record<InterviewType, SceneType> = {
   semi: "semi_structured",
   bq: "behavioral",

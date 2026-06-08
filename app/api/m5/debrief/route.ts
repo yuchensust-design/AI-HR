@@ -29,6 +29,9 @@ import {
   type TranscriptSummaryItem,
 } from "@/lib/interview-types";
 
+// 线上必须显式声明，否则 Vercel 默认 10s 超时静默退化（本地正常、线上坏）
+export const maxDuration = 60;
+
 const SYSTEM_PROMPT = `你是「Offer 捕手」的面试复盘评分师。整场面试(N 题)→ 给 4 维评分 + 找 highlight + 10 题摘要。
 
 【★ 决策优先级 — PRD §3.6.8 4 维 lock(不是 5 维)★】

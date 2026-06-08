@@ -25,6 +25,10 @@ export type InterviewSessionConfig = {
   mode: InterviewMode;
   record: boolean;
   started_at: string;
+  /** m5 v5（可选，旧 config 安全回退）：tech 时由 JD 推断出的目标岗位 id，展示用 */
+  target_role?: string;
+  /** 全场动态追问预算（由题数推导：5→3 / 10→6 / 15→9）；缺省时客户端按题数兜底计算 */
+  follow_up_budget?: number;
 };
 
 export type QuestionCategory =
@@ -56,6 +60,13 @@ export type InterviewQuestion = {
   sceneType?: SceneType;
   followUpReason?: string;
   whatItTests?: string;
+  /** m5 v5（全部可选，旧 session 安全回退）见 docs/superpowers/specs/2026-06-08-m5-*.md §6.1 */
+  /** "main"=主题库（prep 一次性生成）；"follow_up"=动态追问 */
+  source?: "main" | "follow_up";
+  /** 追问挂在哪道主题之下（source=follow_up 时填母题 id） */
+  parent_id?: string;
+  /** A1 简历弱点驱动：prep 预设"该题若答浅往哪挖"，喂给 follow-up 判断 */
+  digHint?: string;
 };
 
 export type SkipKind = "dont_know" | "know_but_skip";
@@ -103,6 +114,22 @@ export type DebriefHighlight = {
   suggestedBullet: string;
 };
 
+/**
+ * m5 v5 双层评分第二层（能力维度）。
+ * 由独立 capability 路由（R1）产出、客户端懒加载合并进 DebriefResult，
+ * 不由 debrief 路由返回（见 spec §4 G1）。全部可选 → 老复盘安全回退。
+ */
+export type CapabilityScore = {
+  /** 维度 key，对齐 MethodologySpec.capabilityDimensions[].key */
+  key: string;
+  /** 维度中文名，展示用 */
+  label: string;
+  /** 1-5 */
+  score: number;
+  /** 引 transcript 的一句证据（必须 company-scrub） */
+  evidence: string;
+};
+
 export type TranscriptSummaryItem = {
   no: number;
   q: string;
@@ -144,6 +171,10 @@ export type DebriefResult = {
   summary?: string;
   transcript_summary: TranscriptSummaryItem[];
   finished_at: string;
+  /** m5 v5 双层评分第二层（可选）：由独立 capability 路由产出、客户端合并；缺省=不显示能力雷达 */
+  capabilityScores?: CapabilityScore[];
+  /** 本场使用的方法论 id（"bq" | "backend" | "generic-tech"），能力雷达标题 + trace 复盘用 */
+  methodology_id?: string;
 };
 
 export type InterviewSession = {
