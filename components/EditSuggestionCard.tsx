@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Card } from "@/components/ui/card";
 
 export type EditSource = "jd" | "resume" | "experience" | "interview";
@@ -148,33 +148,6 @@ const SOURCE_META: Record<EditSource, { label: string; color: string; hint: stri
   },
 };
 
-function ConfidenceBar({ value }: { value: number }) {
-  const pct = Math.round(Math.max(0, Math.min(1, value)) * 100);
-  const tone =
-    value >= 0.85 ? "bg-esther-blue" : value >= 0.7 ? "bg-esther-yellow" : "bg-esther-red";
-  const label =
-    value >= 0.85
-      ? "高 · 简历明确证据"
-      : value >= 0.7
-      ? "中 · 经验可推但需确认"
-      : "低 · 仅追问,不直接写";
-
-  return (
-    <div className="mt-2">
-      <div className="flex items-center justify-between text-[10px] text-ink-muted mb-0.5">
-        <span>置信度</span>
-        <span className="font-mono tabular-nums">{pct}% · {label}</span>
-      </div>
-      <div className="h-1 w-full rounded bg-warm-bg-deep/60 overflow-hidden">
-        <div
-          className={`h-full ${tone} transition-all`}
-          style={{ width: `${pct}%` }}
-        />
-      </div>
-    </div>
-  );
-}
-
 const REJECT_OPTIONS: { kind: RejectReasonKind; label: string; hint: string }[] = [
   { kind: "not-fact", label: "不是事实", hint: "重要 · 帮 Anti-fab 收集模型偏差" },
   { kind: "no-emphasis", label: "不想强调", hint: "事实 OK,只是不在重点" },
@@ -268,6 +241,81 @@ function RejectPopover({
   );
 }
 
+/** 匹配内联占位符「【请补充X】」(非全局,只用于 .test;捕获组取提示文案) */
+const FILL_TEST = /【请补充[^】]*?】/;
+const FILL_RE_G = /【(请补充[^】]*?)】/g;
+
+/**
+ * 把"改为"文本里的【请补充 X】渲染成【常驻内联输入框】(卡片内直接填,无需点开、无需逐个确认)。
+ * 多个占位符可顺手 Tab/点着挨个填,边填边把整句写进草稿(onFill),用户填完一起点下面「采纳」。
+ *
+ * 关键:用 useRef 捕获首次的 canonical 文本(带全部占位符)只解析一次 — 这样自己填字触发的
+ * 回写(rewritten 变)不会重渲染换掉占位符位置 → 输入框不丢焦点。换写法(suggested_text 变)
+ * 时由父层 key 重挂载,重新捕获。
+ */
+function FillableSuggestion({
+  text,
+  onFill,
+}: {
+  text: string;
+  onFill?: (newText: string) => void;
+}) {
+  // 只在挂载时捕获一次(后续 text 变化忽略,避免丢焦点;换写法靠父层 key 重挂载)
+  const canonical = useRef(text).current;
+  const [vals, setVals] = useState<Record<number, string>>({});
+
+  const parts = useMemo(() => {
+    const out: Array<{ kind: "text" | "blank"; value: string; idx?: number }> = [];
+    let last = 0;
+    let m: RegExpExecArray | null;
+    let bi = 0;
+    const re = new RegExp(FILL_RE_G);
+    while ((m = re.exec(canonical)) !== null) {
+      if (m.index > last) out.push({ kind: "text", value: canonical.slice(last, m.index) });
+      out.push({ kind: "blank", value: m[1], idx: bi++ });
+      last = m.index + m[0].length;
+    }
+    if (last < canonical.length) out.push({ kind: "text", value: canonical.slice(last) });
+    return out;
+  }, [canonical]);
+
+  function setVal(idx: number, v: string) {
+    const next = { ...vals, [idx]: v };
+    setVals(next);
+    // 组装:每个占位符填了就替换,没填就保留【请补充X】(用户可稍后补 / 预览里仍能填)
+    let i = 0;
+    const assembled = canonical.replace(FILL_RE_G, (full) => {
+      const filled = next[i]?.trim();
+      i++;
+      return filled ? filled : full;
+    });
+    onFill?.(assembled);
+  }
+
+  return (
+    <p className="text-sm text-ink leading-relaxed font-medium">
+      {parts.map((p, i) => {
+        if (p.kind === "text") return <span key={i}>{p.value}</span>;
+        const idx = p.idx!;
+        const cur = vals[idx] ?? "";
+        const ch = Math.max(p.value.length * 1.1, cur.length + 1, 6);
+        return (
+          <input
+            key={i}
+            type="text"
+            value={cur}
+            onChange={(e) => setVal(idx, e.target.value)}
+            placeholder={p.value}
+            style={{ width: `${ch}ch` }}
+            disabled={!onFill}
+            className="inline-block mx-0.5 align-baseline px-1.5 py-0.5 rounded border border-esther-yellow bg-esther-yellow/20 text-[13px] text-ink text-center placeholder:text-ink-muted placeholder:text-[12px] focus:outline-none focus:ring-1 focus:ring-esther-blue focus:bg-white focus:border-esther-blue transition-colors disabled:opacity-60"
+          />
+        );
+      })}
+    </p>
+  );
+}
+
 export function EditSuggestionCard({
   edit,
   decision,
@@ -276,6 +324,7 @@ export function EditSuggestionCard({
   onReject,
   onRegen,
   onCustomEdit,
+  onFillPlaceholder,
   onRevert,
   onTalkToAI,
   talkActive,
@@ -292,6 +341,8 @@ export function EditSuggestionCard({
   onRegen: () => void;
   /** §8.28 Wave 4: 用户自己改文案后保存,以 acceptWith custom text 落地 */
   onCustomEdit?: (text: string) => void;
+  /** 用户在卡片里点击内联占位符【请补充X】填入数字 → 回填整句(回写 rewritten + 自动采纳) */
+  onFillPlaceholder?: (filledText: string) => void;
   /** 已决策后直接切换回另一态(改回原文 / 改用建议),不弹 popover */
   onRevert?: (to: Decision) => void;
   /** 点击"针对这条跟 AI 说" — 把 chat 聚焦到这条 edit */
@@ -312,7 +363,8 @@ export function EditSuggestionCard({
     : `border-2 ${PRIORITY_STYLE[edit.priority] ?? PRIORITY_STYLE.medium}`;
 
   const finalSuggested = rewrittenText ?? edit.suggested_text;
-  const hasConfidence = typeof edit.confidence === "number";
+  // 还有没填的【请补充X】占位符 → 不允许采纳(必须先填完数字)
+  const hasUnfilledBlank = FILL_TEST.test(finalSuggested);
   // claimType:旧数据无字段时按 needs_confirmation 兜底,避免老数据被当成"有据可写"自动采纳
   const claimType: ClaimType = edit.claim_type ?? "needs_confirmation";
   const claimMeta = CLAIM_TYPE_META[claimType];
@@ -336,9 +388,9 @@ export function EditSuggestionCard({
   }
 
   return (
-    <Card className={`p-5 transition-all ${priorityBorder}`}>
+    <Card className={`p-3.5 transition-all ${priorityBorder}`}>
       {/* 头部 chips */}
-      <div className="flex items-center justify-between gap-2 mb-3 flex-wrap">
+      <div className="flex items-center justify-between gap-2 mb-2.5 flex-wrap">
         <div className="flex items-center gap-1.5 flex-wrap">
           <span
             className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium ${
@@ -380,8 +432,8 @@ export function EditSuggestionCard({
       {/* 原文 → 改写 */}
       {edit.original_text && edit.original_text !== "(新增)" ? (
         <>
-          <div className="bg-card border border-border rounded p-2.5 mb-2">
-            <p className="text-xs text-ink-muted mb-1 font-display italic">原文</p>
+          <div className="bg-card border border-border rounded-lg px-3 py-2 mb-1.5">
+            <p className="text-[11px] text-ink-muted mb-0.5 font-display italic">原文</p>
             <p className="text-sm text-ink-soft leading-relaxed">{edit.original_text}</p>
           </div>
         </>
@@ -392,13 +444,13 @@ export function EditSuggestionCard({
       )}
 
       <div
-        className={`border rounded p-2.5 mb-3 ${
+        className={`border rounded-lg px-3 py-2 mb-2 ${
           decision === "accept"
             ? "bg-esther-blue/10 border-esther-blue/40"
             : "bg-warm-bg-deep/40 border-border"
         }`}
       >
-        <p className="text-xs text-esther-blue mb-1 font-display italic">改为</p>
+        <p className="text-[11px] text-esther-blue mb-0.5 font-display italic">改为</p>
         {editing ? (
           <>
             <textarea
@@ -434,6 +486,14 @@ export function EditSuggestionCard({
               </button>
             </div>
           </>
+        ) : decision !== "accept" && FILL_TEST.test(edit.suggested_text) && onFillPlaceholder ? (
+          // 用【原始 suggested_text】判断 + 当 canonical:它永远带占位符,所以填完后输入框依旧在、可继续改;
+          // 直到用户点「采纳」(decision=accept)才切成纯文字定稿。
+          <FillableSuggestion
+            key={edit.suggested_text}
+            text={edit.suggested_text}
+            onFill={onFillPlaceholder}
+          />
         ) : (
           <p className="text-sm text-ink leading-relaxed font-medium">{finalSuggested}</p>
         )}
@@ -485,9 +545,6 @@ export function EditSuggestionCard({
         </div>
       )}
 
-      {/* confidence — PM §3.4 #2 */}
-      {hasConfidence && <ConfidenceBar value={edit.confidence ?? 0} />}
-
       {/* 操作按钮 — 采纳/不采纳 可随时来回切换 */}
       <div className="flex items-center gap-2 mt-3 relative flex-wrap">
         {decision === "accept" && (
@@ -520,9 +577,11 @@ export function EditSuggestionCard({
           <>
             <button
               onClick={onAccept}
-              className="inline-flex items-center justify-center rounded-full bg-esther-blue text-white px-3 py-1.5 text-sm font-medium hover:bg-esther-blue-dark transition-colors"
+              disabled={hasUnfilledBlank}
+              title={hasUnfilledBlank ? "请先把黄色框里的【请补充…】填完再采纳" : undefined}
+              className="inline-flex items-center justify-center rounded-full bg-esther-blue text-white px-3 py-1.5 text-sm font-medium hover:bg-esther-blue-dark transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-esther-blue"
             >
-              ✓ 采纳
+              {hasUnfilledBlank ? "✓ 采纳(先填数字)" : "✓ 采纳"}
             </button>
             <button
               onClick={handleRejectClick}

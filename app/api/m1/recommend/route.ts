@@ -36,6 +36,9 @@ import {
 import { generateCandidates, type CareerEntry } from "@/lib/career-pool";
 import { createClient } from "@/lib/supabase/server";
 
+// Vercel serverless 函数超时:LLM 调用常 >10s,默认 10s 会 504 → 必须显式拉到 60s(Hobby 上限)
+export const maxDuration = 60;
+
 const DISCLAIMER =
   "本次推荐基于测评 + 兴趣 — 没看你的真实经历。投递前请先用『简历整理』模块结合 JD 确认能力对齐。";
 

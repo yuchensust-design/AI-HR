@@ -26,6 +26,9 @@ import path from "path";
 import { NextRequest, NextResponse } from "next/server";
 import { chat } from "@/lib/llm";
 
+// Vercel serverless 函数超时:LLM 调用常 >10s,默认 10s 会 504 → 必须显式拉到 60s(Hobby 上限)
+export const maxDuration = 60;
+
 // 缓存 Phase 3 + multiple-choice-design 段
 let phase3PromptCache: string | null = null;
 let mcDesignCache: string | null = null;

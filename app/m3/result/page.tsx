@@ -73,6 +73,7 @@ type ParsedResume = {
   experience?: { org?: string; role?: string; period?: string; bullets?: AnyBullet[] }[];
   projects?: { name?: string; period?: string; role?: string; tech_stack?: string[]; bullets?: AnyBullet[] }[];
   activities?: { org?: string; role?: string; period?: string; bullets?: AnyBullet[] }[];
+  self_eval?: { bullets?: AnyBullet[] }[];
   skills?: Record<string, string[]>;
   skill_groups?: { category: string; items: string[] }[];
   meta?: { narrative_tag_distribution?: Record<string, number> };
@@ -264,7 +265,7 @@ function ResultContent() {
     [parsedResume, jdContext, hiddenExperiences, optimizationGoals],
   );
   // suggest-edits prompt 版本 — 改 prompt 后 bump,让旧缓存失效自动重生成
-  const editsSig = `${contentSig}-p3`;
+  const editsSig = `${contentSig}-p6`;
   const editsCacheKey = `m3_edits_${convId ?? "guest"}_${editsSig}`;
   // metrics 缓存 key:内容 + 决策(决策变 → v2 bullets 变 → STAR/硬门槛要重算)
   const metricsCacheKey = `m3_metrics_${convId ?? "guest"}_${contentSig}_${cheapSig(
@@ -412,6 +413,7 @@ function ResultContent() {
         "experience",
         "projects",
         "activities",
+        "self_eval",
       ];
       for (const sec of sections) {
         const arr = (parsedResume as Record<string, unknown>)?.[sec];
@@ -705,13 +707,32 @@ function ResultContent() {
         gap.push(e);
       } else if (decisions[e.id] === "accept") {
         done.push(e);
-      } else if (/【请补充/.test(rewritten[e.id] ?? e.suggested_text ?? "")) {
+      } else if (/【请补充/.test(e.suggested_text ?? "")) {
+        // 按【原始 suggested_text】分组(稳定)。不要用 rewritten —— 否则用户一填占位符就少了,
+        // 这条会从"待补信息"跳到"待确认"组,导致卡片被父列表卸载重挂载、输入框丢焦点/看起来像自动提交。
         needFill.push(e);
       } else {
         confirm.push(e);
       }
     }
     return { done, confirm, needFill, gap };
+  }, [data, decisions, rewritten]);
+
+  // 自愈:凡是"已采纳但文本里还有【请补充】没填"的,退回待确认 —— 带占位符不该算已采纳
+  useEffect(() => {
+    if (!data) return;
+    const bad = data.edits.filter(
+      (e) =>
+        decisions[e.id] === "accept" &&
+        /【请补充/.test(rewritten[e.id] ?? e.suggested_text ?? ""),
+    );
+    if (bad.length > 0) {
+      setDecisions((d) => {
+        const n = { ...d };
+        for (const e of bad) n[e.id] = null;
+        return n;
+      });
+    }
   }, [data, decisions, rewritten]);
 
   // === A:确定性关键词命中 ===
@@ -811,25 +832,35 @@ function ResultContent() {
       return;
     }
     setKwMatchLoading(true);
-    try {
-      const res = await fetch("/api/m3/match-keywords", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ jdKeywords, resumeText: resumeMatchText }),
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const json = (await res.json()) as {
-        results?: { keyword: string; hit: boolean; evidence: string }[];
-      };
-      const results = Array.isArray(json.results) ? json.results : [];
-      setLlmKwResults(results);
-      writeArtifact("keyword_match_json", kwCacheKey, { sig: contentSig, results });
-    } catch (err) {
-      console.error("[loadKeywordMatch] failed:", err);
-      setLlmKwResults([]); // 失败 → 落空数组,退回子串保底,不再卡在"分析中"
-    } finally {
-      setKwMatchLoading(false);
+    // LLM 语义命中是关键词卡的"灵魂"(子串只能抓 7/18,语义能抓 17/18)。
+    // 这个调用 ~10s,偶发超时/502 会让卡片退化成子串保底,看起来像"匹配很差"。
+    // → 重试 3 次(指数退避),全失败才退回子串,避免把"调用挂了"误判成"简历不匹配"。
+    let lastErr: unknown = null;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const res = await fetch("/api/m3/match-keywords", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ jdKeywords, resumeText: resumeMatchText }),
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const json = (await res.json()) as {
+          results?: { keyword: string; hit: boolean; evidence: string }[];
+        };
+        const results = Array.isArray(json.results) ? json.results : [];
+        if (results.length === 0) throw new Error("empty results");
+        setLlmKwResults(results);
+        writeArtifact("keyword_match_json", kwCacheKey, { sig: contentSig, results });
+        setKwMatchLoading(false);
+        return;
+      } catch (err) {
+        lastErr = err;
+        if (attempt < 2) await new Promise((r) => setTimeout(r, 1500 * (attempt + 1)));
+      }
     }
+    console.error("[loadKeywordMatch] 3 次全失败,退回子串保底:", lastErr);
+    setLlmKwResults([]); // 全失败 → 退回子串,不卡在"分析中"
+    setKwMatchLoading(false);
   }, [jdKeywords, resumeMatchText, kwCacheKey, contentSig, readArtifact, writeArtifact]);
 
   // 一拿到简历 + JD 关键词就并行跑语义命中(不等 suggest-edits,消除 11→15 的长延迟)
@@ -978,6 +1009,7 @@ function ResultContent() {
         "experience",
         "projects",
         "activities",
+        "self_eval",
       ];
       for (const sec of sections) {
         const arr = (parsedResume as Record<string, unknown>)?.[sec];
@@ -1054,7 +1086,11 @@ function ResultContent() {
 
   function handleFillBlank(editId: string, filledText: string) {
     setRewritten((r) => ({ ...r, [editId]: filledText }));
-    setDecisions((d) => ({ ...d, [editId]: "accept" }));
+    // 一条可能有多个【请补充X】。只有【全部填完】才自动采纳;
+    // 还有剩余占位符 → 保持待确认,让用户继续填下一个,别让卡片提前提交消失。
+    if (!/【请补充/.test(filledText)) {
+      setDecisions((d) => ({ ...d, [editId]: "accept" }));
+    }
   }
 
   // ===== 关键词缺口闭环 =====
@@ -1157,6 +1193,10 @@ function ResultContent() {
   function handleCustomEdit(editId: string, text: string) {
     setRewritten((r) => ({ ...r, [editId]: text }));
     setDecisions((d) => ({ ...d, [editId]: "accept" }));
+  }
+  // 卡片里内联填占位符:边填边存草稿(只写 rewritten,不自动采纳)→ 用户填完一起点「采纳」
+  function handleDraftRewrite(editId: string, text: string) {
+    setRewritten((r) => ({ ...r, [editId]: text }));
   }
   // 已决策后来回切换(改回原文 / 改用建议),不弹 popover
   function handleRevert(editId: string, to: Decision) {
@@ -1272,6 +1312,7 @@ function ResultContent() {
         onReject={(reason) => handleReject(edit.id, reason)}
         onRegen={() => handleRegen(edit.id)}
         onCustomEdit={(text) => handleCustomEdit(edit.id, text)}
+        onFillPlaceholder={(text) => handleDraftRewrite(edit.id, text)}
         onRevert={(to) => handleRevert(edit.id, to)}
         onTalkToAI={() =>
           setChatTargetEditId((cur) => (cur === edit.id ? null : edit.id))
@@ -1338,7 +1379,7 @@ function ResultContent() {
           <>
             {/* 顶部 sticky 工具栏(返回 + 状态 + 下载)*/}
             <section className="sticky top-20 z-30 bg-warm-bg/95 backdrop-blur-sm border-b border-border shadow-sm">
-              <div className="max-w-[1400px] mx-auto px-6 py-3 flex items-center justify-between gap-4">
+              <div className="max-w-[1320px] mx-auto px-6 py-3 flex items-center justify-between gap-4">
                 <div className="flex items-center gap-4 min-w-0">
                   <Link
                     href={`/m3${convQs}`}
@@ -1366,14 +1407,18 @@ function ResultContent() {
               </div>
             </section>
 
+            {/* 吸顶栏以下整块按 0.9 缩放 —— 复刻用户偏好的"90% 观感",固定宽度内容获得更多留白,
+                不缩吸顶栏避免与全局导航错位 */}
+            <div style={{ zoom: 0.9 }}>
+
             {/* V3 评分大卡(照抄竞品)*/}
-            <div className="max-w-[1400px] mx-auto px-6 pt-6">
+            <div className="max-w-[1320px] mx-auto px-6 pt-4">
               <M3ScoreDashboard data={dashboardData} />
             </div>
 
             {/* placeholder_mode 提示(M6 → M3 没拿到 JD 全文)*/}
             {jdContext?.placeholder_mode && (
-              <div className="max-w-[1400px] mx-auto px-6 pt-4">
+              <div className="max-w-[1320px] mx-auto px-6 pt-4">
                 <div className="leading-relaxed bg-esther-yellow/15 border border-esther-yellow/50 rounded-md px-3 py-2">
                   <p className="text-xs text-ink">
                     ⚠️ <strong>岗位摘要模式</strong>:当前 JD 全文未能从 M6 抓到,仅基于
@@ -1389,7 +1434,7 @@ function ResultContent() {
             )}
 
             {/* 4-tab 切换条 */}
-            <div className="max-w-[1400px] mx-auto px-6 pt-5">
+            <div className="max-w-[1320px] mx-auto px-6 pt-4">
               <div className="flex items-center gap-1 border-b border-border overflow-x-auto">
                 {([
                   ["match", "🎯 岗位匹配"],
@@ -1416,7 +1461,7 @@ function ResultContent() {
             </div>
 
             {/* Tab 内容区 */}
-            <div className="max-w-[1400px] mx-auto px-8 py-8">
+            <div className="max-w-[1320px] mx-auto px-6 py-5">
               {/* ===== Tab 1: 岗位匹配 ===== */}
               {activeTab === "match" && (
                 <div className="space-y-6">
@@ -1489,7 +1534,7 @@ function ResultContent() {
 
               {/* ===== Tab 2: 简历对比 ===== */}
               {activeTab === "diff" && (
-                <div className="grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-6">
+                <div className="grid grid-cols-1 lg:grid-cols-[1fr_340px] gap-5">
                   {/* 对比列表 — 按"你要做什么"分 4 组 */}
                   <div className="min-w-0">
                     <p className="text-sm text-ink-soft mb-3">
@@ -1501,7 +1546,7 @@ function ResultContent() {
                         现有简历针对该 JD 已经不错,没有必须改的地方。
                       </Card>
                     ) : (
-                      <div className="space-y-6">
+                      <div className="space-y-4">
                         {/* ✅ 已改好(默认折叠 + 紧凑一行)*/}
                         {editGroups.done.length > 0 && (
                           <div>
@@ -1530,7 +1575,7 @@ function ResultContent() {
                               🟡 待你确认（{editGroups.confirm.length}）
                               <span className="ml-1 text-xs font-normal text-ink-muted">AI 推断的,你点头才进简历</span>
                             </p>
-                            <div className="space-y-3">{editGroups.confirm.map(renderEditCard)}</div>
+                            <div className="space-y-2.5">{editGroups.confirm.map(renderEditCard)}</div>
                           </div>
                         )}
 
@@ -1539,9 +1584,9 @@ function ResultContent() {
                           <div>
                             <p className="text-sm font-semibold text-ink mb-2">
                               ✏️ 待你补信息（{editGroups.needFill.length}）
-                              <span className="ml-1 text-xs font-normal text-ink-muted">要填具体数字/细节,AI 不替你编</span>
+                              <span className="ml-1 text-xs font-normal text-ink-muted">在黄色框里直接填数字,填完点「采纳」 · AI 不替你编</span>
                             </p>
-                            <div className="space-y-3">{editGroups.needFill.map(renderEditCard)}</div>
+                            <div className="space-y-2.5">{editGroups.needFill.map(renderEditCard)}</div>
                           </div>
                         )}
 
@@ -1567,11 +1612,19 @@ function ResultContent() {
 
                   {/* 右侧:跟 AI 再改 chat(真功能)*/}
                   <aside className="lg:sticky lg:top-32 lg:self-start lg:max-h-[calc(100vh-9rem)] flex flex-col">
-                    <Card className="p-4 flex-1 flex flex-col bg-card min-h-[400px]">
-                      <p className="font-display italic text-xs text-esther-blue mb-1">Chat with AI</p>
-                      <h3 className="text-sm font-semibold text-ink mb-2">💬 跟 AI 说哪里再改</h3>
+                    <Card className="p-4 flex-1 flex flex-col bg-card min-h-[340px] rounded-2xl border-esther-blue/15 shadow-sm">
+                      {/* header */}
+                      <div className="flex items-center gap-2 mb-3 pb-3 border-b border-border/60">
+                        <span className="flex h-7 w-7 items-center justify-center rounded-full bg-esther-blue/12 text-sm flex-shrink-0">
+                          💬
+                        </span>
+                        <div className="min-w-0 leading-tight">
+                          <p className="text-sm font-semibold text-ink">跟 AI 再改</p>
+                          <p className="font-display italic text-[10px] text-esther-blue/70">Chat with AI</p>
+                        </div>
+                      </div>
                       {chatTargetEditId ? (
-                        <div className="mb-3 flex items-center justify-between gap-2 rounded-lg bg-esther-yellow/30 px-2.5 py-1.5">
+                        <div className="mb-3 flex items-center justify-between gap-2 rounded-xl bg-esther-yellow/30 px-2.5 py-1.5">
                           <span className="text-xs text-ink leading-snug">
                             正在只改 <span className="font-mono">{chatTargetEditId}</span> 这一条
                           </span>
@@ -1584,29 +1637,38 @@ function ResultContent() {
                         </div>
                       ) : (
                         <p className="text-xs text-ink-soft leading-relaxed mb-3">
-                          想换写法 / 补关键词 / 加技术深度,直接说。也可以点某条建议上的「💬 改这条」只改那一条。AI 不会编造你没有的经历。
+                          想换写法 / 补关键词 / 加技术深度,直接说;也可点某条上的「💬 改这条」单独改。AI 不会编造你没有的经历。
                         </p>
                       )}
-                      <div className="flex-1 overflow-y-auto space-y-2 mb-3 min-h-[120px]">
+                      <div className="flex-1 overflow-y-auto space-y-2 mb-3 min-h-[90px]">
                         {chatMsgs.length === 0 && (
-                          <p className="text-xs text-ink-muted leading-relaxed">
-                            例:&ldquo;把项目经历改得更技术&rdquo; · &ldquo;这条加上 SQL&rdquo; · &ldquo;实习那段突出量化成果&rdquo;
-                          </p>
+                          <div className="flex flex-wrap gap-1.5">
+                            {["把项目经历改得更技术", "这条加上 SQL", "实习那段突出量化成果"].map((s) => (
+                              <button
+                                key={s}
+                                type="button"
+                                onClick={() => setChatInput(s)}
+                                className="text-[11px] px-2 py-1 rounded-full border border-border/70 bg-warm-bg-deep/40 text-ink-soft hover:bg-esther-blue/10 hover:text-esther-blue hover:border-esther-blue/30 transition-colors"
+                              >
+                                {s}
+                              </button>
+                            ))}
+                          </div>
                         )}
                         {chatMsgs.map((m, i) => (
                           <div
                             key={i}
-                            className={`text-xs leading-relaxed rounded-lg px-2.5 py-1.5 ${
+                            className={`text-xs leading-relaxed rounded-2xl px-3 py-1.5 ${
                               m.role === "user"
-                                ? "bg-esther-blue/10 text-ink ml-6"
-                                : "bg-warm-bg-deep/40 text-ink-soft mr-6"
+                                ? "bg-esther-blue/10 text-ink ml-6 rounded-br-sm"
+                                : "bg-warm-bg-deep/50 text-ink-soft mr-6 rounded-bl-sm"
                             }`}
                           >
                             {m.text}
                           </div>
                         ))}
                         {chatBusy && (
-                          <div className="text-xs text-ink-muted bg-warm-bg-deep/40 rounded-lg px-2.5 py-1.5 mr-6">
+                          <div className="text-xs text-ink-muted bg-warm-bg-deep/50 rounded-2xl rounded-bl-sm px-3 py-1.5 mr-6">
                             AI 思考中…
                           </div>
                         )}
@@ -1623,14 +1685,14 @@ function ResultContent() {
                           }}
                           rows={2}
                           placeholder="想怎么改,告诉我…(⌘/Ctrl+Enter 发送)"
-                          className="w-full px-3 py-2 rounded-lg border border-border bg-warm-bg/40 text-xs text-ink leading-relaxed resize-none focus:outline-none focus:ring-2 focus:ring-esther-blue/40"
+                          className="w-full px-3 py-2 rounded-xl border border-border bg-white text-xs text-ink leading-relaxed resize-none focus:outline-none focus:ring-2 focus:ring-esther-blue/40 focus:border-esther-blue/40 transition-colors"
                         />
                         <button
                           onClick={handleChatRefine}
                           disabled={chatBusy || !chatInput.trim()}
-                          className="mt-2 w-full inline-flex items-center justify-center rounded-full bg-esther-blue text-white px-4 py-1.5 text-xs font-medium hover:bg-esther-blue-dark transition-colors disabled:opacity-40"
+                          className="mt-2 w-full inline-flex items-center justify-center gap-1 rounded-xl bg-esther-blue text-white px-4 py-2 text-xs font-medium hover:bg-esther-blue-dark transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                         >
-                          {chatBusy ? "处理中…" : "发送"}
+                          {chatBusy ? "处理中…" : "发送 ↵"}
                         </button>
                       </div>
                     </Card>
@@ -1704,6 +1766,7 @@ function ResultContent() {
                   convQs={convQs}
                 />
               )}
+            </div>
             </div>
           </>
         )}
@@ -1862,7 +1925,7 @@ function ResumePreview({
   const usedEditIds = new Set<string>();
 
   function lookupEdit(
-    section: "experience" | "projects" | "activities",
+    section: "experience" | "projects" | "activities" | "self_eval",
     sectionIdx: number,
     bulletIdx: number,
     originalText: string,
@@ -1913,7 +1976,7 @@ function ResumePreview({
   }
 
   function getBulletDisplay(
-    section: "experience" | "projects" | "activities",
+    section: "experience" | "projects" | "activities" | "self_eval",
     sectionIdx: number,
     bulletIdx: number,
     originalText: string,
@@ -1949,7 +2012,7 @@ function ResumePreview({
   }
 
   function renderBulletList(
-    section: "experience" | "projects" | "activities",
+    section: "experience" | "projects" | "activities" | "self_eval",
     items: { bullets?: AnyBullet[] }[],
   ) {
     return items.map((it, sIdx) =>
@@ -1987,20 +2050,12 @@ function ResumePreview({
                 editId={editId}
                 onFillBlank={onFillBlank}
               />
-              {status === "accepted" && !hasFillMark && (
+              {/* 有内联占位符(BulletFillableText 已渲染成可点击填空)→ 不再额外标记;
+                  没有内联占位符的改写 = 纯润色,直接显示"已改"。
+                  ❌ 删掉了旧的"往句尾追加【请补充具体数字】"按钮:那会造出脱离上下文、用户不知道填什么的孤立数字框。
+                  正确的数字占位符必须由 AI 内联嵌在句中(如"采访了【请补充人数】名学生")。 */}
+              {(status === "accepted" || status === "needs-fill") && !hasFillMark && (
                 <span className="text-esther-blue ml-1.5 text-[10px]">✓ AI 已改</span>
-              )}
-              {status === "needs-fill" && !hasFillMark && editId && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (onFillBlank) onFillBlank(editId, text + "【请补充具体数字】");
-                  }}
-                  className="ml-1.5 inline-flex items-center px-1.5 py-0.5 rounded bg-esther-yellow/60 hover:bg-esther-yellow border border-esther-yellow text-[10px] text-ink font-medium transition-colors"
-                  title="点击在这条 bullet 末尾插入【请补充具体数字】"
-                >
-                  ✎ 这里 AI 想加数字 — 点我标出
-                </button>
               )}
               {/* Timing 3: Skeptical Recruiter ⚡ icon */}
               {editId && (() => {
@@ -2193,6 +2248,14 @@ function ResumePreview({
           ))}
         </Section>
       )}
+
+      {/* ========= 自我评价(复用 bullet 改写机制,支持 AI 改写 live preview) ========= */}
+      {(parsedResume.self_eval ?? []).length > 0 &&
+        (parsedResume.self_eval ?? []).some((s) => (s.bullets ?? []).length > 0) && (
+          <Section title="自我评价">
+            <ul>{renderBulletList("self_eval", parsedResume.self_eval ?? [])[0]}</ul>
+          </Section>
+        )}
 
       {/* ========= 教育背景(放最后,对齐 Skill) ========= */}
       {educationItems.length > 0 && (

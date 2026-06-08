@@ -18,6 +18,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { chat } from "@/lib/llm";
 
+// Vercel serverless 函数超时:LLM 调用常 >10s,默认 10s 会 504 → 必须显式拉到 60s(Hobby 上限)
+export const maxDuration = 60;
+
 const MAX_RESUME_LEN = 12000;
 
 const SYSTEM = `你是资深招聘官 + 简历评估官。我会给你一份简历全文,和一组目标岗位关键词。

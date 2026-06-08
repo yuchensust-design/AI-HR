@@ -12,6 +12,9 @@ import {
   normalizeSuggestedText,
 } from "@/lib/m3-normalize";
 
+// Vercel serverless 函数超时:LLM 调用常 >10s,默认 10s 会 504 → 必须显式拉到 60s(Hobby 上限)
+export const maxDuration = 60;
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();

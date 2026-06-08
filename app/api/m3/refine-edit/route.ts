@@ -19,6 +19,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { chat } from "@/lib/llm";
 
+// Vercel serverless 函数超时:LLM 调用常 >10s,默认 10s 会 504 → 必须显式拉到 60s(Hobby 上限)
+export const maxDuration = 60;
+
 const ANTI_FAB = `【铁律 — anti-fabrication】
 - 绝不编造用户简历 / 经历里没有的数字、工具、公司、成果
 - 只能改写表达 / 调整角度 / 补 JD 关键词(前提是简历真有对应能力)

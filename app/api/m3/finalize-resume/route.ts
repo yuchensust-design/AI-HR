@@ -43,6 +43,7 @@ type ParsedResume = {
   experience?: { org?: string; role?: string; period?: string; bullets?: Bullet[] }[];
   projects?: { name?: string; period?: string; role?: string | null; tech_stack?: string[]; bullets?: Bullet[] }[];
   activities?: { org?: string; role?: string; period?: string; bullets?: Bullet[] }[];
+  self_eval?: { bullets?: Bullet[] }[];
   skills?: { languages?: string[]; frameworks?: string[]; tools?: string[]; domain?: string[] };
   skill_groups?: { category: string; items: string[] }[];
 };
@@ -91,8 +92,8 @@ export async function POST(request: NextRequest) {
     }
 
     // Apply per-target edits
-    type Section = "experience" | "projects" | "activities";
-    const sections: Section[] = ["experience", "projects", "activities"];
+    type Section = "experience" | "projects" | "activities" | "self_eval";
+    const sections: Section[] = ["experience", "projects", "activities", "self_eval"];
     for (const section of sections) {
       const arr = (finalResume[section] ?? []) as { bullets?: Bullet[] }[];
       for (let sIdx = 0; sIdx < arr.length; sIdx++) {
@@ -186,6 +187,18 @@ export async function POST(request: NextRequest) {
         const right = a.period ? ` (${a.period})` : "";
         lines.push(`${head}${right}`);
         for (const bul of a.bullets ?? []) {
+          lines.push(`- ${bulletText(bul)}`);
+        }
+        lines.push("");
+      }
+    }
+
+    // 自我评价
+    if (finalResume.self_eval && finalResume.self_eval.length > 0) {
+      const selfBullets = finalResume.self_eval.flatMap((s) => s.bullets ?? []);
+      if (selfBullets.length > 0) {
+        lines.push("## 自我评价");
+        for (const bul of selfBullets) {
           lines.push(`- ${bulletText(bul)}`);
         }
         lines.push("");

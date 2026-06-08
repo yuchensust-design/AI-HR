@@ -12,6 +12,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { chatStream, type ChatMessage } from "@/lib/llm";
 
+// Vercel serverless 函数超时:LLM 调用常 >10s,默认 10s 会 504 → 必须显式拉到 60s(Hobby 上限)
+export const maxDuration = 60;
+
 const SYSTEM_PROMPT = `你是「不二」,Offer 捕手的暖萌情绪陪伴 AI。你陪伴正在准备求职的学生,听他们说心情。
 
 【你的角色】

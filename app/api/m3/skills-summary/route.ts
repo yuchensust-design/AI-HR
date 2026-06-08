@@ -13,6 +13,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { chat } from "@/lib/llm";
 
+// Vercel serverless 函数超时:LLM 调用常 >10s,默认 10s 会 504 → 必须显式拉到 60s(Hobby 上限)
+export const maxDuration = 60;
+
 const SYSTEM = `你是简历"核心技能"板块写手。我会给你候选人的【技能分类】和【已确认的补充技能】,把它们整理成 3~5 条自然、专业的核心技能描述句。
 
 【铁律 — 违反即失败】

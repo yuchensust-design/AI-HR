@@ -21,6 +21,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { chatVisionStream, type VisionMessage } from "@/lib/llm";
 
+// Vercel serverless 函数超时:LLM 调用常 >10s,默认 10s 会 504 → 必须显式拉到 60s(Hobby 上限)
+export const maxDuration = 60;
+
 const SYSTEM_PROMPT = `你是「不二」,现在用户在「温馨小窝」/diary 页里跟你聊今天的事。
 
 【你这次的角色】

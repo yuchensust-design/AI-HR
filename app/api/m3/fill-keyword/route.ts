@@ -14,6 +14,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { chat } from "@/lib/llm";
 
+// Vercel serverless 函数超时:LLM 调用常 >10s,默认 10s 会 504 → 必须显式拉到 60s(Hobby 上限)
+export const maxDuration = 60;
+
 const SYSTEM = `你是简历优化助手。用户在"JD 关键词缺口"里自评了某个技能 —— 他【会用】或【略懂】,但简历里没写出来。
 帮他生成一条**真实、可直接放进简历**的补充表述,把这个技能/能力自然带出来。
 

@@ -26,6 +26,9 @@ import path from "path";
 import { NextRequest, NextResponse } from "next/server";
 import { chat } from "@/lib/llm";
 
+// Vercel serverless 函数超时:LLM 调用常 >10s,默认 10s 会 504 → 必须显式拉到 60s(Hobby 上限)
+export const maxDuration = 60;
+
 const MAX_RESUME_LEN = 20000; // 20KB 文本,足够 1-2 页简历
 
 // 缓存主框架 Phase 1 prompt 段(读 1 次)
@@ -62,6 +65,7 @@ ${phase1Ref || "(主框架文件未加载,按下方 schema 严格执行)"}
 1. Anti-fabrication:简历里没有的字段一律输出 null,**绝不编造数字 / metric / 学校 / 公司名**
 2. 用户真实公司 / 学校名 OK 保留(parse-resume 是解析,不是脱敏;脱敏在 Phase 2/5 输出层做)
 3. 文案温和,不评判用户简历质量
+4. **完整性铁律 — 一个字都不能丢**:简历里出现的每一段(实习 / 项目 / 科研 / 社团 / 自我评价 / 技能 / 证书 / 获奖 / 课程)都必须落到 schema 对应字段里。schema 里有 self_eval 就放自我评价,有 activities 就放社团,**绝不因为"不知道放哪"而丢弃任何内容**。宁可信息归类略粗,也不能漏。
 
 【narrative_tag 分类规则(每条 bullet 必标 1 个)】
 - "responsibility_driven":开头是"负责" "协助" "参与" "完成" 等职责陈述,无成果数字
@@ -134,6 +138,9 @@ ${phase1Ref || "(主框架文件未加载,按下方 schema 严格执行)"}
     "tools": string[],
     "domain": string[]
   },
+  "self_eval": string[],
+    // 自我评价 / 个人评价 / 自我介绍 / 个人总结 段落。**简历里有就必须逐句抽出来,一句一条,绝不丢弃也不合并成一大段。**
+    // 没有这一段就输出空数组 []。不要编造。
   "meta": {
     "parse_quality": "good" | "partial" | "low",
     "missing_critical": string[]
@@ -295,7 +302,7 @@ export async function POST(request: NextRequest) {
       {
         model: "chat",
         temperature: 0.2, // 解析任务低温
-        max_tokens: 3000,
+        max_tokens: 8000, // 满额:完整结构化 JSON(每条 bullet 带 tag + education courses/awards + skill_groups + self_eval)易超 3000 → 截断丢信息,拉满兜底
         jsonMode: true,
       }
     );
@@ -320,6 +327,16 @@ export async function POST(request: NextRequest) {
     const skills = (parsed.skills ?? {}) as Record<string, unknown>;
     const metaIn = (parsed.meta ?? {}) as Record<string, unknown>;
 
+    // 自我评价:LLM 输出 string[](每句一条),内部包装成"单条目 section"(与 experience/projects 同构),
+    // 这样后续 suggest-edits fan-out / 前端 live preview / finalize 全部复用 bullet 改写机制,无需特殊分支。
+    const selfEvalLines: string[] = Array.isArray(parsed.self_eval)
+      ? parsed.self_eval.map((x) => String(x).trim()).filter(Boolean)
+      : [];
+    const self_eval =
+      selfEvalLines.length > 0
+        ? [{ bullets: normalizeBullets(selfEvalLines) }]
+        : [];
+
     const tagDistribution = computeTagDistribution(experience, projects, activities);
 
     return NextResponse.json({
@@ -336,6 +353,7 @@ export async function POST(request: NextRequest) {
       experience,
       projects,
       activities,
+      self_eval,
       skill_groups: Array.isArray(parsed.skill_groups)
         ? (parsed.skill_groups as Array<{ category?: unknown; items?: unknown }>)
             .map((g) => ({

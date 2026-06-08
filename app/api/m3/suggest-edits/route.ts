@@ -49,6 +49,9 @@ import {
 } from "@/lib/m3-id-helpers";
 import type { ClaimType, EditSuggestion } from "@/components/EditSuggestionCard";
 
+// Vercel serverless 函数超时:LLM 调用常 >10s,默认 10s 会 504 → 必须显式拉到 60s(Hobby 上限)
+export const maxDuration = 60;
+
 const PROMPT_MAIN = `你是「Offer 捕手」模块 3 简历整理 Phase 5 改动建议引擎。
 
 【任务】
@@ -100,9 +103,22 @@ const PROMPT_MAIN = `你是「Offer 捕手」模块 3 简历整理 Phase 5 改�
 8. **(offer-1-sparkling-hippo v4 新增)每条 edit 必填 claim_type**(反编造风险分级,UI 决定要不要默认采纳):
    - **"explicit"**:原文 / 简历已经显式给出该信息(数字也已经在原文里),可以默认 accept
    - **"inferred"**:基于现有素材合理推断(如把"参与"改"主导",但用户没显式说),默认待确认
-   - **"needs_confirmation"**:建议里有数字 / 成果需要用户确认(eg "回收 86 份问卷" 但原文只说"做了问卷"),写法上保留事实描述但用 【请补充】 占位符代替未确认数字
-   - **"forbidden"**:你**不要输出 forbidden 的 edit** — 如果你判断这条改动会编造未提供的信息,直接降级为 needs_confirmation 并把数字换成 【请补充】
+   - **"needs_confirmation"**:建议里有数字 / 成果需要用户确认(eg 原文只说"做了问卷")
+   - **"forbidden"**:你**不要输出 forbidden 的 edit** — 如果你判断这条改动会编造未提供的信息,直接降级为 needs_confirmation 并把数字换成内联占位符
    - **判定原则**:宁可降为 needs_confirmation 也不要冒险标 explicit。explicit 等价于"我担保这是原文已有的事实"
+
+   ★★★【量化占位符规则 — 这是简历变强的核心手段,要积极用,但格式必须对】★★★
+   - **何时触发(积极找,不要保守)**:只要某条 bullet 有"可量化的动作 / 产出 / 成果",但原文【没写数字】,就该在那个位置插一个内联占位符让用户补。**这类机会通常很多,逐条扫,不要漏。**
+   - **可量化的维度(远不止规模 — 任何能用数字佐证的都算)**:
+     · 规模/数量:访谈了【请补充人数】名用户、管理【请补充人数】人团队、覆盖【请补充数量】个城市/客户、处理【请补充数量】个工单
+     · 产出量:输出【请补充页数】页报告、发布【请补充篇数】篇文章、交付【请补充数量】个功能模块
+     · 效果/提升:转化率提升【请补充百分比】%、效率提高【请补充百分比】%、成本下降【请补充百分比】%、错误率从【请补充】%降到【请补充】%
+     · 频率/周期:周更【请补充篇数】篇、【请补充天数】天内上线、【请补充月数】个月完成
+     · 金额/营收:带来【请补充金额】营收、节省【请补充金额】成本、管理【请补充金额】预算
+     · 时间效率:将耗时从【请补充】缩短至【请补充】
+   - **格式铁律**:占位符必须【内联嵌在句中该填数字的位置】+【紧贴单位名词】,让用户一眼知道填什么。形如「动词 +【请补充X】+ 单位名词」(如"访谈【请补充人数】名学生""回收【请补充份数】份问卷")。
+   - **绝对禁止**:① 把占位符放句尾、脱离上下文(❌ "…完成产品迭代优化。【请补充具体数字】");② 用孤零零的「【请补充】」「【请补充具体数字】」没有任何名词上下文(❌ 用户不知道填什么)。
+   - **唯一不加的情况**:原文该处已经有数字(标 explicit,别动)/ 这个动作天然无法量化 / 自我评价等定性总结。**除此之外,能加就加。**
 
 9. **(offer-1-sparkling-hippo v4 新增)每条 edit 必填 evidence_audit**(可展开的证据审计 — 让评委/用户看到反编造工程):
    - 数组,**默认 1 条**(精简输出),仅在原文 + 隐藏经验都能引时才放 2 条,**永远不要 3 条**
@@ -289,19 +305,6 @@ ${segmentsText}
       Array.isArray(hiddenExperiences) && hiddenExperiences.length > 0 ? "yes" : "no"
     }${goalsToPromptHint(activeOptimizationGoals)}`;
 
-    const userPrompt = `parsed_resume(用户简历结构化):
-${JSON.stringify(parsedResume, null, 2)}
-
-jd_context(JD 拆解 + match + gaps;null 表示快速模式):
-${JSON.stringify(jdContext ?? null, null, 2)}
-
-hidden_experience_candidates(Phase 3 挖到的):
-${JSON.stringify(hiddenExperiences ?? [], null, 2)}
-
-from_debrief_highlight(模块 5 模拟面试复盘里识别的高价值答案,有的话产 source="interview" 的 edit):
-${JSON.stringify(fromDebriefHighlight ?? null, null, 2)}
-
-请按 schema 产出 edits[]。返 JSON。`;
 
     // 3 层兜底:R1 max_tokens 8000 → R1 rescueJson(被截断时挽救能用部分)
     // → R2 retry with 缩短 prompt + 6-10 条 edits + 8000 tokens
@@ -381,59 +384,121 @@ ${JSON.stringify(fromDebriefHighlight ?? null, null, 2)}
       }
     }
 
-    let raw = "";
-    let parsed: Record<string, unknown> | null = null;
-    let rescued = false;
+    // ====== 按板块并行 fan-out(根治 8K 输出上限 vs 覆盖度的矛盾)======
+    // 每个 bullet 板块(实习/项目/活动)独立一次满额 8K 调用 → 全覆盖、不截断、不丢深度;
+    // 并行跑 → 延迟≈单次。诊断(issues/directions)单独一小调用。前端零改动。
+    const BULLET_SECTIONS = ["experience", "projects", "activities", "self_eval"] as const;
+    const SECTION_CN: Record<string, string> = {
+      experience: "实习/工作经历",
+      projects: "项目/科研经历",
+      activities: "社团/活动经历",
+      self_eval: "自我评价",
+    };
+    const pr = parsedResume as Record<string, unknown>;
+    const activeBuckets = BULLET_SECTIONS.filter((s) => {
+      const arr = pr[s];
+      return Array.isArray(arr) && arr.length > 0;
+    });
 
-    // R1:正常调用 + JSON.parse + 失败 rescue
-    try {
-      raw = await callLlm({ sys: systemPrompt, usr: userPrompt, max: 8000 });
-      try {
-        parsed = JSON.parse(raw);
-      } catch {
-        const r = rescueEdits(raw);
-        if (r) {
-          parsed = r;
-          rescued = true;
-          console.warn(
-            `[suggest-edits] R1 JSON 截断,rescue 出 ${(r.edits as unknown[]).length} 条`,
-          );
-        }
-      }
-    } catch (err) {
-      console.error("[suggest-edits] R1 LLM 调用异常:", err);
+    // 只保留 keep 板块的 array(其余清空,保住 target 索引 + basic/skills/education 作上下文)
+    function scopedResumeFor(keep: string): Record<string, unknown> {
+      const r = { ...pr };
+      for (const s of BULLET_SECTIONS) if (s !== keep) r[s] = [];
+      return r;
     }
 
-    // R2:R1 失败 → 缩短 prompt + 输出更少 edit
-    if (!parsed) {
-      const shortSys =
-        systemPrompt +
-        "\n\n【紧急 fallback】上一次输出被截断 — 这次**只输出 5-8 条最关键的 edit**,evidence_audit 每条只 1 项,reason 限 30 字内,严格控制 JSON 总长度 < 6000 字符。";
+    // 自我评价是【定性总结】,不是成果 bullet → 单独约束,禁止套用量化/数字规则
+    const SELF_EVAL_RULE = `
+
+【自我评价板块特殊铁律 — 必须遵守】
+- 自我评价是【定性能力总结】(如"具备…能力""擅长…"),**不是成果型 bullet**。
+- **绝对禁止**:加数字 / 加数字占位符【请补充】/ category 用 "quantification" / claim_type 用 "needs_confirmation"。自我评价里加数字既不真实也没地方填,用户会困惑。
+- **只做**:润色成更专业自然的书面语 + 用强动词 + 自然融入简历里【真实已有】的技能/工具/JD 关键词(简历没有的绝不加)。
+- claim_type 只能是 "explicit"(原文已表达)或 "inferred"(基于简历技能合理润色)。category 用 "narrative-tools" 或 "ats-keyword"。`;
+
+    // 单板块调用(含 parse + rescue),返回该板块 edits[]
+    async function callBucket(keep: string): Promise<Record<string, unknown>[]> {
+      const usr = `parsed_resume(**本次只改「${SECTION_CN[keep] ?? keep}」板块的 bullet**;其它板块数组已清空、仅 basic/skills/education 作上下文):
+${JSON.stringify(scopedResumeFor(keep), null, 2)}
+
+jd_context(JD 拆解;null 表示快速模式):
+${JSON.stringify(jdContext ?? null, null, 2)}
+
+hidden_experience_candidates:
+${JSON.stringify(hiddenExperiences ?? [], null, 2)}
+
+from_debrief_highlight:
+${JSON.stringify(fromDebriefHighlight ?? null, null, 2)}
+
+【本次任务】只为「${SECTION_CN[keep] ?? keep}」板块产 edits[](target 必须是 ${keep}[i].bullets[j]);**把该板块每条值得改的 bullet 都改到,一条都不要漏**。不要产 original_issues / optimization_directions / gap-alert。${keep === "self_eval" ? SELF_EVAL_RULE : ""}
+返 JSON。`;
       try {
-        raw = await callLlm({ sys: shortSys, usr: userPrompt, max: 8000 });
+        const raw = await callLlm({ sys: systemPrompt, usr, max: 8000 });
+        let p: Record<string, unknown> | null = null;
         try {
-          parsed = JSON.parse(raw);
+          p = JSON.parse(raw);
         } catch {
-          const r = rescueEdits(raw);
-          if (r) {
-            parsed = r;
-            rescued = true;
-            console.warn(
-              `[suggest-edits] R2 仍截断,rescue 出 ${(r.edits as unknown[]).length} 条`,
-            );
-          }
+          p = rescueEdits(raw);
         }
+        return p && Array.isArray(p.edits) ? (p.edits as Record<string, unknown>[]) : [];
       } catch (err) {
-        console.error("[suggest-edits] R2 LLM 调用异常:", err);
+        console.error(`[suggest-edits] bucket ${keep} 失败:`, err);
+        return [];
       }
     }
 
-    // R3:R1+R2 全挂 → 返一条 placeholder edit,让前端不卡死
+    // 诊断小调用:original_issues + optimization_directions(全简历,输出短不会截断)
+    async function callDiagnostics(): Promise<{ issues: string[]; directions: string[] }> {
+      const diagSys = `你是简历诊断官。基于 parsed_resume + jd_context,**只**产出 JSON(不产 edits):
+{ "original_issues": ["原简历针对目标 JD 的问题,≤40字,3-7条"], "optimization_directions": ["可执行优化方向,≤40字,3-6条,不承诺具体数字提升"] }`;
+      const usr = `parsed_resume:
+${JSON.stringify(parsedResume, null, 2)}
+
+jd_context:
+${JSON.stringify(jdContext ?? null, null, 2)}
+
+返 JSON。`;
+      try {
+        const raw = await callLlm({ sys: diagSys, usr, max: 1200 });
+        const p = JSON.parse(raw) as Record<string, unknown>;
+        return {
+          issues: Array.isArray(p.original_issues) ? p.original_issues.map(String) : [],
+          directions: Array.isArray(p.optimization_directions)
+            ? p.optimization_directions.map(String)
+            : [],
+        };
+      } catch (err) {
+        console.error("[suggest-edits] diagnostics 失败:", err);
+        return { issues: [], directions: [] };
+      }
+    }
+
+    let parsed: Record<string, unknown> | null = null;
+    const rescued = false;
+
+    const [bucketEditArrays, diag] = await Promise.all([
+      Promise.all(activeBuckets.map((s) => callBucket(s))),
+      callDiagnostics(),
+    ]);
+
+    const mergedEdits = bucketEditArrays.flat();
+    mergedEdits.forEach((e, i) => {
+      e.id = `edit-${String(i + 1).padStart(3, "0")}`; // 跨板块统一重编号,不撞 id
+    });
+
+    if (mergedEdits.length > 0) {
+      parsed = {
+        edits: mergedEdits,
+        original_issues: diag.issues,
+        optimization_directions: diag.directions,
+        default_accept_count: Math.min(3, mergedEdits.length),
+        optimization_summary: `本次找了 ${mergedEdits.length} 处可改(覆盖 ${activeBuckets.length} 个板块)`,
+      };
+    }
+
+    // 全部板块都没产出 → placeholder,让前端不卡死
     if (!parsed) {
-      console.error(
-        "[suggest-edits] 3 轮全失败,raw 头 500 字符:",
-        raw.slice(0, 500),
-      );
+      console.error("[suggest-edits] fan-out 全板块无产出");
       parsed = {
         edits: [
           {

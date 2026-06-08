@@ -36,12 +36,13 @@ type ParsedLike = {
   experience?: SectionItem[];
   projects?: SectionItem[];
   activities?: SectionItem[];
+  self_eval?: SectionItem[];
   [k: string]: unknown;
 } | null | undefined;
 
-type Section = "experience" | "projects" | "activities";
+type Section = "experience" | "projects" | "activities" | "self_eval";
 
-const SECTIONS: Section[] = ["experience", "projects", "activities"];
+const SECTIONS: Section[] = ["experience", "projects", "activities", "self_eval"];
 
 /** 生成稳定 ID — UUID v4 简化版,12 字符就够全简历去重 */
 function genId(prefix: string): string {
@@ -133,7 +134,7 @@ export function lookupBulletId(
 export function parseBulletTarget(
   target: string,
 ): { section: Section; sectionIdx: number; bulletIdx: number } | null {
-  const m = target.match(/^(experience|projects|activities)\[(\d+)\]\.bullets\[(\d+)\]$/);
+  const m = target.match(/^(experience|projects|activities|self_eval)\[(\d+)\]\.bullets\[(\d+)\]$/);
   if (!m) return null;
   return {
     section: m[1] as Section,

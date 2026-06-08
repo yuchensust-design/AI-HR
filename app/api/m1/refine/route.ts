@@ -26,6 +26,9 @@ import {
 import { generateCandidates } from "@/lib/career-pool";
 import { createClient } from "@/lib/supabase/server";
 
+// Vercel serverless 函数超时:LLM 调用常 >10s,默认 10s 会 504 → 必须显式拉到 60s(Hobby 上限)
+export const maxDuration = 60;
+
 type LlmRationale = {
   interestEvidence?: unknown;
   experienceEvidence?: unknown;
