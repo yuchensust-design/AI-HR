@@ -2,7 +2,7 @@
 
 import { Suspense, useState, useEffect, useMemo, useRef } from "react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useSearchParams, useRouter } from "next/navigation";
 import {
   BadgeCheck,
   Blocks,
@@ -78,9 +78,23 @@ export default function Module3Page() {
 
 function Module3Content() {
   const sp = useSearchParams();
+  const router = useRouter();
   const convId = sp.get("c");
   const { user, loading: userLoading } = useUser();
   const { data, loading: dataLoading, isGuest, hasConv } = useM3Data(convId);
+
+  // 已分析过的会话(有结果)→ 点进来直达结果页四大功能,而不是停在上传页。
+  // ?setup=1 可强制留在设置页(改简历/JD 用)。
+  const redirectedRef = useRef(false);
+  useEffect(() => {
+    if (redirectedRef.current) return;
+    if (sp.get("setup") === "1") return;
+    if (userLoading || dataLoading) return;
+    if (user && convId && data.analyzed && data.parsed) {
+      redirectedRef.current = true;
+      router.replace(`/m3/result?c=${convId}`);
+    }
+  }, [user, userLoading, convId, dataLoading, data.analyzed, data.parsed, sp, router]);
 
   const [hydrated, setHydrated] = useState(false);
   const [fromDebrief, setFromDebrief] = useState(false);
@@ -327,14 +341,16 @@ function Module3Content() {
     }
   }, []);
 
-  /** auto save:用户填 input/textarea → debounce 800ms → 自动 persist,不需点按钮 */
-  useEffect(() => {
-    if (!jdHydrated) return; // 还在从 effectiveJd 灌初值时,跳过
+  /**
+   * 解析并保存 JD —— 抽成函数,供「下一步」点击时 await(关键:用户不用等边打字边解析,
+   * 点下一步时统一解析)。也被 debounce 调用做 best-effort 预解析。
+   * 返回 true = JD 已就绪(或本就没填 JD);false = 解析失败。幂等:已是最新解析则直接返回。
+   */
+  async function parseAndSaveJd(): Promise<boolean> {
     const role = jdRoleName.trim();
     const text = jdText.trim();
-    // 都没填 → 跳过
-    if (!role && text.length < 30) return;
-    // 跟当前已存的相同 → 跳过(避免重复 save)
+    if (!role && text.length < 30) return true; // 没填有效 JD,不阻塞
+    if (!effectiveParsed) return true; // 简历还没解析好(下一步前简历必已就绪,理论不会到这)
     const ej = (effectiveJd ?? {}) as {
       role_name?: string;
       rawJdText?: string;
@@ -347,52 +363,104 @@ function Module3Content() {
     const hasStructuredJd =
       (Array.isArray(ej.jd_keywords) && ej.jd_keywords.length > 0) ||
       (Array.isArray(ej.must_have) && ej.must_have.length > 0);
-    if (sameRole && sameText && hasStructuredJd) return;
-
-    const t = setTimeout(async () => {
-      setJdAutoSaved(false);
-      setJdSavingError(null);
-      try {
-        const mode = text.length >= 30 ? "full" : "role";
-        const body =
-          mode === "full"
-            ? { mode, jdText: text, parsedResume: effectiveParsed ?? null }
-            : { mode, roleName: role, parsedResume: effectiveParsed ?? null };
-        const res = await fetch("/api/m3/parse-jd", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-        });
-        if (!res.ok) {
-          const j = await res.json().catch(() => ({}));
-          throw new Error(j.error ?? `JD 解析失败 (${res.status})`);
-        }
-        const parsed = (await res.json()) as Record<string, unknown>;
-        await persistJd({
-          ...parsed,
-          role_name: role || (parsed.role_name as string | undefined),
-          rawJdText: text || undefined,
-          raw_jd_text: text || undefined,
-          meta: {
-            ...((parsed.meta as Record<string, unknown> | undefined) ?? {}),
-            mode,
-          },
-        });
-        setJdAutoSaved(true);
-      } catch (err) {
-        setJdSavingError(err instanceof Error ? err.message : "JD 解析失败");
+    if (sameRole && sameText && hasStructuredJd) return true; // 已是最新解析
+    setJdAutoSaved(false);
+    setJdSavingError(null);
+    try {
+      const mode = text.length >= 30 ? "full" : "role";
+      const body =
+        mode === "full"
+          ? { mode, jdText: text, parsedResume: effectiveParsed }
+          : { mode, roleName: role, parsedResume: effectiveParsed };
+      const res = await fetch("/api/m3/parse-jd", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        throw new Error(j.error ?? `JD 解析失败 (${res.status})`);
       }
+      const parsed = (await res.json()) as Record<string, unknown>;
+      await persistJd({
+        ...parsed,
+        role_name: role || (parsed.role_name as string | undefined),
+        rawJdText: text || undefined,
+        raw_jd_text: text || undefined,
+        meta: {
+          ...((parsed.meta as Record<string, unknown> | undefined) ?? {}),
+          mode,
+        },
+      });
+      setJdAutoSaved(true);
+      return true;
+    } catch (err) {
+      setJdSavingError(err instanceof Error ? err.message : "JD 解析失败");
+      return false;
+    }
+  }
+
+  /** best-effort 预解析:边填边后台跑,点下一步时若已好就秒进(不再依赖它,只是加速) */
+  useEffect(() => {
+    if (!jdHydrated) return;
+    if (!effectiveParsed) return;
+    const role = jdRoleName.trim();
+    const text = jdText.trim();
+    if (!role && text.length < 30) return;
+    const t = setTimeout(() => {
+      void parseAndSaveJd();
     }, 800);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [jdRoleName, jdText, jdHydrated, effectiveParsed]);
 
+  // 「下一步/开始优化」:点击时统一解析 JD(await),解析完再进结果页
+  const [proceeding, setProceeding] = useState(false);
+  async function handleProceed() {
+    if (proceeding) return;
+    setProceeding(true);
+    try {
+      await parseAndSaveJd();
+    } finally {
+      setProceeding(false);
+    }
+    router.push(`/m3/result${convQs}`);
+  }
+
   // 登录但没选 conv → 空状态
   const needPickConv = !userLoading && !!user && !hasConv;
-  const isLoadingAll = userLoading || (!isGuest && hasConv && dataLoading);
+  // 新建的会话本就是空的 → 直接出表单,不显示加载态(消除"新建后闪一下")
+  const isNewConv = sp.get("new") === "1";
+  const isLoadingAll = !isNewConv && (userLoading || (!isGuest && hasConv && dataLoading));
 
   // Step 4 enable 条件:有简历即可;八大规则默认全部执行
   const canSubmit = effectiveHasParsed;
+
+  // 已分析会话直接落 /m3?c= 时跳结果页(罕见,会话项现在直指 /m3/result)。
+  // 不再用 dataLoading 当条件 → 新建/普通打开不会先闪"正在打开"。
+  const openingConv =
+    !!user &&
+    !!convId &&
+    sp.get("setup") !== "1" &&
+    !isNewConv &&
+    data.analyzed &&
+    !!data.parsed;
+  if (openingConv) {
+    return (
+      <>
+        <Nav />
+        <main className="min-h-screen bg-warm-bg">
+          <div className="h-20" />
+          <div className="flex">
+            <ConversationSwitcher module="m3" basePath="/m3" itemBasePath="/m3/result" defaultTitle="简历" />
+            <div className="flex-1 min-w-0">
+              <p className="text-center text-ink-muted py-24">正在打开…</p>
+            </div>
+          </div>
+        </main>
+      </>
+    );
+  }
 
   return (
     <>
@@ -418,7 +486,7 @@ function Module3Content() {
         )}
 
         <div className="flex">
-          <ConversationSwitcher module="m3" basePath="/m3" defaultTitle="简历" />
+          <ConversationSwitcher module="m3" basePath="/m3" itemBasePath="/m3/result" defaultTitle="简历" />
 
           <div className="flex-1 min-w-0">
             {/* Hero — 学竞品极简风 */}
@@ -511,7 +579,7 @@ function Module3Content() {
                   </div>
                 </section>
               </div>
-            ) : isLoadingAll || !hydrated ? (
+            ) : !isNewConv && (isLoadingAll || !hydrated) ? (
               <div className="max-w-[900px] mx-auto px-6 py-20 text-center text-ink-muted">
                 加载中…
               </div>
@@ -679,16 +747,16 @@ function Module3Content() {
                         className="w-full px-3 py-2 rounded-lg border border-border bg-warm-bg/40 text-sm text-ink leading-relaxed resize-y focus:outline-none focus:ring-2 focus:ring-esther-blue/40"
                       />
                       {jdText.length > 0 && jdText.length < 30 && (
-                        <p className="text-xs text-esther-red mt-1">JD 全文太短,要么补完整 ≥30 字,要么留空只靠岗位名</p>
+                        <p className="text-xs text-ink-muted mt-1">还差一点 — JD 补到 ≥30 字会更准,或留空只靠岗位名也行</p>
                       )}
                     </div>
-                    {/* 自动保存状态 */}
+                    {/* 状态:不用等,点「开始优化」时会统一解析 */}
                     <p className="text-xs">
                       {(jdRoleName.trim() || jdText.trim().length >= 30)
                         ? jdAutoSaved
-                          ? <span className="text-esther-blue">✓ 已自动保存</span>
-                          : <span className="text-ink-soft">输入完会自动保存…</span>
-                        : <span className="text-ink-muted">填岗位名或粘贴 JD 全文,会自动保存</span>}
+                          ? <span className="text-esther-blue">✓ 已解析</span>
+                          : <span className="text-ink-soft">填好直接点「开始优化」即可,不用等</span>
+                        : <span className="text-ink-muted">填岗位名或粘贴 JD 全文</span>}
                     </p>
                     {jdSavingError && (
                       <p className="text-xs text-esther-red">⚠️ {jdSavingError}</p>
@@ -753,12 +821,18 @@ function Module3Content() {
                 {/* ============ Step 4 · 开始优化 ============ */}
                 <div className="pt-2">
                   {canSubmit ? (
-                    <Link
-                      href={`/m3/result${convQs}`}
-                      className="w-full inline-flex items-center justify-center rounded-xl bg-esther-blue text-white px-6 py-3.5 text-base font-medium hover:bg-esther-blue-dark transition-colors shadow-sm"
+                    <button
+                      type="button"
+                      onClick={handleProceed}
+                      disabled={proceeding}
+                      className="w-full inline-flex items-center justify-center rounded-xl bg-esther-blue text-white px-6 py-3.5 text-base font-medium hover:bg-esther-blue-dark transition-colors shadow-sm disabled:opacity-70"
                     >
-                      {hasFinal ? "看你的简历 + 下载 Word →" : "开始优化 →"}
-                    </Link>
+                      {proceeding
+                        ? "正在解析 JD…"
+                        : hasFinal
+                          ? "看你的简历 + 下载 Word →"
+                          : "开始优化 →"}
+                    </button>
                   ) : (
                     <button
                       type="button"

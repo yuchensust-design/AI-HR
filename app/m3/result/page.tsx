@@ -2,6 +2,7 @@
 
 import { Suspense, useState, useEffect, useCallback, useMemo, useRef } from "react";
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Card } from "@/components/ui/card";
 import { Nav } from "@/components/Nav";
 import { BuerFloatingButton } from "@/components/BuerFloatingButton";
@@ -19,6 +20,8 @@ import { M3OptimizationStepper } from "@/components/M3OptimizationStepper";
 import { M3ScoreDashboard, type M3DashboardData } from "@/components/M3ScoreDashboard";
 import { ensureResumeIds } from "@/lib/m3-id-helpers";
 import { matchKeywords, getJdKeywords } from "@/lib/keyword-match";
+import { skillGroupsOf } from "@/lib/resume-skills";
+import ConversationSwitcher from "@/components/conversations/ConversationSwitcher";
 
 /**
  * 模块 3 / Phase 5 Interactive Review-Confirm(2026-06-02 redesigned per user feedback)
@@ -62,6 +65,8 @@ type ParsedResume = {
     period?: string;
     gpa?: string | null;
     rank?: string | null;
+    research_direction?: string | null;
+    advisor?: string | null;
     courses?: string[];
     awards?: string[];
   }[];
@@ -69,6 +74,7 @@ type ParsedResume = {
   projects?: { name?: string; period?: string; role?: string; tech_stack?: string[]; bullets?: AnyBullet[] }[];
   activities?: { org?: string; role?: string; period?: string; bullets?: AnyBullet[] }[];
   skills?: Record<string, string[]>;
+  skill_groups?: { category: string; items: string[] }[];
   meta?: { narrative_tag_distribution?: Record<string, number> };
 } | null;
 type JdCtx = {
@@ -110,8 +116,27 @@ export default function ResultPage() {
         </>
       }
     >
-      <ResultContent />
+      <ResultShell />
     </Suspense>
+  );
+}
+
+// 持久壳:Nav + 侧栏不随会话切换重挂载;内容用 key={convId} 切换时干净重置
+function ResultShell() {
+  const convId = useSearchParams().get("c") ?? "guest";
+  return (
+    <>
+      <Nav />
+      <main className="min-h-screen bg-warm-bg">
+        <div className="h-20" />
+        <div className="flex">
+          <ConversationSwitcher module="m3" basePath="/m3" itemBasePath="/m3/result" defaultTitle="简历" />
+          <div className="flex-1 min-w-0">
+            <ResultContent key={convId} />
+          </div>
+        </div>
+      </main>
+    </>
   );
 }
 
@@ -131,6 +156,17 @@ function ResultContent() {
 
   const parsedResume = (isLoggedInWithConv ? dbData?.parsed_resume_json ?? null : localParsedResume) as ParsedResume;
   const jdContext = (isLoggedInWithConv ? dbData?.jd_context_json ?? null : localJdContext) as JdCtx;
+
+  // 点了还没上传简历的会话 → 回设置页(switcher 现在统一指向 /m3/result)
+  const router = useRouter();
+  const bouncedRef = useRef(false);
+  useEffect(() => {
+    if (bouncedRef.current) return;
+    if (isLoggedInWithConv && !dbLoading && !parsedResume) {
+      bouncedRef.current = true;
+      router.replace(`/m3?c=${convId}`);
+    }
+  }, [isLoggedInWithConv, dbLoading, parsedResume, convId, router]);
   const hiddenExperiences = (isLoggedInWithConv
     ? (Array.isArray(dbData?.hidden_experience_json) ? dbData!.hidden_experience_json : [])
     : localHidden) as HiddenList;
@@ -169,6 +205,10 @@ function ResultContent() {
 
   // Timing 1: 关键词缺口 — 每个缺失 JD 关键词的用户反应
   const [keywordResponses, setKeywordResponses] = useState<Record<string, "can" | "vague" | "no">>({});
+  // 关键词缺口闭环:会用/略懂 → AI 生成补法 → 采纳 → 命中 + 写进最终简历
+  type KeywordFill = { level: "can" | "vague"; suggestion: string; where: string; accepted: boolean };
+  const [keywordFills, setKeywordFills] = useState<Record<string, KeywordFill>>({});
+  const [keywordFillLoading, setKeywordFillLoading] = useState<Record<string, boolean>>({});
   // Timing 3: Skeptical Recruiter 悬浮卡
   const [srOpenEditId, setSrOpenEditId] = useState<string | null>(null);
   const [srAnswers, setSrAnswers] = useState<Record<string, string>>({});
@@ -185,6 +225,8 @@ function ResultContent() {
     { keyword: string; hit: boolean; evidence: string }[] | null
   >(null);
   const [kwMatchLoading, setKwMatchLoading] = useState(false);
+  // 核心技能自然语句改写(合并补强)— null=未生成,[]=空/失败回退分类
+  const [skillsSummary, setSkillsSummary] = useState<string[] | null>(null);
 
   // 读模块 5 复盘 highlight(不持久化在 STORAGE_KEYS 里,直接读 raw key,fail-safe)
   useEffect(() => {
@@ -221,7 +263,9 @@ function ResultContent() {
       ),
     [parsedResume, jdContext, hiddenExperiences, optimizationGoals],
   );
-  const editsCacheKey = `m3_edits_${convId ?? "guest"}_${contentSig}`;
+  // suggest-edits prompt 版本 — 改 prompt 后 bump,让旧缓存失效自动重生成
+  const editsSig = `${contentSig}-p3`;
+  const editsCacheKey = `m3_edits_${convId ?? "guest"}_${editsSig}`;
   // metrics 缓存 key:内容 + 决策(决策变 → v2 bullets 变 → STAR/硬门槛要重算)
   const metricsCacheKey = `m3_metrics_${convId ?? "guest"}_${contentSig}_${cheapSig(
     JSON.stringify({ d: decisions, r: rewritten })
@@ -297,7 +341,7 @@ function ResultContent() {
         "edits_json",
         editsCacheKey,
       );
-      if (cached?.result && cached.sig === contentSig) {
+      if (cached?.result && cached.sig === editsSig) {
         applyEditsResult(cached.result);
         return;
       }
@@ -319,7 +363,7 @@ function ResultContent() {
         throw new Error(j.error ?? `HTTP ${res.status}`);
       }
       const parsed = (await res.json()) as SuggestEditsResult;
-      writeArtifact("edits_json", editsCacheKey, { sig: contentSig, result: parsed });
+      writeArtifact("edits_json", editsCacheKey, { sig: editsSig, result: parsed });
       applyEditsResult(parsed);
     } catch (err) {
       const message = err instanceof Error ? err.message : "加载失败";
@@ -330,10 +374,12 @@ function ResultContent() {
   }, [parsedResume, jdContext, hiddenExperiences, fromDebriefHighlight, optimizationGoals, editsCacheKey, contentSig, readArtifact, writeArtifact]);
 
   useEffect(() => {
-    if (parsedResume && !data && status === "loading") {
+    // !dbLoading:登录用户 auth/DB 未就绪前,parsedResume 会临时回退到 localStorage 旧数据,
+    // 此时绝不能跑分析(否则在错误简历上算一次、缓存住、再也不重算 → 关键词倒退 + 闪烁)
+    if (!dbLoading && parsedResume && !data && status === "loading") {
       loadSuggestions();
     }
-  }, [parsedResume, data, status, loadSuggestions]);
+  }, [dbLoading, parsedResume, data, status, loadSuggestions]);
 
   // === LLM diff-metrics(只取顶部 1 行评分需要的 JD 关键词命中数 + STAR/hard_req 提升)===
   const loadLlmMetrics = useCallback(async () => {
@@ -390,10 +436,8 @@ function ResultContent() {
       // 修复关键词漏匹配:技能区 / 项目技术栈 / 课程也是简历内容,
       // 但不在 bullet 里 — 必须一起喂给匹配器,否则"编程语言: Python、SQL"会被误报为缺失
       const extraTextParts: string[] = [];
-      if (parsedResume?.skills) {
-        for (const [k, vs] of Object.entries(parsedResume.skills)) {
-          if (Array.isArray(vs) && vs.length > 0) extraTextParts.push(`${k}: ${vs.join("、")}`);
-        }
+      for (const g of skillGroupsOf(parsedResume)) {
+        extraTextParts.push(`${g.category}: ${g.items.join("、")}`);
       }
       if (Array.isArray(parsedResume?.projects)) {
         for (const p of parsedResume.projects) {
@@ -503,12 +547,14 @@ function ResultContent() {
       rewritten?: RewrittenMap;
       srAnswers?: Record<string, string>;
       keywordResponses?: Record<string, "can" | "vague" | "no">;
+      keywordFills?: Record<string, KeywordFill>;
     }>("decisions_json", decisionsKey);
     if (!saved) return;
     if (saved.decisions) setDecisions((d) => ({ ...d, ...saved.decisions }));
     if (saved.rewritten) setRewritten((r) => ({ ...r, ...saved.rewritten }));
     if (saved.srAnswers) setSrAnswers((a) => ({ ...a, ...saved.srAnswers }));
     if (saved.keywordResponses) setKeywordResponses((k) => ({ ...k, ...saved.keywordResponses }));
+    if (saved.keywordFills) setKeywordFills((f) => ({ ...f, ...saved.keywordFills }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status, data]);
 
@@ -516,7 +562,7 @@ function ResultContent() {
   // 游客 → localStorage 即时;登录 → DB,debounce 800ms 防止每次点击都打 DB
   useEffect(() => {
     if (!decisionsRestoredRef.current) return;
-    const payload = { decisions, rewritten, srAnswers, keywordResponses };
+    const payload = { decisions, rewritten, srAnswers, keywordResponses, keywordFills };
     if (!isLoggedInWithConv) {
       if (typeof window === "undefined") return;
       try {
@@ -531,16 +577,36 @@ function ResultContent() {
     }, 800);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [decisions, rewritten, srAnswers, keywordResponses, isLoggedInWithConv]);
+  }, [decisions, rewritten, srAnswers, keywordResponses, keywordFills, isLoggedInWithConv]);
+
+  // 收集采纳的 edits + 采纳的关键词补法(后者作为 new: 新增进最终简历)
+  function buildAcceptedEdits() {
+    const base = (data?.edits ?? [])
+      .filter((e) => decisions[e.id] === "accept")
+      .map((e) => ({ ...e, suggested_text: rewritten[e.id] ?? e.suggested_text }));
+    const fills = Object.entries(keywordFills)
+      .filter(([, f]) => f.accepted)
+      .map(([kw, f]) => ({
+        id: `kwfill-${kw}`,
+        target: `new:kwfill:${kw}`,
+        original_text: "(新增)",
+        suggested_text: f.suggestion,
+        reason: `关键词补强:${kw}`,
+        category: "ats-keyword",
+        priority: "medium" as const,
+        claim_type: (f.level === "can" ? "explicit" : "inferred") as
+          | "explicit"
+          | "inferred",
+      }));
+    return [...base, ...fills];
+  }
 
   // Tab3 一键复制纯文本(走 finalize-resume 拿 markdown)
   async function handleCopyText() {
     if (!data || copyingText) return;
     setCopyingText(true);
     try {
-      const acceptedEdits = data.edits
-        .filter((e) => decisions[e.id] === "accept")
-        .map((e) => ({ ...e, suggested_text: rewritten[e.id] ?? e.suggested_text }));
+      const acceptedEdits = buildAcceptedEdits();
       const res = await fetch("/api/m3/finalize-resume", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -568,10 +634,7 @@ function ResultContent() {
     if (!data) return;
     setDownloading(true);
     try {
-      // 收集 accept 的 edits(含 rewritten)
-      const acceptedEdits = data.edits
-        .filter((e) => decisions[e.id] === "accept")
-        .map((e) => ({ ...e, suggested_text: rewritten[e.id] ?? e.suggested_text }));
+      const acceptedEdits = buildAcceptedEdits();
 
       const res = await fetch("/api/m3/finalize-resume", {
         method: "POST",
@@ -702,10 +765,9 @@ function ResultContent() {
         }
       }
     }
-    if (parsedResume.skills) {
-      for (const [, vs] of Object.entries(parsedResume.skills)) {
-        if (Array.isArray(vs)) parts.push(vs.join("、"));
-      }
+    // 技能(动态分类,含证书/软技能/语言 — 兼容新老数据)
+    for (const g of skillGroupsOf(parsedResume)) {
+      parts.push(`${g.category}: ${g.items.join("、")}`);
     }
     if (Array.isArray(parsedResume.projects)) {
       for (const p of parsedResume.projects) {
@@ -718,8 +780,9 @@ function ResultContent() {
         if (e.school) parts.push(e.school);
         if (e.major) parts.push(e.major);
         if (e.degree) parts.push(e.degree);
-        const cs = (e as { courses?: string[] })?.courses;
-        if (Array.isArray(cs)) parts.push(cs.join("、"));
+        if (e.research_direction) parts.push(e.research_direction);
+        if (Array.isArray(e.courses)) parts.push(e.courses.join("、"));
+        if (Array.isArray(e.awards)) parts.push(e.awards.join("、"));
       }
     }
     if (parsedResume.basic?.major) parts.push(parsedResume.basic.major);
@@ -772,6 +835,7 @@ function ResultContent() {
   // 一拿到简历 + JD 关键词就并行跑语义命中(不等 suggest-edits,消除 11→15 的长延迟)
   useEffect(() => {
     if (
+      !dbLoading &&
       jdKeywords.length > 0 &&
       resumeMatchText &&
       llmKwResults === null &&
@@ -780,7 +844,61 @@ function ResultContent() {
       loadKeywordMatch();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [jdKeywords, resumeMatchText]);
+  }, [dbLoading, jdKeywords, resumeMatchText]);
+
+  // === 核心技能自然语句改写(合并采纳的补强)===
+  const acceptedFillSentences = useMemo(
+    () => Object.values(keywordFills).filter((f) => f.accepted).map((f) => f.suggestion),
+    [keywordFills],
+  );
+  const skillsCacheKey = `m3_skills_${convId ?? "guest"}_${contentSig}_${cheapSig(JSON.stringify(acceptedFillSentences))}`;
+  const loadSkillsSummary = useCallback(async () => {
+    const groups = skillGroupsOf(parsedResume);
+    if (groups.length === 0 && acceptedFillSentences.length === 0) {
+      setSkillsSummary([]);
+      return;
+    }
+    try {
+      const c = window.localStorage.getItem(skillsCacheKey);
+      if (c) {
+        setSkillsSummary(JSON.parse(c) as string[]);
+        return;
+      }
+    } catch {
+      /* ignore */
+    }
+    try {
+      const res = await fetch("/api/m3/skills-summary", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ skillGroups: groups, fills: acceptedFillSentences }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const json = (await res.json()) as { lines?: string[] };
+      const lines = Array.isArray(json.lines) ? json.lines : [];
+      setSkillsSummary(lines);
+      try {
+        window.localStorage.setItem(skillsCacheKey, JSON.stringify(lines));
+      } catch {
+        /* quota */
+      }
+    } catch (err) {
+      console.error("[skills-summary] failed:", err);
+      setSkillsSummary([]); // 失败 → 空,前端回退分类列表
+    }
+  }, [parsedResume, acceptedFillSentences, skillsCacheKey]);
+
+  // 内容/补强变 → 重置重算
+  useEffect(() => {
+    setSkillsSummary(null);
+  }, [skillsCacheKey]);
+  // 数据就绪后生成(只在 null 时跑)
+  useEffect(() => {
+    if (!dbLoading && status === "ready" && parsedResume && skillsSummary === null) {
+      loadSkillsSummary();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dbLoading, status, parsedResume, skillsSummary]);
 
   // 合并:LLM 语义命中 ∪ 子串命中(子串=硬技能保底);证据取 LLM 原句
   const { matchedKeywords, missingKeywords, evidenceMap } = useMemo(() => {
@@ -792,11 +910,20 @@ function ResultContent() {
     for (const r of llmKwResults ?? []) {
       if (r.hit && r.evidence) ev[r.keyword.toLowerCase()] = r.evidence;
     }
+    // 用户在缺口里"会用/略懂"并采纳了补法 → 强制命中,证据用补法原句
+    const filledHit = new Set<string>();
+    for (const [kw, f] of Object.entries(keywordFills)) {
+      if (f.accepted) {
+        const lc = kw.toLowerCase();
+        filledHit.add(lc);
+        ev[lc] = `你补充(${f.level === "can" ? "会用" : "略懂"}):${f.suggestion}`;
+      }
+    }
     const matched: string[] = [];
     const missing: string[] = [];
     for (const kw of jdKeywords) {
       const lc = kw.toLowerCase();
-      if (llmHit.has(lc) || substringHit.has(lc)) {
+      if (llmHit.has(lc) || substringHit.has(lc) || filledHit.has(lc)) {
         matched.push(kw);
         if (!ev[lc] && substringHit.has(lc)) ev[lc] = "简历技能 / 经历中直接提及";
       } else {
@@ -804,7 +931,7 @@ function ResultContent() {
       }
     }
     return { matchedKeywords: matched, missingKeywords: missing, evidenceMap: ev };
-  }, [jdKeywords, substringMatch, llmKwResults]);
+  }, [jdKeywords, substringMatch, llmKwResults, keywordFills]);
 
   // ⚡ SR 待确认数量(有 sr_question 且未回答)
   const srPendingCount = useMemo(() => {
@@ -833,13 +960,12 @@ function ResultContent() {
       const pr = parsedResume as Record<string, unknown>;
       const nonEmptyArr = (v: unknown) => Array.isArray(v) && v.length > 0;
       const basic = pr.basic as { name?: unknown; major?: unknown; school?: unknown } | undefined;
-      const skills = pr.skills as Record<string, unknown> | undefined;
       const sections = [
         !!(basic?.name || basic?.major || basic?.school), // 个人信息
         nonEmptyArr(pr.education), // 教育背景
         nonEmptyArr(pr.experience) || nonEmptyArr(pr.activities), // 实习/工作/活动经历
         nonEmptyArr(pr.projects), // 项目/科研
-        !!skills && Object.keys(skills).length > 0, // 技能
+        skillGroupsOf(parsedResume).length > 0, // 技能
       ];
       const present = sections.filter(Boolean).length;
       return Math.round((present / sections.length) * 100);
@@ -929,6 +1055,95 @@ function ResultContent() {
   function handleFillBlank(editId: string, filledText: string) {
     setRewritten((r) => ({ ...r, [editId]: filledText }));
     setDecisions((d) => ({ ...d, [editId]: "accept" }));
+  }
+
+  // ===== 关键词缺口闭环 =====
+  // 选"会用/略懂" → 生成补法;选"不会" → 不生成(UI 给补项目入口)
+  async function handleKeywordRespond(kw: string, resp: "can" | "vague" | "no") {
+    setKeywordResponses((r) => ({ ...r, [kw]: resp }));
+    if (resp === "no") {
+      // 真缺口:清掉可能存在的旧补法,UI 显示"去补项目"
+      setKeywordFills((f) => {
+        const next = { ...f };
+        delete next[kw];
+        return next;
+      });
+      return;
+    }
+    // 会用/略懂 → 生成可落地的补法
+    setKeywordFillLoading((l) => ({ ...l, [kw]: true }));
+    try {
+      const res = await fetch("/api/m3/fill-keyword", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          keyword: kw,
+          level: resp,
+          resumeText: resumeMatchText,
+          jdContext: jdContext ?? null,
+        }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const json = (await res.json()) as { suggestion?: string; where?: string };
+      if (json.suggestion) {
+        setKeywordFills((f) => ({
+          ...f,
+          [kw]: { level: resp, suggestion: json.suggestion!, where: json.where ?? "技能区", accepted: false },
+        }));
+      }
+    } catch (err) {
+      console.error("[fill-keyword] failed:", err);
+    } finally {
+      setKeywordFillLoading((l) => ({ ...l, [kw]: false }));
+    }
+  }
+
+  function handleAcceptKeywordFill(kw: string) {
+    setKeywordFills((f) => (f[kw] ? { ...f, [kw]: { ...f[kw], accepted: true } } : f));
+  }
+  function handleIgnoreKeywordFill(kw: string) {
+    setKeywordFills((f) => {
+      const next = { ...f };
+      delete next[kw];
+      return next;
+    });
+  }
+  // 用户自己改补法文本
+  function handleEditKeywordFill(kw: string, text: string) {
+    setKeywordFills((f) => (f[kw] ? { ...f, [kw]: { ...f[kw], suggestion: text } } : f));
+  }
+  // 用户跟 AI 说怎么改(例:会用 Figma 但不会 Axure)→ 据反馈重写
+  async function handleRefineKeywordFill(kw: string, instruction: string) {
+    const cur = keywordFills[kw];
+    if (!cur || !instruction.trim()) return;
+    setKeywordFillLoading((l) => ({ ...l, [kw]: true }));
+    try {
+      const res = await fetch("/api/m3/fill-keyword", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          keyword: kw,
+          level: cur.level,
+          resumeText: resumeMatchText,
+          jdContext: jdContext ?? null,
+          instruction: instruction.trim(),
+          previous: cur.suggestion,
+        }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const json = (await res.json()) as { suggestion?: string; where?: string };
+      if (json.suggestion) {
+        setKeywordFills((f) =>
+          f[kw]
+            ? { ...f, [kw]: { ...f[kw], suggestion: json.suggestion!, where: json.where ?? f[kw].where } }
+            : f,
+        );
+      }
+    } catch (err) {
+      console.error("[fill-keyword refine] failed:", err);
+    } finally {
+      setKeywordFillLoading((l) => ({ ...l, [kw]: false }));
+    }
   }
 
   // ===== Tab2 简历对比:逐条 accept / reject / 自己改 / 换写法 =====
@@ -1070,46 +1285,36 @@ function ResultContent() {
   }
 
   // 登录用户 DB 还在 fetch → 显示 loading,别闪 "还没读到你的简历"
-  if (isLoggedInWithConv && dbLoading) {
+  // convId 存在但数据未就绪(含 auth 解析中)→ 显示读取,避免先用 localStorage 旧数据渲染再切(闪烁)
+  if (convId && dbLoading) {
     return (
       <>
-        <Nav />
-        <main className="min-h-screen bg-warm-bg">
-          <div className="h-20" />
-          <div className="max-w-[600px] mx-auto px-6 py-20 text-center">
-            <div className="inline-block animate-spin w-8 h-8 border-2 border-esther-blue border-t-transparent rounded-full mb-4" />
-            <p className="text-sm text-ink-soft">正在读取你的简历…</p>
-          </div>
-        </main>
+        <div className="max-w-[600px] mx-auto px-6 py-20 text-center">
+          <div className="inline-block animate-spin w-8 h-8 border-2 border-esther-blue border-t-transparent rounded-full mb-4" />
+          <p className="text-sm text-ink-soft">正在读取你的简历…</p>
+        </div>
       </>
     );
   }
 
   if (!parsedResume) {
     return (
-      <>
-        <Nav />
-        <main className="min-h-screen bg-warm-bg flex items-center justify-center p-6">
-          <Card className="p-6 max-w-md">
-            <p className="text-sm text-ink mb-3">⚠️ 还没读到你的简历</p>
-            <Link
-              href={`/m3${convQs}`}
-              className="inline-flex items-center justify-center rounded-full bg-esther-blue text-white px-5 py-2 text-sm font-medium hover:bg-esther-blue-dark transition-colors"
-            >
-              ← 回 Step 1 上传简历
-            </Link>
-          </Card>
-        </main>
-      </>
+      <div className="flex items-center justify-center p-6 py-20">
+        <Card className="p-6 max-w-md">
+          <p className="text-sm text-ink mb-3">⚠️ 还没读到你的简历,正在回到上传页…</p>
+          <Link
+            href={`/m3${convQs}`}
+            className="inline-flex items-center justify-center rounded-full bg-esther-blue text-white px-5 py-2 text-sm font-medium hover:bg-esther-blue-dark transition-colors"
+          >
+            ← 回 Step 1 上传简历
+          </Link>
+        </Card>
+      </div>
     );
   }
 
   return (
     <>
-      <Nav />
-      <main className="min-h-screen bg-warm-bg">
-        <div className="h-20" />
-
         {/* Loading 中 → V2 stepper(参考竞品 — 显示 AI 思考过程,不再"AI 正在分析…"一句话)*/}
         {status === "loading" && <M3OptimizationStepper ready={false} />}
 
@@ -1211,10 +1416,10 @@ function ResultContent() {
             </div>
 
             {/* Tab 内容区 */}
-            <div className="max-w-[1400px] mx-auto px-6 py-6">
+            <div className="max-w-[1400px] mx-auto px-8 py-8">
               {/* ===== Tab 1: 岗位匹配 ===== */}
               {activeTab === "match" && (
-                <div className="space-y-5">
+                <div className="space-y-6">
                   <KeywordHitChips
                     jdKeywords={jdKeywords}
                     matchedKeywords={matchedKeywords}
@@ -1225,7 +1430,7 @@ function ResultContent() {
 
                   {/* 原始简历问题总结 */}
                   {data.original_issues && data.original_issues.length > 0 && (
-                    <Card className="p-5">
+                    <Card className="p-6">
                       <h3 className="text-base font-semibold text-ink mb-3 flex items-center gap-1.5">
                         <span className="text-esther-red">⚠️</span> 原始简历问题总结
                       </h3>
@@ -1244,7 +1449,7 @@ function ResultContent() {
 
                   {/* 核心优化方向 */}
                   {data.optimization_directions && data.optimization_directions.length > 0 && (
-                    <Card className="p-5">
+                    <Card className="p-6">
                       <h3 className="text-base font-semibold text-ink mb-3 flex items-center gap-1.5">
                         <span className="text-esther-blue">🎯</span> 核心优化方向
                       </h3>
@@ -1269,9 +1474,14 @@ function ResultContent() {
                     <KeywordGapSection
                       keywords={missingKeywords}
                       responses={keywordResponses}
-                      onRespond={(kw, resp) =>
-                        setKeywordResponses((r) => ({ ...r, [kw]: resp }))
-                      }
+                      fills={keywordFills}
+                      fillLoading={keywordFillLoading}
+                      onRespond={handleKeywordRespond}
+                      onAcceptFill={handleAcceptKeywordFill}
+                      onIgnoreFill={handleIgnoreKeywordFill}
+                      onEditFill={handleEditKeywordFill}
+                      onRefineFill={handleRefineKeywordFill}
+                      convQs={convQs}
                     />
                   )}
                 </div>
@@ -1291,7 +1501,7 @@ function ResultContent() {
                         现有简历针对该 JD 已经不错,没有必须改的地方。
                       </Card>
                     ) : (
-                      <div className="space-y-5">
+                      <div className="space-y-6">
                         {/* ✅ 已改好(默认折叠 + 紧凑一行)*/}
                         {editGroups.done.length > 0 && (
                           <div>
@@ -1335,14 +1545,20 @@ function ResultContent() {
                           </div>
                         )}
 
-                        {/* 🎯 缺口待补 */}
-                        {editGroups.gap.length > 0 && (
-                          <div>
-                            <p className="text-sm font-semibold text-ink mb-2">
-                              🎯 缺口待补（{editGroups.gap.length}）
-                              <span className="ml-1 text-xs font-normal text-ink-muted">JD 要但简历没有,不是改写,是行动建议</span>
+                        {/* 🎯 缺口待补 — 读实时未命中关键词(已命中/已补强自动剔除);全补完则不显示 */}
+                        {missingKeywords.length > 0 && (
+                          <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3">
+                            <p className="text-sm font-semibold text-amber-700 mb-1">
+                              🎯 还有 {missingKeywords.length} 个 JD 缺口(简历里没体现)
                             </p>
-                            <div className="space-y-3">{editGroups.gap.map(renderEditCard)}</div>
+                            <p className="text-sm text-ink-soft mb-2">{missingKeywords.join("、")}</p>
+                            <button
+                              type="button"
+                              onClick={() => setActiveTab("match")}
+                              className="text-sm text-esther-blue hover:underline"
+                            >
+                              → 去「岗位匹配」处理:勾「会用 / 略懂」,AI 帮你真实补进简历
+                            </button>
                           </div>
                         )}
                       </div>
@@ -1452,6 +1668,8 @@ function ResultContent() {
                       edits={data.edits}
                       decisions={decisions}
                       rewritten={rewritten}
+                      keywordFills={keywordFills}
+                      skillsSummary={skillsSummary}
                       onFillBlank={handleFillBlank}
                       hoveredEditId={hoveredEditId}
                       onHoverEdit={setHoveredEditId}
@@ -1491,7 +1709,6 @@ function ResultContent() {
         )}
 
         <BuerFloatingButton />
-      </main>
     </>
   );
 }
@@ -1614,6 +1831,8 @@ function ResumePreview({
   edits,
   decisions,
   rewritten,
+  keywordFills,
+  skillsSummary,
   onFillBlank,
   hoveredEditId,
   onHoverEdit,
@@ -1627,6 +1846,8 @@ function ResumePreview({
   edits: EditSuggestion[];
   decisions: DecisionsMap;
   rewritten: RewrittenMap;
+  keywordFills?: Record<string, KeywordFillT>;
+  skillsSummary?: string[] | null;
   onFillBlank?: (editId: string, filledText: string) => void;
   hoveredEditId?: string | null;
   onHoverEdit?: (editId: string | null) => void;
@@ -1878,12 +2099,31 @@ function ResumePreview({
         </div>
       )}
 
-      {/* ========= 核心技能(放最前,招聘官 ATS 一眼看) ========= */}
-      {parsedResume.skills && (
-        <Section title="核心技能">
-          <CoreSkillsList skills={parsedResume.skills} />
-        </Section>
-      )}
+      {/* ========= 核心技能(自然语句改写;含补强;LLM 没好/失败时回退分类列表) ========= */}
+      {(() => {
+        const groups = skillGroupsOf(parsedResume);
+        const hasFills = Object.values(keywordFills ?? {}).some((f) => f.accepted);
+        if (groups.length === 0 && !hasFills) return null;
+        const ss = skillsSummary ?? null;
+        return (
+          <Section title="核心技能">
+            {ss === null ? (
+              // 生成中:先用分类列表占位,不空白
+              <CoreSkillsList groups={groups} />
+            ) : ss.length > 0 ? (
+              <ul className="list-disc pl-5 space-y-1.5">
+                {ss.map((line, i) => (
+                  <li key={i} className="text-sm text-ink leading-relaxed">
+                    {line}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <CoreSkillsList groups={groups} />
+            )}
+          </Section>
+        );
+      })()}
 
       {/* ========= 工作/实习经历 ========= */}
       {(parsedResume.experience ?? []).length > 0 && (
@@ -1972,13 +2212,25 @@ function ResumePreview({
                   </span>
                 )}
               </div>
+              {ed.research_direction && (
+                <p className="text-[13px] text-ink-soft mt-0.5">
+                  研究方向:{ed.research_direction}
+                  {ed.advisor ? ` · 导师:${ed.advisor}` : ""}
+                </p>
+              )}
+              {!ed.research_direction && ed.advisor && (
+                <p className="text-[13px] text-ink-soft mt-0.5">导师:{ed.advisor}</p>
+              )}
+              {ed.rank && (
+                <p className="text-[13px] text-ink-soft mt-0.5">专业排名:{ed.rank}</p>
+              )}
               {ed.awards && ed.awards.length > 0 && (
-                <p className="text-[12px] text-ink-soft mt-0.5">
+                <p className="text-[13px] text-ink-soft mt-0.5">
                   荣誉:{ed.awards.join(" · ")}
                 </p>
               )}
               {ed.courses && ed.courses.length > 0 && (
-                <p className="text-[12px] text-ink-soft mt-0.5">
+                <p className="text-[13px] text-ink-soft mt-0.5">
                   主修:{ed.courses.join(" · ")}
                 </p>
               )}
@@ -2006,6 +2258,7 @@ function KeywordHitChips({
   loading?: boolean;
   aiJudging?: boolean;
 }) {
+  const [showEvidence, setShowEvidence] = useState(false);
   const matchedSet = new Set(matchedKeywords.map((k) => k.toLowerCase()));
   const hitCount = jdKeywords.filter((k) => matchedSet.has(k.toLowerCase())).length;
   const total = jdKeywords.length;
@@ -2028,7 +2281,7 @@ function KeywordHitChips({
 
   if (loading) {
     return (
-      <Card className="p-5">
+      <Card className="p-6">
         <h3 className="text-base font-semibold text-ink flex items-center gap-1.5 mb-2">
           <span className="text-esther-blue">⭐</span> JD 核心关键词命中情况
         </h3>
@@ -2043,7 +2296,7 @@ function KeywordHitChips({
   }
   if (total === 0) {
     return (
-      <Card className="p-5">
+      <Card className="p-6">
         <p className="text-sm text-ink-muted">
           关键词命中分析需要先有 JD。回上一步填岗位 JD 后这里会显示命中情况。
         </p>
@@ -2052,7 +2305,7 @@ function KeywordHitChips({
   }
 
   return (
-    <Card className="p-5">
+    <Card className="p-6">
       <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
         <h3 className="text-base font-semibold text-ink flex items-center gap-1.5">
           <span className="text-esther-blue">⭐</span> JD 核心关键词命中情况
@@ -2069,13 +2322,13 @@ function KeywordHitChips({
         <div className="h-full bg-esther-blue transition-all" style={{ width: `${pct}%` }} />
       </div>
       {/* 全量 chip */}
-      <div className="flex flex-wrap gap-1.5 mb-3">
+      <div className="flex flex-wrap gap-2 mb-4">
         {jdKeywords.map((kw) => {
           const hit = matchedSet.has(kw.toLowerCase());
           return (
             <span
               key={kw}
-              className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${
+              className={`inline-flex items-center px-2.5 py-1 rounded-full text-sm font-medium ${
                 hit
                   ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
                   : "bg-esther-red/10 text-esther-red border border-esther-red/20"
@@ -2086,27 +2339,11 @@ function KeywordHitChips({
           );
         })}
       </div>
-      {/* 命中证据(每条命中附简历原句 — anti-fab:有据才算命中)*/}
-      {hitWithEvidence.length > 0 && (
-        <div className="space-y-2 pt-3 border-t border-border mb-1">
-          <p className="text-xs text-ink-muted mb-1">
-            ✦ 每个命中都来自简历里的真实经历(不硬凑):
-          </p>
-          {hitWithEvidence.map((kw) => (
-            <p key={kw} className="text-sm text-ink-soft leading-relaxed flex gap-1.5">
-              <span className="text-emerald-600 flex-shrink-0">✓</span>
-              <span>
-                <span className="font-medium text-ink">{kw}</span>
-                <span className="text-ink-muted"> ← </span>
-                <span className="text-ink-soft">“{ev[kw.toLowerCase()]}”</span>
-              </span>
-            </p>
-          ))}
-        </div>
-      )}
-      {/* 缺失逐条说明 */}
+
+      {/* 缺失逐条说明(优先展示 — 用户最需要看"还差什么")*/}
       {missing.length > 0 && (
         <div className="space-y-2 pt-3 border-t border-border">
+          <p className="text-sm font-medium text-ink mb-1">还差这些(优先补):</p>
           {missing.map((kw) => {
             const g = gapNote(kw);
             return (
@@ -2116,12 +2353,43 @@ function KeywordHitChips({
                   <span className="font-medium text-ink">{kw}</span>
                   ：{g?.note ?? "简历未明确提及相关内容"}
                   {g?.fixable && (
-                    <span className="ml-1 text-xs text-ink-muted">({g.fixable})</span>
+                    <span className="ml-1 text-sm text-ink-muted">({g.fixable})</span>
                   )}
                 </span>
               </p>
             );
           })}
+        </div>
+      )}
+
+      {/* 命中证据:默认折叠,点开看(每条命中附简历原句 — anti-fab:有据才算命中)*/}
+      {hitWithEvidence.length > 0 && (
+        <div className="pt-3 border-t border-border mt-3">
+          <button
+            type="button"
+            onClick={() => setShowEvidence((v) => !v)}
+            className="text-sm text-esther-blue hover:underline flex items-center gap-1"
+          >
+            <span>{showEvidence ? "▾" : "▸"}</span>
+            {showEvidence ? "收起命中证据" : `查看 ${hitWithEvidence.length} 条命中的简历证据`}
+          </button>
+          {showEvidence && (
+            <div className="space-y-2 mt-2">
+              <p className="text-sm text-ink-muted mb-1">
+                ✦ 每个命中都来自简历里的真实经历(不硬凑):
+              </p>
+              {hitWithEvidence.map((kw) => (
+                <p key={kw} className="text-sm text-ink-soft leading-relaxed flex gap-1.5">
+                  <span className="text-emerald-600 flex-shrink-0">✓</span>
+                  <span>
+                    <span className="font-medium text-ink">{kw}</span>
+                    <span className="text-ink-muted"> ← </span>
+                    <span className="text-ink-soft">“{ev[kw.toLowerCase()]}”</span>
+                  </span>
+                </p>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </Card>
@@ -2143,9 +2411,9 @@ function InterviewPrepTab({
   convQs: string;
 }) {
   return (
-    <div className="space-y-5">
+    <div className="space-y-6">
       {/* 跳 m5 真人模拟面试入口 */}
-      <Card className="p-5 border-2 border-esther-blue/30 bg-esther-blue/5">
+      <Card className="p-6 border-2 border-esther-blue/30 bg-esther-blue/5">
         <div className="flex items-start justify-between gap-4 flex-wrap">
           <div className="min-w-0">
             <h3 className="text-base font-semibold text-ink mb-1">🎥 想真刀真枪练一场?</h3>
@@ -2164,7 +2432,7 @@ function InterviewPrepTab({
       </Card>
 
       {/* 静态面试题文档 */}
-      <Card className="p-5">
+      <Card className="p-6">
         <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
           <div>
             <h3 className="text-base font-semibold text-ink">📄 面试题准备文档</h3>
@@ -2249,52 +2517,247 @@ function InterviewPrepTab({
   );
 }
 
-// ====== Timing 1: 关键词缺口 ======
+// ====== Timing 1: 关键词缺口闭环(会用/略懂 → AI 补法 → 自己改 / 跟 AI 说 → 采纳 → 命中 + 进简历)======
+type KeywordFillT = { level: "can" | "vague"; suggestion: string; where: string; accepted: boolean };
+
+function KeywordGapRow({
+  kw,
+  resp,
+  fill,
+  loading,
+  onRespond,
+  onAcceptFill,
+  onIgnoreFill,
+  onEditFill,
+  onRefineFill,
+  convQs,
+}: {
+  kw: string;
+  resp?: "can" | "vague" | "no";
+  fill?: KeywordFillT;
+  loading?: boolean;
+  onRespond: (kw: string, resp: "can" | "vague" | "no") => void;
+  onAcceptFill: (kw: string) => void;
+  onIgnoreFill: (kw: string) => void;
+  onEditFill: (kw: string, text: string) => void;
+  onRefineFill: (kw: string, instruction: string) => void;
+  convQs: string;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [chat, setChat] = useState("");
+
+  return (
+    <div className="border-b border-amber-200/60 last:border-0 pb-3 last:pb-0">
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="text-sm text-ink font-medium mr-1">{kw}</span>
+        {(["can", "vague", "no"] as const).map((r) => {
+          const label = r === "can" ? "✓ 我会用" : r === "vague" ? "△ 略懂" : "✗ 不会";
+          const active = resp === r;
+          const cls = active
+            ? r === "can"
+              ? "bg-emerald-500 text-white border-emerald-500"
+              : r === "vague"
+                ? "bg-amber-400 text-white border-amber-400"
+                : "bg-red-400 text-white border-red-400"
+            : "bg-white text-ink-soft border-border hover:border-esther-blue";
+          return (
+            <button
+              key={r}
+              type="button"
+              onClick={() => onRespond(kw, r)}
+              className={`px-2.5 py-1 text-xs rounded border transition-colors ${cls}`}
+            >
+              {label}
+            </button>
+          );
+        })}
+      </div>
+
+      {loading && (
+        <p className="text-xs text-esther-blue animate-pulse mt-2">
+          AI 正在帮你想怎么把「{kw}」真实地写进简历…
+        </p>
+      )}
+
+      {/* 补法卡(未采纳)— 可采纳 / 自己改 / 跟 AI 说 */}
+      {!loading && fill && !fill.accepted && (
+        <div className="mt-2 bg-white border border-emerald-200 rounded-lg p-3 space-y-2">
+          <p className="text-xs text-ink-muted">
+            建议补到「{fill.where}」· {fill.level === "can" ? "会用" : "略懂"}措辞:
+          </p>
+
+          {editing ? (
+            <>
+              <textarea
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                rows={3}
+                className="w-full text-sm text-ink leading-relaxed bg-card border border-esther-blue/40 rounded p-2 resize-none focus:outline-none focus:ring-2 focus:ring-esther-blue/40"
+                autoFocus
+              />
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const t = draft.trim();
+                    if (t) onEditFill(kw, t);
+                    setEditing(false);
+                  }}
+                  disabled={!draft.trim()}
+                  className="inline-flex items-center rounded-full bg-esther-blue text-white px-3 py-1 text-sm font-medium hover:bg-esther-blue-dark disabled:opacity-40"
+                >
+                  ✓ 保存
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setEditing(false)}
+                  className="text-sm text-ink-muted hover:text-ink"
+                >
+                  取消
+                </button>
+              </div>
+            </>
+          ) : (
+            <p className="text-sm text-ink leading-relaxed">{fill.suggestion}</p>
+          )}
+
+          {/* 跟 AI 说怎么改 */}
+          {!editing && (
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                value={chat}
+                onChange={(e) => setChat(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && chat.trim()) {
+                    onRefineFill(kw, chat.trim());
+                    setChat("");
+                  }
+                }}
+                placeholder="跟 AI 说哪里要改 / 哪点不准,它会重写"
+                className="flex-1 min-w-0 text-sm text-ink bg-warm-bg-deep/30 border border-border rounded-full px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-esther-blue/30"
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  if (chat.trim()) {
+                    onRefineFill(kw, chat.trim());
+                    setChat("");
+                  }
+                }}
+                disabled={!chat.trim()}
+                className="inline-flex items-center rounded-full border border-esther-blue text-esther-blue px-3 py-1.5 text-sm hover:bg-esther-blue/10 transition-colors disabled:opacity-40 flex-shrink-0"
+              >
+                让 AI 改
+              </button>
+            </div>
+          )}
+
+          {!editing && (
+            <div className="flex items-center gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => onAcceptFill(kw)}
+                className="inline-flex items-center rounded-full bg-esther-blue text-white px-3 py-1 text-sm font-medium hover:bg-esther-blue-dark transition-colors"
+              >
+                ✓ 采纳,补进简历
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setDraft(fill.suggestion);
+                  setEditing(true);
+                }}
+                className="inline-flex items-center rounded-full border border-border bg-card text-ink-soft px-3 py-1 text-sm hover:border-esther-blue hover:text-esther-blue transition-colors"
+              >
+                ✎ 自己改
+              </button>
+              <button
+                type="button"
+                onClick={() => onIgnoreFill(kw)}
+                className="text-sm text-ink-muted hover:text-ink"
+              >
+                忽略
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 已采纳 */}
+      {fill?.accepted && (
+        <p className="text-sm text-emerald-700 mt-2 flex items-start gap-1.5">
+          <span className="flex-shrink-0">✓</span>
+          <span>
+            已补进简历:<span className="text-ink">{fill.suggestion}</span>
+            <span className="text-ink-muted">(该关键词已命中,会写入你下载的简历)</span>
+          </span>
+        </p>
+      )}
+
+      {/* 不会 → 真缺口,去补项目 */}
+      {resp === "no" && (
+        <p className="text-sm text-ink-soft mt-2">
+          这是真缺口 —— 不替你硬写。建议去
+          <Link href={`/m4${convQs}`} className="text-esther-blue hover:underline mx-1">
+            「补项目」
+          </Link>
+          做一段能体现「{kw}」的经历,再回来补进简历。
+        </p>
+      )}
+    </div>
+  );
+}
+
 function KeywordGapSection({
   keywords,
   responses,
+  fills,
+  fillLoading,
   onRespond,
+  onAcceptFill,
+  onIgnoreFill,
+  onEditFill,
+  onRefineFill,
+  convQs,
 }: {
   keywords: string[];
   responses: Record<string, "can" | "vague" | "no">;
+  fills: Record<string, KeywordFillT>;
+  fillLoading: Record<string, boolean>;
   onRespond: (kw: string, resp: "can" | "vague" | "no") => void;
+  onAcceptFill: (kw: string) => void;
+  onIgnoreFill: (kw: string) => void;
+  onEditFill: (kw: string, text: string) => void;
+  onRefineFill: (kw: string, instruction: string) => void;
+  convQs: string;
 }) {
   if (keywords.length === 0) return null;
   return (
     <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 mb-4">
-      <p className="text-xs font-semibold text-amber-700 mb-2">
-        📋 JD 关键词缺口 — 以下技能 JD 要求但简历未提及:
+      <p className="text-sm font-semibold text-amber-700 mb-1">
+        📋 JD 关键词缺口 — 这些 JD 要求、简历还没体现
       </p>
-      <div className="flex flex-wrap gap-2">
-        {keywords.map((kw) => {
-          const resp = responses[kw];
-          return (
-            <span key={kw} className="inline-flex items-center gap-1 flex-wrap">
-              <span className="text-xs text-ink-soft font-medium mr-1">{kw}</span>
-              {(["can", "vague", "no"] as const).map((r) => {
-                const label = r === "can" ? "✓ 我会用" : r === "vague" ? "△ 略懂" : "✗ 不会";
-                const active = resp === r;
-                const cls = active
-                  ? r === "can"
-                    ? "bg-emerald-500 text-white border-emerald-500"
-                    : r === "vague"
-                      ? "bg-amber-400 text-white border-amber-400"
-                      : "bg-red-400 text-white border-red-400"
-                  : "bg-white text-ink-soft border-border hover:border-esther-blue";
-                return (
-                  <button
-                    key={r}
-                    type="button"
-                    onClick={() => onRespond(kw, r)}
-                    className={`px-2 py-0.5 text-[11px] rounded border transition-colors ${cls}`}
-                  >
-                    {label}
-                  </button>
-                );
-              })}
-            </span>
-          );
-        })}
+      <p className="text-xs text-ink-muted mb-3">
+        选「会用 / 略懂」我帮你把它真实地补进简历(可自己改、可跟 AI 说怎么改);选「不会」就是真缺口,可以去练。
+      </p>
+      <div className="space-y-3">
+        {keywords.map((kw) => (
+          <KeywordGapRow
+            key={kw}
+            kw={kw}
+            resp={responses[kw]}
+            fill={fills[kw]}
+            loading={fillLoading[kw]}
+            onRespond={onRespond}
+            onAcceptFill={onAcceptFill}
+            onIgnoreFill={onIgnoreFill}
+            onEditFill={onEditFill}
+            onRefineFill={onRefineFill}
+            convQs={convQs}
+          />
+        ))}
       </div>
     </div>
   );
@@ -2354,26 +2817,14 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 }
 
 /** 核心技能:按 category 分类展示(label: value) */
-function CoreSkillsList({ skills }: { skills: Record<string, string[]> }) {
-  const LABELS: Record<string, string> = {
-    languages: "编程语言",
-    frameworks: "框架与库",
-    tools: "工具",
-    domain: "领域知识",
-    tech: "技术",
-    language: "语言",
-    tool: "工具",
-  };
-  const entries = Object.entries(skills).filter(([, v]) => Array.isArray(v) && v.length > 0);
-  if (entries.length === 0) return null;
+function CoreSkillsList({ groups }: { groups: { category: string; items: string[] }[] }) {
+  if (groups.length === 0) return null;
   return (
     <div className="space-y-1.5">
-      {entries.map(([key, vals]) => (
-        <p key={key} className="text-[13px] text-ink leading-relaxed">
-          <span className="text-esther-blue font-semibold">
-            {LABELS[key] ?? key}:
-          </span>{" "}
-          {vals.join(" · ")}
+      {groups.map((g) => (
+        <p key={g.category} className="text-sm text-ink leading-relaxed">
+          <span className="text-esther-blue font-semibold">{g.category}:</span>{" "}
+          {g.items.join(" · ")}
         </p>
       ))}
     </div>

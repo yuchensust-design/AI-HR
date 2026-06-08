@@ -30,6 +30,8 @@ export function useUser() {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
   const migratingRef = useRef(false);
+  // 记录当前用户 id —— 用于区分"真的换人了"vs"只是 token 刷新(切走再切回触发)"
+  const lastUserIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     const supabase = createClient();
@@ -69,6 +71,7 @@ export function useUser() {
 
     // 初次拉取
     supabase.auth.getUser().then(({ data }) => {
+      lastUserIdRef.current = data.user?.id ?? null;
       setUser(data.user);
       setLoading(false);
       if (data.user) {
@@ -81,10 +84,17 @@ export function useUser() {
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event, session) => {
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        fetchProfile(session.user.id);
-        if (event === "SIGNED_IN") void maybeMigrate(session.user.id);
+      const nextUser = session?.user ?? null;
+      // token 刷新(切走再切回浏览器触发)= 同一个用户 → 保持原 user 引用,
+      // 否则下游 useM3DBSync 依赖变化会重拉 dbData、整页闪 loading、看着像"重新分析"
+      if ((lastUserIdRef.current ?? null) === (nextUser?.id ?? null)) {
+        return;
+      }
+      lastUserIdRef.current = nextUser?.id ?? null;
+      setUser(nextUser);
+      if (nextUser) {
+        fetchProfile(nextUser.id);
+        if (event === "SIGNED_IN") void maybeMigrate(nextUser.id);
       } else setProfile(null);
     });
 

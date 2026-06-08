@@ -24,10 +24,15 @@ import {
   deleteConversation,
 } from "@/lib/conversations";
 
+// 模块级会话列表缓存 —— 跨页/重挂载时立即显示上次的列表,不闪 skeleton
+const listCache: Partial<Record<ConversationModule, Conversation[]>> = {};
+
 type Props = {
   module: ConversationModule;
   basePath: string;
   defaultTitle?: string;
+  /** 会话项点击去哪(默认 = basePath)。m3 传 "/m3/result",让已分析会话间切换停在同一路由、不重挂载 */
+  itemBasePath?: string;
 };
 
 function timeAgo(iso: string): string {
@@ -46,19 +51,42 @@ export default function ConversationSwitcher({
   module,
   basePath,
   defaultTitle = "新会话",
+  itemBasePath,
 }: Props) {
+  const itemBase = itemBasePath ?? basePath;
   const { user, loading: userLoading } = useUser();
   const router = useRouter();
   const sp = useSearchParams();
   const currentId = sp.get("c");
 
-  const [list, setList] = useState<Conversation[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [list, setList] = useState<Conversation[]>(() => listCache[module] ?? []);
+  const [loading, setLoading] = useState(() => !listCache[module]);
   const [renameId, setRenameId] = useState<string | null>(null);
   const [renameText, setRenameText] = useState("");
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [collapsed, setCollapsed] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+
+  // 收起状态持久化
+  useEffect(() => {
+    try {
+      setCollapsed(window.localStorage.getItem("conv_sidebar_collapsed") === "1");
+    } catch {
+      /* ignore */
+    }
+  }, []);
+  function toggleCollapsed() {
+    setCollapsed((c) => {
+      const next = !c;
+      try {
+        window.localStorage.setItem("conv_sidebar_collapsed", next ? "1" : "0");
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
+  }
 
   useEffect(() => {
     if (userLoading) return;
@@ -67,6 +95,7 @@ export default function ConversationSwitcher({
       return;
     }
     listConversations(module).then((data) => {
+      listCache[module] = data;
       setList(data);
       setLoading(false);
     });
@@ -88,9 +117,13 @@ export default function ConversationSwitcher({
   async function onNew() {
     const id = await createConversation(module, `${defaultTitle} ${list.length + 1}`);
     if (id) {
-      setList(await listConversations(module));
-      router.push(`${basePath}?c=${id}`);
-      router.refresh();
+      // 先跳转(snappy),列表后台刷新 + 回写缓存
+      // new=1:新会话本就是空的,设置页直接出空表单、不显示加载态(消除闪烁)
+      router.push(`${basePath}?c=${id}&new=1`);
+      listConversations(module).then((data) => {
+        listCache[module] = data;
+        setList(data);
+      });
     }
   }
 
@@ -114,11 +147,44 @@ export default function ConversationSwitcher({
     }
   }
 
+  // ===== 收起态:只剩一条细边 + 展开按钮 =====
+  if (collapsed) {
+    return (
+      <aside className="w-10 flex-shrink-0 sticky top-20 self-start h-[calc(100vh-80px)] border-r border-black/10 bg-white/40 backdrop-blur-sm">
+        <button
+          onClick={toggleCollapsed}
+          title="展开会话列表"
+          className="w-full py-3 text-ink-muted hover:text-ink hover:bg-warm-bg-deep transition flex justify-center text-lg"
+        >
+          »
+        </button>
+        {user && (
+          <button
+            onClick={onNew}
+            title="新建会话"
+            className="w-full py-2 text-esther-blue hover:bg-warm-bg-deep transition flex justify-center text-lg"
+          >
+            +
+          </button>
+        )}
+      </aside>
+    );
+  }
+
   // ===== 游客视图(简化) =====
   if (!userLoading && !user) {
     return (
       <aside className="w-60 flex-shrink-0 sticky top-20 self-start h-[calc(100vh-80px)] overflow-y-auto border-r border-black/10 bg-white/40 backdrop-blur-sm">
         <div className="p-4">
+          <div className="flex justify-end mb-1">
+            <button
+              onClick={toggleCollapsed}
+              title="收起"
+              className="px-1.5 py-0.5 text-ink-muted hover:text-ink rounded transition text-sm"
+            >
+              «
+            </button>
+          </div>
           <p className="text-xs text-ink-muted mb-1">游客模式</p>
           <p className="text-sm text-ink mb-4 leading-relaxed">
             数据存浏览器本地,
@@ -148,13 +214,22 @@ export default function ConversationSwitcher({
       className="w-60 flex-shrink-0 sticky top-20 self-start h-[calc(100vh-80px)] overflow-y-auto border-r border-black/10 bg-white/40 backdrop-blur-sm"
     >
       <div className="p-3">
+        <div className="flex justify-end mb-1">
+          <button
+            onClick={toggleCollapsed}
+            title="收起会话列表"
+            className="px-1.5 py-0.5 text-ink-muted hover:text-ink rounded transition text-sm"
+          >
+            «
+          </button>
+        </div>
         <button
           onClick={onNew}
           data-m3-create-conversation
           className="w-full mb-3 px-3 py-2 rounded-xl bg-esther-blue text-white text-sm hover:bg-esther-blue-dark transition flex items-center justify-center gap-1"
         >
           <span className="text-base">+</span>
-          <span>新建会话</span>
+          <span>新建{defaultTitle}</span>
         </button>
 
         {loading && (
@@ -214,7 +289,7 @@ export default function ConversationSwitcher({
                 ) : (
                   <>
                     <Link
-                      href={`${basePath}?c=${c.id}`}
+                      href={`${itemBase}?c=${c.id}`}
                       className="block px-3 py-2 pr-7 min-w-0"
                     >
                       <p className="text-sm text-ink truncate">{c.title}</p>

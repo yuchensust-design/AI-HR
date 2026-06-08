@@ -312,7 +312,6 @@ export function EditSuggestionCard({
     : `border-2 ${PRIORITY_STYLE[edit.priority] ?? PRIORITY_STYLE.medium}`;
 
   const finalSuggested = rewrittenText ?? edit.suggested_text;
-  const sourceMeta = edit.source ? SOURCE_META[edit.source] : null;
   const hasConfidence = typeof edit.confidence === "number";
   // claimType:旧数据无字段时按 needs_confirmation 兜底,避免老数据被当成"有据可写"自动采纳
   const claimType: ClaimType = edit.claim_type ?? "needs_confirmation";
@@ -337,7 +336,7 @@ export function EditSuggestionCard({
   }
 
   return (
-    <Card className={`p-4 transition-all ${priorityBorder}`}>
+    <Card className={`p-5 transition-all ${priorityBorder}`}>
       {/* 头部 chips */}
       <div className="flex items-center justify-between gap-2 mb-3 flex-wrap">
         <div className="flex items-center gap-1.5 flex-wrap">
@@ -355,20 +354,15 @@ export function EditSuggestionCard({
           <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium ${cat.color}`}>
             {cat.label}
           </span>
-          {sourceMeta && (
+          {/* claim_type 只在"需留意"时显示(推断/需确认/已拦截);安全的"有据可写"不占位 */}
+          {claimType !== "explicit" && (
             <span
-              title={sourceMeta.hint}
-              className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium ${sourceMeta.color}`}
+              title={claimMeta.hint}
+              className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium ${claimMeta.color}`}
             >
-              {sourceMeta.label}
+              {claimMeta.label}
             </span>
           )}
-          <span
-            title={claimMeta.hint}
-            className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium ${claimMeta.color}`}
-          >
-            {claimMeta.label}
-          </span>
           {edit.linked_jd_keyword && (
             <button
               type="button"
@@ -390,7 +384,6 @@ export function EditSuggestionCard({
             <p className="text-xs text-ink-muted mb-1 font-display italic">原文</p>
             <p className="text-sm text-ink-soft leading-relaxed">{edit.original_text}</p>
           </div>
-          <p className="text-center text-ink-muted my-1 text-xs">↓</p>
         </>
       ) : (
         <div className="bg-esther-yellow/15 border border-esther-yellow/40 rounded p-2 mb-2">
@@ -412,7 +405,7 @@ export function EditSuggestionCard({
               value={draftText}
               onChange={(e) => setDraftText(e.target.value)}
               rows={3}
-              className="w-full text-xs text-ink leading-relaxed bg-card border border-esther-blue/40 rounded p-2 resize-none focus:outline-none focus:ring-2 focus:ring-esther-blue/40"
+              className="w-full text-sm text-ink leading-relaxed bg-card border border-esther-blue/40 rounded p-2 resize-none focus:outline-none focus:ring-2 focus:ring-esther-blue/40"
               autoFocus
             />
             <div className="flex items-center justify-end gap-2 mt-2">
@@ -448,7 +441,7 @@ export function EditSuggestionCard({
 
       {/* reason */}
       <div className="mb-2 px-2 py-1.5 rounded bg-warm-bg-deep/30 border-l-2 border-esther-blue/40">
-        <p className="text-xs text-ink-muted leading-relaxed">
+        <p className="text-sm text-ink-muted leading-relaxed">
           💬 {edit.reason}
         </p>
       </div>

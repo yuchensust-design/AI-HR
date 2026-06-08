@@ -35,15 +35,17 @@ export function useM3DBSync() {
   const sp = useSearchParams();
   const convId = sp.get("c");
   const { user, loading: userLoading } = useUser();
+  // 只认 user.id —— token 刷新换了 user 对象引用但 id 不变时,不重拉数据(避免切走切回闪 loading)
+  const userId = user?.id ?? null;
   const router = useRouter();
   const convQs = convId ? `?c=${convId}` : "";
 
   // 登录但没 conv → 回 /m3 让用户选/新建
   useEffect(() => {
-    if (!userLoading && user && !convId) {
+    if (!userLoading && userId && !convId) {
       router.replace("/m3");
     }
-  }, [user, userLoading, convId, router]);
+  }, [userId, userLoading, convId, router]);
 
   const [dbData, setDbData] = useState<Partial<M3Row> | null>(null);
   const [loading, setLoading] = useState(true);
@@ -51,7 +53,7 @@ export function useM3DBSync() {
   useEffect(() => {
     let cancelled = false;
     if (userLoading) return;
-    if (!user || !convId) {
+    if (!userId || !convId) {
       if (!cancelled) {
         setDbData(null);
         setLoading(false);
@@ -75,7 +77,7 @@ export function useM3DBSync() {
     return () => {
       cancelled = true;
     };
-  }, [user, userLoading, convId]);
+  }, [userId, userLoading, convId]);
 
   const saveField = useCallback(
     async (field: keyof M3Row, value: unknown) => {

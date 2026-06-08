@@ -44,9 +44,11 @@ export type M3Data = {
   hidden: unknown[];
   final: FinalResume;
   updatedAt: string | null;
+  /** 已生成过分析结果(edits 已缓存)— 用于"点会话直达结果页"判断 */
+  analyzed: boolean;
 };
 
-const EMPTY: M3Data = { parsed: null, jd: null, hidden: [], final: null, updatedAt: null };
+const EMPTY: M3Data = { parsed: null, jd: null, hidden: [], final: null, updatedAt: null, analyzed: false };
 
 function readLocal(): M3Data {
   if (typeof window === "undefined") return EMPTY;
@@ -57,6 +59,7 @@ function readLocal(): M3Data {
       hidden: JSON.parse(window.localStorage.getItem(STORAGE_KEYS.HIDDEN_EXPERIENCES) || "[]"),
       final: JSON.parse(window.localStorage.getItem(STORAGE_KEYS.FINAL_RESUME) || "null"),
       updatedAt: null,
+      analyzed: false,
     };
   } catch {
     return EMPTY;
@@ -112,6 +115,7 @@ export function useM3Data(convId: string | null) {
             ? { markdown: row.final_resume_md, lastUpdated: row.updated_at }
             : null,
           updatedAt: row?.updated_at ?? null,
+          analyzed: !!(row?.edits_json || row?.final_resume_md),
         });
         setLoading(false);
       });

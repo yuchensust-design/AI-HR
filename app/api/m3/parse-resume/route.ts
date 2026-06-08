@@ -81,7 +81,18 @@ ${phase1Ref || "(主框架文件未加载,按下方 schema 严格执行)"}
     "gpa": string | null
   },
   "education": [
-    { "school": string, "major": string, "period": string, "gpa": string | null, "courses": string[] }
+    {
+      "school": string,
+      "major": string,
+      "degree": string | null,            // 学位:博士/硕士在读/硕士/本科/大专 等,有就填
+      "period": string,
+      "gpa": string | null,
+      "rank": string | null,              // 专业排名,如 "1/80",有就填
+      "research_direction": string | null,// 研究方向(研究生常有),有就填
+      "advisor": string | null,           // 导师,有就填
+      "courses": string[],                // 主修/相关课程
+      "awards": string[]                  // 奖学金 / 荣誉 / 竞赛,逐条
+    }
   ],
   "experience": [
     {
@@ -110,7 +121,14 @@ ${phase1Ref || "(主框架文件未加载,按下方 schema 严格执行)"}
       "bullets": [{ "text": string, "narrative_tag": "..." }]
     }
   ],
+  "skill_groups": [
+    // 按简历内容【动态归类】,类别名你自己定,贴合这份简历(不要硬塞进固定桶)。
+    // 常见类别(按需,有才列):产品能力 / AI相关 / 工具 / 编程语言 / 语言能力 / 证书资质 / 软技能 / 领域知识
+    // 把简历里"技能、工具、认证(如 CET-6/华为HCIA-AI)、产品方法、软技能(逻辑/协作/学习力)"都归到合适类别,不要漏
+    { "category": string, "items": string[] }
+  ],
   "skills": {
+    // 向后兼容,仍按 4 桶各放一份(从 skill_groups 里挑对应的;没有就空数组)
     "languages": string[],
     "frameworks": string[],
     "tools": string[],
@@ -318,12 +336,21 @@ export async function POST(request: NextRequest) {
       experience,
       projects,
       activities,
+      skill_groups: Array.isArray(parsed.skill_groups)
+        ? (parsed.skill_groups as Array<{ category?: unknown; items?: unknown }>)
+            .map((g) => ({
+              category: String(g?.category ?? "").trim(),
+              items: Array.isArray(g?.items) ? g.items.map((x) => String(x).trim()).filter(Boolean) : [],
+            }))
+            .filter((g) => g.category && g.items.length > 0)
+        : [],
       skills: {
         languages: Array.isArray(skills.languages) ? skills.languages : [],
         frameworks: Array.isArray(skills.frameworks) ? skills.frameworks : [],
         tools: Array.isArray(skills.tools) ? skills.tools : [],
         domain: Array.isArray(skills.domain) ? skills.domain : [],
       },
+      raw_text: resumeText, // 保留原文供后续综合/功能用(避免解析丢信息后无源可查)
       meta: {
         parse_quality: ["good", "partial", "low"].includes(metaIn.parse_quality as string)
           ? metaIn.parse_quality

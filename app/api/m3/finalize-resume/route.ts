@@ -14,6 +14,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { skillGroupsOf } from "@/lib/resume-skills";
 
 type Bullet = string | { text?: string; narrative_tag?: string };
 
@@ -27,11 +28,23 @@ type ParsedResume = {
     year_level?: string | null;
     gpa?: string | null;
   };
-  education?: { school?: string; major?: string; period?: string; gpa?: string | null; courses?: string[] }[];
+  education?: {
+    school?: string;
+    major?: string;
+    degree?: string | null;
+    period?: string;
+    gpa?: string | null;
+    rank?: string | null;
+    research_direction?: string | null;
+    advisor?: string | null;
+    courses?: string[];
+    awards?: string[];
+  }[];
   experience?: { org?: string; role?: string; period?: string; bullets?: Bullet[] }[];
   projects?: { name?: string; period?: string; role?: string | null; tech_stack?: string[]; bullets?: Bullet[] }[];
   activities?: { org?: string; role?: string; period?: string; bullets?: Bullet[] }[];
   skills?: { languages?: string[]; frameworks?: string[]; tools?: string[]; domain?: string[] };
+  skill_groups?: { category: string; items: string[] }[];
 };
 
 type EditApplied = {
@@ -117,13 +130,12 @@ export async function POST(request: NextRequest) {
       lines.push("");
     }
 
-    if (finalResume.skills) {
+    const skillGroups = skillGroupsOf(finalResume);
+    if (skillGroups.length > 0) {
       lines.push("## 核心技能");
-      const sk = finalResume.skills;
-      if (sk.languages?.length) lines.push(`- 语言: ${sk.languages.join(" / ")}`);
-      if (sk.frameworks?.length) lines.push(`- 框架: ${sk.frameworks.join(" / ")}`);
-      if (sk.tools?.length) lines.push(`- 工具: ${sk.tools.join(" / ")}`);
-      if (sk.domain?.length) lines.push(`- 领域: ${sk.domain.join(" / ")}`);
+      for (const g of skillGroups) {
+        lines.push(`- ${g.category}: ${g.items.join(" / ")}`);
+      }
       lines.push("");
     }
 
@@ -184,12 +196,17 @@ export async function POST(request: NextRequest) {
     if (finalResume.education && finalResume.education.length > 0) {
       lines.push("## 教育背景");
       for (const ed of finalResume.education) {
-        const head = `**${ed.school ?? ""}** · ${ed.major ?? ""}`;
+        const headParts = [ed.school, ed.major, ed.degree].filter(Boolean).join(" · ");
         const right = `${ed.period ?? ""} ${ed.gpa ? `GPA ${ed.gpa}` : ""}`.trim();
-        lines.push(`${head}${right ? ` (${right})` : ""}`);
-        if (ed.courses && ed.courses.length > 0) {
-          lines.push(`- 相关课程: ${ed.courses.join("、")}`);
+        lines.push(`**${headParts}**${right ? ` (${right})` : ""}`);
+        if (ed.research_direction) {
+          lines.push(`- 研究方向: ${ed.research_direction}${ed.advisor ? ` · 导师: ${ed.advisor}` : ""}`);
+        } else if (ed.advisor) {
+          lines.push(`- 导师: ${ed.advisor}`);
         }
+        if (ed.rank) lines.push(`- 专业排名: ${ed.rank}`);
+        if (ed.awards && ed.awards.length > 0) lines.push(`- 荣誉: ${ed.awards.join("、")}`);
+        if (ed.courses && ed.courses.length > 0) lines.push(`- 相关课程: ${ed.courses.join("、")}`);
         lines.push("");
       }
     }
