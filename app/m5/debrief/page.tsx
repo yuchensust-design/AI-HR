@@ -8,6 +8,7 @@ import { Nav } from "@/components/Nav";
 import { BuerFloatingButton } from "@/components/BuerFloatingButton";
 import {
   M5_STORAGE_KEYS,
+  type CapabilityScore,
   type DebriefHighlight,
   type DebriefResult,
   type FromDebriefHighlight,
@@ -111,6 +112,9 @@ function Module5DebriefContent() {
   const [adopted, setAdopted] = useState<Set<string>>(new Set());
   /** 复制 bullet 反馈 — key = excerpt */
   const [copied, setCopied] = useState<string | null>(null);
+  /** m5 v5 G1：能力维度（独立 capability 路由懒加载，fallback-safe） */
+  const [capScores, setCapScores] = useState<CapabilityScore[]>([]);
+  const [capLoading, setCapLoading] = useState(false);
 
   useEffect(() => {
     /* eslint-disable react-hooks/set-state-in-effect */
@@ -214,6 +218,46 @@ function Module5DebriefContent() {
     })();
     /* eslint-enable react-hooks/set-state-in-effect */
   }, [user, convId]);
+
+  // m5 v5 G1：能力维度二次懒加载（debrief 4 维已渲染后，独立 capability 路由后填）
+  // fallback-safe：失败/超时/无内容 → 不显示能力雷达，4 维复盘完全不受影响。
+  useEffect(() => {
+    if (!debrief || !session) return;
+    // 已有（持久化过）→ 渲染直接读 debrief.capabilityScores，不请求（见下方 effectiveCap）
+    if (debrief.capabilityScores && debrief.capabilityScores.length > 0) return;
+    // 全跳过/不可评估 → 不请求
+    if (debrief.evaluable === false || debrief.scores.length === 0) return;
+    if (capScores.length > 0 || capLoading) return;
+
+    const ctrl = new AbortController();
+    // R1 较慢，给 60s 上限；超时/失败都静默
+    const timer = setTimeout(() => ctrl.abort(), 60_000);
+    (async () => {
+      setCapLoading(true);
+      try {
+        const res = await fetch("/api/m5/capability", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ session }),
+          signal: ctrl.signal,
+        });
+        if (!res.ok) return;
+        const j = (await res.json()) as { capabilityScores?: CapabilityScore[] };
+        const scores = Array.isArray(j.capabilityScores) ? j.capabilityScores : [];
+        if (scores.length > 0) setCapScores(scores);
+      } catch {
+        // 静默：能力雷达是可选副产物，不影响 4 维复盘
+      } finally {
+        clearTimeout(timer);
+        setCapLoading(false);
+      }
+    })();
+    return () => {
+      clearTimeout(timer);
+      ctrl.abort();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debrief, session]);
 
   /**
    * 把 highlight 追加到 HIDDEN_EXPERIENCES(M3 素材池统一通道)。
@@ -391,6 +435,9 @@ function Module5DebriefContent() {
   /** 审计 §3.5 优先字段名 resumeBackfillCandidates,旧数据走 highlights */
   const backfillCandidates =
     debrief.resumeBackfillCandidates ?? debrief.highlights;
+  /** m5 v5 G1：能力维度展示值 — 优先懒加载结果，回退已持久化的 debrief.capabilityScores */
+  const effectiveCap: CapabilityScore[] =
+    capScores.length > 0 ? capScores : debrief.capabilityScores ?? [];
 
   return (
     <>
@@ -538,6 +585,51 @@ function Module5DebriefContent() {
               <p className="text-[11px] text-ink-muted mt-5">
                 ℹ️ 评分仅供参考 · 看趋势不看单次绝对分
               </p>
+            </div>
+          </section>
+        )}
+
+        {/* m5 v5 G1：岗位能力维度（独立 R1 路由懒加载，fallback-safe） */}
+        {isEvaluable && (effectiveCap.length > 0 || capLoading) && (
+          <section className="border-b border-border">
+            <div className="max-w-[1100px] mx-auto px-6 py-10">
+              <div className="mb-6">
+                <p className="font-display italic text-xs text-esther-blue mb-1">
+                  Capability assessment
+                </p>
+                <h2 className="text-xl md:text-2xl font-bold text-ink">
+                  岗位能力维度{effectiveCap.length === 0 && capLoading ? "（生成中…）" : ""}
+                </h2>
+                <p className="text-xs text-ink-soft mt-2">
+                  这一层看「岗位能力强不强」，与上面「表达 4 维」互补 · 仅供练习参考
+                </p>
+              </div>
+              {effectiveCap.length > 0 ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {effectiveCap.map((c) => (
+                    <Card key={c.key} className="p-5 border-2 border-border">
+                      <div className="flex items-center justify-between mb-3">
+                        <h3 className="text-base font-semibold text-ink">
+                          {c.label}
+                        </h3>
+                        <ScoreBar score={c.score} />
+                      </div>
+                      <div className="bg-warm-bg-deep/50 rounded-lg p-3">
+                        <p className="text-[10px] uppercase tracking-wider text-ink-muted font-display italic mb-1.5">
+                          Evidence
+                        </p>
+                        <p className="text-xs text-ink leading-relaxed">
+                          {c.evidence || "(本场未充分展示该能力)"}
+                        </p>
+                      </div>
+                    </Card>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-ink-soft">
+                  正在基于整场 transcript 评估岗位能力维度，稍候片刻…
+                </p>
+              )}
             </div>
           </section>
         )}
