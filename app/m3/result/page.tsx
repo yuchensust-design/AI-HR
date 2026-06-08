@@ -7,7 +7,7 @@ import { Nav } from "@/components/Nav";
 import { BuerFloatingButton } from "@/components/BuerFloatingButton";
 import { useLocalState, STORAGE_KEYS } from "@/lib/use-local-state";
 import { useM3DBSync, type M3Row } from "@/lib/sync/useM3DBSync";
-import { type M3OptimizationGoalKey } from "@/lib/m3-optimization-goals";
+import { M3_OPTIMIZATION_GOALS, type M3OptimizationGoalKey } from "@/lib/m3-optimization-goals";
 import {
   EditSuggestionCard,
   type EditSuggestion,
@@ -123,8 +123,11 @@ function ResultContent() {
   const [localParsedResume, setLocalParsedResume] = useLocalState<ParsedResume>(STORAGE_KEYS.PARSED_RESUME, null);
   const [localJdContext, setLocalJdContext] = useLocalState<JdCtx>(STORAGE_KEYS.JD_CONTEXT, null);
   const [localHidden] = useLocalState<HiddenList>(STORAGE_KEYS.HIDDEN_EXPERIENCES, []);
-  // step 3 勾选的优化目标(优先级提示传给 suggest-edits)
-  const [optimizationGoals] = useLocalState<M3OptimizationGoalKey[]>(STORAGE_KEYS.M3_OPTIMIZATION_GOALS, []);
+  // 八大核心优化规则默认全生效,不再让用户选择
+  const optimizationGoals = useMemo(
+    () => M3_OPTIMIZATION_GOALS.map((g) => g.key) as M3OptimizationGoalKey[],
+    [],
+  );
 
   const parsedResume = (isLoggedInWithConv ? dbData?.parsed_resume_json ?? null : localParsedResume) as ParsedResume;
   const jdContext = (isLoggedInWithConv ? dbData?.jd_context_json ?? null : localJdContext) as JdCtx;
@@ -177,6 +180,11 @@ function ResultContent() {
   // 注:JD 关键词清单 + 命中已改成确定性(jdContext.jd_keywords + lib/keyword-match),不再走 LLM
   const [llmMetrics, setLlmMetrics] = useState<LlmMetrics | null>(null);
   const [llmMetricsRefreshing, setLlmMetricsRefreshing] = useState(false);
+  // LLM 语义关键词命中(带证据)— 补子串匹配抓不到的能力/职责类词
+  const [llmKwResults, setLlmKwResults] = useState<
+    { keyword: string; hit: boolean; evidence: string }[] | null
+  >(null);
+  const [kwMatchLoading, setKwMatchLoading] = useState(false);
 
   // 读模块 5 复盘 highlight(不持久化在 STORAGE_KEYS 里,直接读 raw key,fail-safe)
   useEffect(() => {
@@ -668,6 +676,24 @@ function ResultContent() {
       const arr = (parsedResume as Record<string, unknown>)?.[sec];
       if (!Array.isArray(arr)) continue;
       for (const it of arr) {
+        if (sec === "experience") {
+          const exp = it as { org?: string; role?: string; period?: string };
+          if (exp.org) parts.push(exp.org);
+          if (exp.role) parts.push(exp.role);
+          if (exp.period) parts.push(exp.period);
+        }
+        if (sec === "projects") {
+          const proj = it as { name?: string; role?: string; period?: string };
+          if (proj.name) parts.push(proj.name);
+          if (proj.role) parts.push(proj.role);
+          if (proj.period) parts.push(proj.period);
+        }
+        if (sec === "activities") {
+          const act = it as { org?: string; role?: string; period?: string };
+          if (act.org) parts.push(act.org);
+          if (act.role) parts.push(act.role);
+          if (act.period) parts.push(act.period);
+        }
         const bs = (it as { bullets?: Array<string | { text?: string }> })?.bullets;
         if (!Array.isArray(bs)) continue;
         for (const b of bs) {
@@ -689,20 +715,96 @@ function ResultContent() {
     }
     if (Array.isArray(parsedResume.education)) {
       for (const e of parsedResume.education) {
+        if (e.school) parts.push(e.school);
+        if (e.major) parts.push(e.major);
+        if (e.degree) parts.push(e.degree);
         const cs = (e as { courses?: string[] })?.courses;
         if (Array.isArray(cs)) parts.push(cs.join("、"));
       }
     }
+    if (parsedResume.basic?.major) parts.push(parsedResume.basic.major);
+    if (parsedResume.basic?.school) parts.push(parsedResume.basic.school);
     return parts.join("\n");
   }, [parsedResume, data, decisions, rewritten]);
 
-  // 命中 / 缺失(确定性:代码层算,同输入同输出)
-  const keywordMatch = useMemo(
+  // 子串保底匹配(硬技能/字面词,确定性)
+  const substringMatch = useMemo(
     () => matchKeywords(jdKeywords, resumeMatchText),
     [jdKeywords, resumeMatchText]
   );
-  const matchedKeywords = keywordMatch.matched;
-  const missingKeywords = keywordMatch.missing;
+
+  // LLM 语义命中缓存 key(按 简历+JD 内容,稳定;一次算好缓存,刷新不重算)
+  const kwCacheKey = `m3_kwmatch_${convId ?? "guest"}_${contentSig}`;
+
+  // LLM 语义关键词命中(读简历全文 + 证据约束)— 补子串抓不到的能力/职责类词
+  const loadKeywordMatch = useCallback(async () => {
+    if (jdKeywords.length === 0 || !resumeMatchText) return;
+    const cached = readArtifact<{
+      sig: string;
+      results: { keyword: string; hit: boolean; evidence: string }[];
+    }>("keyword_match_json", kwCacheKey);
+    if (cached?.results && cached.sig === contentSig) {
+      setLlmKwResults(cached.results);
+      return;
+    }
+    setKwMatchLoading(true);
+    try {
+      const res = await fetch("/api/m3/match-keywords", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jdKeywords, resumeText: resumeMatchText }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const json = (await res.json()) as {
+        results?: { keyword: string; hit: boolean; evidence: string }[];
+      };
+      const results = Array.isArray(json.results) ? json.results : [];
+      setLlmKwResults(results);
+      writeArtifact("keyword_match_json", kwCacheKey, { sig: contentSig, results });
+    } catch (err) {
+      console.error("[loadKeywordMatch] failed:", err);
+      setLlmKwResults([]); // 失败 → 落空数组,退回子串保底,不再卡在"分析中"
+    } finally {
+      setKwMatchLoading(false);
+    }
+  }, [jdKeywords, resumeMatchText, kwCacheKey, contentSig, readArtifact, writeArtifact]);
+
+  // 一拿到简历 + JD 关键词就并行跑语义命中(不等 suggest-edits,消除 11→15 的长延迟)
+  useEffect(() => {
+    if (
+      jdKeywords.length > 0 &&
+      resumeMatchText &&
+      llmKwResults === null &&
+      !kwMatchLoading
+    ) {
+      loadKeywordMatch();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jdKeywords, resumeMatchText]);
+
+  // 合并:LLM 语义命中 ∪ 子串命中(子串=硬技能保底);证据取 LLM 原句
+  const { matchedKeywords, missingKeywords, evidenceMap } = useMemo(() => {
+    const substringHit = new Set(substringMatch.matched.map((k) => k.toLowerCase()));
+    const llmHit = new Set(
+      (llmKwResults ?? []).filter((r) => r.hit).map((r) => r.keyword.toLowerCase()),
+    );
+    const ev: Record<string, string> = {};
+    for (const r of llmKwResults ?? []) {
+      if (r.hit && r.evidence) ev[r.keyword.toLowerCase()] = r.evidence;
+    }
+    const matched: string[] = [];
+    const missing: string[] = [];
+    for (const kw of jdKeywords) {
+      const lc = kw.toLowerCase();
+      if (llmHit.has(lc) || substringHit.has(lc)) {
+        matched.push(kw);
+        if (!ev[lc] && substringHit.has(lc)) ev[lc] = "简历技能 / 经历中直接提及";
+      } else {
+        missing.push(kw);
+      }
+    }
+    return { matchedKeywords: matched, missingKeywords: missing, evidenceMap: ev };
+  }, [jdKeywords, substringMatch, llmKwResults]);
 
   // ⚡ SR 待确认数量(有 sr_question 且未回答)
   const srPendingCount = useMemo(() => {
@@ -723,9 +825,25 @@ function ResultContent() {
       ? ((llmMetrics.hard_req_v2_aligned ?? 0) / llmMetrics.hard_req_total) * 100
       : keywordsCoveragePct; // fallback 用关键词覆盖度
 
-    const structurePct = llmMetrics?.star_complete_v2?.total
-      ? (llmMetrics.star_complete_v2.complete / llmMetrics.star_complete_v2.total) * 100
-      : 65;
+    // 结构完整度 = 简历关键板块齐全度(确定性,不靠 LLM)
+    // 修:旧版量"每条 bullet 的 STAR 齐全度",名实不符 + 太严 + AI 改完还掉分。
+    // 改成量板块(个人信息/教育/经历/项目/技能)—— 完整简历≈满分,优化后稳定不掉。
+    const structurePct = (() => {
+      if (!parsedResume) return 65;
+      const pr = parsedResume as Record<string, unknown>;
+      const nonEmptyArr = (v: unknown) => Array.isArray(v) && v.length > 0;
+      const basic = pr.basic as { name?: unknown; major?: unknown; school?: unknown } | undefined;
+      const skills = pr.skills as Record<string, unknown> | undefined;
+      const sections = [
+        !!(basic?.name || basic?.major || basic?.school), // 个人信息
+        nonEmptyArr(pr.education), // 教育背景
+        nonEmptyArr(pr.experience) || nonEmptyArr(pr.activities), // 实习/工作/活动经历
+        nonEmptyArr(pr.projects), // 项目/科研
+        !!skills && Object.keys(skills).length > 0, // 技能
+      ];
+      const present = sections.filter(Boolean).length;
+      return Math.round((present / sections.length) * 100);
+    })();
 
     // 成果表达清晰度:基于 acceptedCount / 总 bullet 数
     let totalBullets = 0;
@@ -1100,8 +1218,9 @@ function ResultContent() {
                   <KeywordHitChips
                     jdKeywords={jdKeywords}
                     matchedKeywords={matchedKeywords}
+                    evidenceMap={evidenceMap}
                     gaps={(jdContext as { gaps?: { jd_requirement?: string; why_gap?: string; fixable?: string }[] })?.gaps ?? []}
-                    loading={false}
+                    loading={jdKeywords.length > 0 && llmKwResults === null}
                   />
 
                   {/* 原始简历问题总结 */}
@@ -1162,7 +1281,7 @@ function ResultContent() {
               {activeTab === "diff" && (
                 <div className="grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-6">
                   {/* 对比列表 — 按"你要做什么"分 4 组 */}
-                  <div>
+                  <div className="min-w-0">
                     <p className="text-sm text-ink-soft mb-3">
                       共 <span className="font-semibold text-ink">{data.edits.length}</span> 处建议 ·
                       按「你要做什么」分组
@@ -1187,23 +1306,8 @@ function ResultContent() {
                               <span className="text-xs text-ink-muted">{acceptedCollapsed ? "▾ 展开" : "▴ 收起"}</span>
                             </button>
                             {!acceptedCollapsed && (
-                              <div className="space-y-1.5">
-                                {editGroups.done.map((edit) => (
-                                  <div
-                                    key={edit.id}
-                                    className="flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2"
-                                  >
-                                    <span className="text-sm text-ink flex-1 min-w-0 truncate" title={rewritten[edit.id] ?? edit.suggested_text}>
-                                      {rewritten[edit.id] ?? edit.suggested_text}
-                                    </span>
-                                    <button
-                                      onClick={() => handleRevert(edit.id, "reject")}
-                                      className="flex-shrink-0 text-xs text-ink-muted hover:text-esther-red transition-colors"
-                                    >
-                                      ↩ 改回原文
-                                    </button>
-                                  </div>
-                                ))}
+                              <div className="space-y-3">
+                                {editGroups.done.map(renderEditCard)}
                               </div>
                             )}
                           </div>
@@ -1781,42 +1885,9 @@ function ResumePreview({
         </Section>
       )}
 
-      {/* ========= 教育背景 ========= */}
-      {educationItems.length > 0 && (
-        <Section title="教育背景">
-          {educationItems.map((ed, idx) => (
-            <div key={idx} className="mb-2.5">
-              <div className="flex items-center justify-between gap-2 flex-wrap">
-                <p className="text-sm font-semibold text-ink">
-                  {ed.school}
-                  {ed.major ? ` | ${ed.major}` : ""}
-                  {ed.degree ? ` | ${ed.degree}` : ""}
-                  {ed.gpa ? ` | GPA ${ed.gpa}` : ""}
-                </p>
-                {ed.period && (
-                  <span className="text-ink-muted font-normal text-xs">
-                    {ed.period}
-                  </span>
-                )}
-              </div>
-              {ed.awards && ed.awards.length > 0 && (
-                <p className="text-[12px] text-ink-soft mt-0.5">
-                  荣誉:{ed.awards.join(" · ")}
-                </p>
-              )}
-              {ed.courses && ed.courses.length > 0 && (
-                <p className="text-[12px] text-ink-soft mt-0.5">
-                  主修:{ed.courses.join(" · ")}
-                </p>
-              )}
-            </div>
-          ))}
-        </Section>
-      )}
-
-      {/* ========= 实习经历 ========= */}
+      {/* ========= 工作/实习经历 ========= */}
       {(parsedResume.experience ?? []).length > 0 && (
-        <Section title="实习经历">
+        <Section title="工作经历">
           {(parsedResume.experience ?? []).map((e, sIdx) => (
             <div key={sIdx} className="mb-3">
               <div className="flex items-center justify-between gap-2 flex-wrap mb-1">
@@ -1882,6 +1953,39 @@ function ResumePreview({
           ))}
         </Section>
       )}
+
+      {/* ========= 教育背景(放最后,对齐 Skill) ========= */}
+      {educationItems.length > 0 && (
+        <Section title="教育背景">
+          {educationItems.map((ed, idx) => (
+            <div key={idx} className="mb-2.5">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <p className="text-sm font-semibold text-ink">
+                  {ed.school}
+                  {ed.major ? ` | ${ed.major}` : ""}
+                  {ed.degree ? ` | ${ed.degree}` : ""}
+                  {ed.gpa ? ` | GPA ${ed.gpa}` : ""}
+                </p>
+                {ed.period && (
+                  <span className="text-ink-muted font-normal text-xs">
+                    {ed.period}
+                  </span>
+                )}
+              </div>
+              {ed.awards && ed.awards.length > 0 && (
+                <p className="text-[12px] text-ink-soft mt-0.5">
+                  荣誉:{ed.awards.join(" · ")}
+                </p>
+              )}
+              {ed.courses && ed.courses.length > 0 && (
+                <p className="text-[12px] text-ink-soft mt-0.5">
+                  主修:{ed.courses.join(" · ")}
+                </p>
+              )}
+            </div>
+          ))}
+        </Section>
+      )}
     </div>
   );
 }
@@ -1890,19 +1994,28 @@ function ResumePreview({
 function KeywordHitChips({
   jdKeywords,
   matchedKeywords,
+  evidenceMap,
   gaps,
   loading,
+  aiJudging,
 }: {
   jdKeywords: string[];
   matchedKeywords: string[];
+  evidenceMap?: Record<string, string>;
   gaps: { jd_requirement?: string; why_gap?: string; fixable?: string }[];
   loading?: boolean;
+  aiJudging?: boolean;
 }) {
   const matchedSet = new Set(matchedKeywords.map((k) => k.toLowerCase()));
   const hitCount = jdKeywords.filter((k) => matchedSet.has(k.toLowerCase())).length;
   const total = jdKeywords.length;
   const pct = total > 0 ? Math.round((hitCount / total) * 100) : 0;
   const missing = jdKeywords.filter((k) => !matchedSet.has(k.toLowerCase()));
+  const ev = evidenceMap ?? {};
+  // 命中且有证据的(优先 AI 语义证据)
+  const hitWithEvidence = jdKeywords.filter(
+    (k) => matchedSet.has(k.toLowerCase()) && ev[k.toLowerCase()],
+  );
 
   // gap 说明:按 jd_requirement 模糊匹配缺失关键词
   function gapNote(kw: string): { note: string; fixable?: string } | null {
@@ -1916,7 +2029,15 @@ function KeywordHitChips({
   if (loading) {
     return (
       <Card className="p-5">
-        <p className="text-sm text-ink-muted">正在分析关键词命中…</p>
+        <h3 className="text-base font-semibold text-ink flex items-center gap-1.5 mb-2">
+          <span className="text-esther-blue">⭐</span> JD 核心关键词命中情况
+        </h3>
+        <p className="text-sm text-esther-blue animate-pulse">
+          AI 正在逐条读你的简历、判定每个关键词是否有真实经历支撑(约 10 秒)…
+        </p>
+        <p className="text-xs text-ink-muted mt-1">
+          为避免误导,分析完才显示命中数 —— 我们只认简历里有据可查的命中。
+        </p>
       </Card>
     );
   }
@@ -1936,7 +2057,10 @@ function KeywordHitChips({
         <h3 className="text-base font-semibold text-ink flex items-center gap-1.5">
           <span className="text-esther-blue">⭐</span> JD 核心关键词命中情况
         </h3>
-        <span className="text-sm text-ink-soft">
+        <span className="text-sm text-ink-soft flex items-center gap-2">
+          {aiJudging && (
+            <span className="text-xs text-esther-blue animate-pulse">AI 正在读简历判定语义命中…</span>
+          )}
           命中 <span className="font-semibold text-esther-blue">{hitCount}</span> / {total} · {pct}%
         </span>
       </div>
@@ -1962,6 +2086,24 @@ function KeywordHitChips({
           );
         })}
       </div>
+      {/* 命中证据(每条命中附简历原句 — anti-fab:有据才算命中)*/}
+      {hitWithEvidence.length > 0 && (
+        <div className="space-y-2 pt-3 border-t border-border mb-1">
+          <p className="text-xs text-ink-muted mb-1">
+            ✦ 每个命中都来自简历里的真实经历(不硬凑):
+          </p>
+          {hitWithEvidence.map((kw) => (
+            <p key={kw} className="text-sm text-ink-soft leading-relaxed flex gap-1.5">
+              <span className="text-emerald-600 flex-shrink-0">✓</span>
+              <span>
+                <span className="font-medium text-ink">{kw}</span>
+                <span className="text-ink-muted"> ← </span>
+                <span className="text-ink-soft">“{ev[kw.toLowerCase()]}”</span>
+              </span>
+            </p>
+          ))}
+        </div>
+      )}
       {/* 缺失逐条说明 */}
       {missing.length > 0 && (
         <div className="space-y-2 pt-3 border-t border-border">

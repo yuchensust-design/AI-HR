@@ -27,6 +27,7 @@ export type M3Row = {
   decisions_json: unknown | null;
   metrics_json: unknown | null;
   interview_prep_json: unknown | null;
+  keyword_match_json: unknown | null;
   updated_at: string;
 };
 

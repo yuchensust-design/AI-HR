@@ -31,7 +31,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { chat } from "@/lib/llm";
-import { goalsToPromptHint } from "@/lib/m3-optimization-goals";
+import { goalsToPromptHint, M3_OPTIMIZATION_GOALS, type M3OptimizationGoalKey } from "@/lib/m3-optimization-goals";
 import {
   decideSkillRoute,
   inferPersona,
@@ -259,6 +259,11 @@ export async function POST(request: NextRequest) {
       .map((k) => SKILL_SEGMENTS[k as SkillSegmentKey])
       .join("\n");
 
+    const activeOptimizationGoals: M3OptimizationGoalKey[] =
+      Array.isArray(optimizationGoals) && optimizationGoals.length > 0
+        ? optimizationGoals
+        : (M3_OPTIMIZATION_GOALS.map((g) => g.key) as M3OptimizationGoalKey[]);
+
     const systemPrompt = `${PROMPT_MAIN}
 
 【动态加载的补充 skill 段(基于 persona=${persona} + target_role + resume_state 路由)】
@@ -270,7 +275,7 @@ ${segmentsText}
 - has_jd: ${jdContext ? "yes" : "no(快速模式 - 只做通用 polish,不针对 JD 关键词)"}
 - has_hidden_experiences: ${
       Array.isArray(hiddenExperiences) && hiddenExperiences.length > 0 ? "yes" : "no"
-    }${goalsToPromptHint(Array.isArray(optimizationGoals) ? optimizationGoals : [])}`;
+    }${goalsToPromptHint(activeOptimizationGoals)}`;
 
     const userPrompt = `parsed_resume(用户简历结构化):
 ${JSON.stringify(parsedResume, null, 2)}

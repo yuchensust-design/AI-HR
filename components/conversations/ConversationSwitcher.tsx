@@ -150,6 +150,7 @@ export default function ConversationSwitcher({
       <div className="p-3">
         <button
           onClick={onNew}
+          data-m3-create-conversation
           className="w-full mb-3 px-3 py-2 rounded-xl bg-esther-blue text-white text-sm hover:bg-esther-blue-dark transition flex items-center justify-center gap-1"
         >
           <span className="text-base">+</span>

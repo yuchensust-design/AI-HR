@@ -28,6 +28,7 @@ import { promises as fs } from "fs";
 import path from "path";
 import { NextRequest, NextResponse } from "next/server";
 import { chat } from "@/lib/llm";
+import { canonicalizeKeyword } from "@/lib/keyword-match";
 
 const MAX_JD_LEN = 8000;
 
@@ -233,7 +234,13 @@ async function extractJdKeywords(
 1. 只抽 JD 里真实出现或明确要求的词;**绝不扩展同义词,绝不脑补 JD 没提到的技能/工具**
 2. **不硬凑数量**:JD 有几个核心词就给几个(通常 8~25 个),宁缺毋滥
 3. 每个关键词是简洁概念(2~12 字),如"用户访谈""A/B测试""SQL""产品规划""PRD";**不要整句、不要解释**
-4. 不含公司名;去重;按 JD 里的重要性大致排序
+4. 允许把 JD 原文里的表达规整成招聘中更常见、可评估的标准关键词,但前提是**不改变原意**
+   例如:
+   - "负责调研用户需求" → "需求调研"
+   - "输出原型并推进迭代" → "原型绘制"、"产品迭代"
+   - "熟练使用 Axure/Figma" → "产品设计工具"
+   - "能与研发协作推进落地" → "开发跟进"、"团队协作"
+5. 不含公司名;去重;按 JD 里的重要性大致排序
 
 返 JSON:{ "keywords": ["关键词1", "关键词2", ...] }`;
 
@@ -248,7 +255,7 @@ async function extractJdKeywords(
     const parsed = JSON.parse(raw) as { keywords?: unknown };
     if (!Array.isArray(parsed.keywords)) return [];
     return parsed.keywords
-      .map((k) => scrubCompanyInSummary(String(k).trim()))
+      .map((k) => canonicalizeKeyword(scrubCompanyInSummary(String(k).trim())))
       .filter((k) => k.length >= 2 && k.length <= 20);
   } catch (e) {
     console.error("[parse-jd] extractJdKeywords failed:", e);

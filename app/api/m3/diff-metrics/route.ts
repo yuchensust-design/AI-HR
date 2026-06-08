@@ -54,7 +54,11 @@ function buildPrompt(
   - A (Action):具体动作 / 方法
   - R (Result):结果 / 量化 / 影响
 
-至少 3 要素清楚的算 partial 不算 complete。**严格判定 — 不水**。
+判定口径:
+  - complete = 4 要素齐全
+  - partial = 恰好含 3 个要素(成果型 bullet 常见:动作+结果强但情境/任务略 → 算 partial)
+  - 其余(≤2 要素)既不算 complete 也不算 partial
+严格判定但不漏 partial:成果密集型 bullet 别一刀切判 0,该给 partial 就给。
 
 【任务 2:学历/经验硬门槛对齐】
 从 JD 里提取**硬门槛**(可量化 / 二元判定的要求,eg:
@@ -70,8 +74,8 @@ function buildPrompt(
 
 【输出严格 JSON】
 {
-  "star_complete_v1": { "complete": N, "total": ${v1Bullets.length} },
-  "star_complete_v2": { "complete": N, "total": ${v2Bullets.length} },
+  "star_complete_v1": { "complete": N, "partial": N, "total": ${v1Bullets.length} },
+  "star_complete_v2": { "complete": N, "partial": N, "total": ${v2Bullets.length} },
   "hard_req_total": N,
   "hard_req_v1_aligned": N,
   "hard_req_v2_aligned": N,
@@ -135,7 +139,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    type StarLike = { complete?: unknown; total?: unknown };
+    type StarLike = { complete?: unknown; partial?: unknown; total?: unknown };
     const starV1 = (parsed.star_complete_v1 ?? {}) as StarLike;
     const starV2 = (parsed.star_complete_v2 ?? {}) as StarLike;
 
@@ -153,10 +157,12 @@ export async function POST(request: NextRequest) {
       gap_breakdown: gapBreakdown,
       star_complete_v1: {
         complete: Number(starV1.complete ?? 0),
+        partial: Number(starV1.partial ?? 0),
         total: Number(starV1.total ?? v1Bullets.length),
       },
       star_complete_v2: {
         complete: Number(starV2.complete ?? 0),
+        partial: Number(starV2.partial ?? 0),
         total: Number(starV2.total ?? v2Bullets.length),
       },
       hard_req_total: Number(parsed.hard_req_total ?? 0),

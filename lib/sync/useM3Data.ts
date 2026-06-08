@@ -20,8 +20,17 @@ export type ParsedResume = {
 
 export type JdCtx = {
   jd_summary?: string;
+  jd_keywords?: string[];
+  must_have?: string[];
+  nice_to_have?: string[];
+  jd_requirements_parsed?: { type?: string; text?: string }[];
+  gaps?: { jd_requirement?: string; why_gap?: string; fixable?: string }[];
   priority_score?: number;
-  meta?: { mode?: string };
+  role_name?: string;
+  company?: string;
+  rawJdText?: string;
+  raw_jd_text?: string;
+  meta?: { mode?: string; confidence?: string; parsed_at?: string };
 } | null;
 
 export type FinalResume = {
@@ -34,9 +43,10 @@ export type M3Data = {
   jd: JdCtx;
   hidden: unknown[];
   final: FinalResume;
+  updatedAt: string | null;
 };
 
-const EMPTY: M3Data = { parsed: null, jd: null, hidden: [], final: null };
+const EMPTY: M3Data = { parsed: null, jd: null, hidden: [], final: null, updatedAt: null };
 
 function readLocal(): M3Data {
   if (typeof window === "undefined") return EMPTY;
@@ -46,6 +56,7 @@ function readLocal(): M3Data {
       jd: JSON.parse(window.localStorage.getItem(STORAGE_KEYS.JD_CONTEXT) || "null"),
       hidden: JSON.parse(window.localStorage.getItem(STORAGE_KEYS.HIDDEN_EXPERIENCES) || "[]"),
       final: JSON.parse(window.localStorage.getItem(STORAGE_KEYS.FINAL_RESUME) || "null"),
+      updatedAt: null,
     };
   } catch {
     return EMPTY;
@@ -100,6 +111,7 @@ export function useM3Data(convId: string | null) {
           final: row?.final_resume_md
             ? { markdown: row.final_resume_md, lastUpdated: row.updated_at }
             : null,
+          updatedAt: row?.updated_at ?? null,
         });
         setLoading(false);
       });

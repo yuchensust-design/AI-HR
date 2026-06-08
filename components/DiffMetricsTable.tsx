@@ -15,8 +15,8 @@ import { formatDelta, type RuleMetrics } from "@/lib/diff-metrics";
  */
 
 export type LlmMetrics = {
-  star_complete_v1: { complete: number; total: number };
-  star_complete_v2: { complete: number; total: number };
+  star_complete_v1: { complete: number; partial?: number; total: number };
+  star_complete_v2: { complete: number; partial?: number; total: number };
   hard_req_total: number;
   hard_req_v1_aligned: number;
   hard_req_v2_aligned: number;

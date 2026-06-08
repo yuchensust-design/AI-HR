@@ -13,6 +13,69 @@
 import { NextRequest, NextResponse } from "next/server";
 import { chat } from "@/lib/llm";
 
+type PrepQuestion = {
+  q?: unknown;
+  examines?: unknown;
+  reference_answer?: unknown;
+  tip?: unknown;
+};
+
+type PrepCategory = {
+  name?: unknown;
+  questions?: unknown;
+};
+
+function normalizePrepCategories(raw: unknown): Array<{
+  name: string;
+  questions: Array<{ q: string; examines?: string; reference_answer: string; tip?: string }>;
+}> {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((cat) => {
+      const c = cat as PrepCategory;
+      const questions = Array.isArray(c.questions)
+        ? c.questions
+            .map((q) => {
+              const item = q as PrepQuestion;
+              const question = String(item.q ?? "").trim();
+              const answer = String(item.reference_answer ?? "").trim();
+              if (!question || !answer) return null;
+              return {
+                q: question,
+                examines: String(item.examines ?? "").trim() || undefined,
+                reference_answer: answer,
+                tip: String(item.tip ?? "").trim() || undefined,
+              };
+            })
+            .filter(Boolean) as Array<{ q: string; examines?: string; reference_answer: string; tip?: string }>
+        : [];
+      return {
+        name: String(c.name ?? "").trim() || "面试题",
+        questions,
+      };
+    })
+    .filter((cat) => cat.questions.length > 0);
+}
+
+function clampTo15Questions(
+  categories: Array<{
+    name: string;
+    questions: Array<{ q: string; examines?: string; reference_answer: string; tip?: string }>;
+  }>,
+) {
+  let remaining = 15;
+  const result: typeof categories = [];
+  for (const cat of categories) {
+    if (remaining <= 0) break;
+    const picked = cat.questions.slice(0, remaining);
+    if (picked.length > 0) {
+      result.push({ ...cat, questions: picked });
+      remaining -= picked.length;
+    }
+  }
+  return result;
+}
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
@@ -35,8 +98,9 @@ export async function POST(request: NextRequest) {
 - 答案口语化、可背诵,但真实可解释
 
 【出题要求】
-- 5-6 个类别:自我介绍类 / 岗位匹配类 / 经历深挖类 / 能力评估类 / 动机与规划类 / 情景与压力类(按 JD 取最相关的 5-6 类)
-- 每类 2-4 题,共 12-18 题
+- 固定 6 个类别:自我介绍类 / 岗位匹配类 / 经历深挖类 / 能力评估类 / 动机与规划类 / 情景与压力类
+- **总题数必须正好 15 题**
+- 每类 2-3 题,按 3/3/3/2/2/2 分配
 - 题目要结合用户简历的具体经历 + JD 的具体要求(不要泛泛而问)
 - 每题:q(问题) + examines(这题考察什么,≤ 30 字) + reference_answer(参考答案,基于简历真实内容,150-300 字,口语) + tip(答题技巧/答题方向,≤ 40 字)
 
@@ -72,8 +136,12 @@ ${JSON.stringify(parsedResume, null, 2).slice(0, 5000)}
       return NextResponse.json({ error: "LLM 返回格式异常,请重试" }, { status: 502 });
     }
 
-    const categories = Array.isArray(parsed.categories) ? parsed.categories : [];
-    return NextResponse.json({ categories, generated_at: new Date().toISOString() });
+    const categories = clampTo15Questions(normalizePrepCategories(parsed.categories));
+    return NextResponse.json({
+      categories,
+      total_questions: categories.reduce((sum, cat) => sum + cat.questions.length, 0),
+      generated_at: new Date().toISOString(),
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown";
     console.error("/api/m3/interview-prep error:", err);

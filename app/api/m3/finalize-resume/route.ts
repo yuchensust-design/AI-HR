@@ -50,10 +50,16 @@ function bulletText(b: Bullet): string {
   return typeof b === "string" ? b : b.text ?? "";
 }
 
+type JdCtx = {
+  jd_summary?: string;
+  role_name?: string;
+};
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const parsedResume = body.parsedResume as ParsedResume;
+    const jdContext = (body.jdContext ?? null) as JdCtx | null;
     const acceptedEdits = (body.acceptedEdits ?? []) as EditApplied[];
 
     if (!parsedResume) {
@@ -92,6 +98,7 @@ export async function POST(request: NextRequest) {
     const lines: string[] = [];
 
     const b = finalResume.basic ?? {};
+    const targetRole = jdContext?.role_name ?? jdContext?.jd_summary ?? "";
     if (b.name) lines.push(`# ${b.name}`);
     const subline = [
       b.major,
@@ -104,23 +111,25 @@ export async function POST(request: NextRequest) {
     if (contact) lines.push(contact);
     lines.push("");
 
-    // 教育
-    if (finalResume.education && finalResume.education.length > 0) {
-      lines.push("## 教育背景");
-      for (const ed of finalResume.education) {
-        const head = `**${ed.school ?? ""}** · ${ed.major ?? ""}`;
-        const right = `${ed.period ?? ""} ${ed.gpa ? `GPA ${ed.gpa}` : ""}`.trim();
-        lines.push(`${head}${right ? ` (${right})` : ""}`);
-        if (ed.courses && ed.courses.length > 0) {
-          lines.push(`- 相关课程: ${ed.courses.join("、")}`);
-        }
-        lines.push("");
-      }
+    if (targetRole) {
+      lines.push("## 求职意向");
+      lines.push(`- 目标岗位: ${targetRole}`);
+      lines.push("");
     }
 
-    // 实习
+    if (finalResume.skills) {
+      lines.push("## 核心技能");
+      const sk = finalResume.skills;
+      if (sk.languages?.length) lines.push(`- 语言: ${sk.languages.join(" / ")}`);
+      if (sk.frameworks?.length) lines.push(`- 框架: ${sk.frameworks.join(" / ")}`);
+      if (sk.tools?.length) lines.push(`- 工具: ${sk.tools.join(" / ")}`);
+      if (sk.domain?.length) lines.push(`- 领域: ${sk.domain.join(" / ")}`);
+      lines.push("");
+    }
+
+    // 工作/实习经历
     if (finalResume.experience && finalResume.experience.length > 0) {
-      lines.push("## 实习经历");
+      lines.push("## 工作经历");
       for (const e of finalResume.experience) {
         const head = `**${e.org ?? ""}** · ${e.role ?? ""}`;
         const right = e.period ? ` (${e.period})` : "";
@@ -157,7 +166,7 @@ export async function POST(request: NextRequest) {
       lines.push("");
     }
 
-    // 社团
+    // 社团/活动
     if (finalResume.activities && finalResume.activities.length > 0) {
       lines.push("## 社团活动");
       for (const a of finalResume.activities) {
@@ -171,14 +180,18 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // 技能
-    if (finalResume.skills) {
-      lines.push("## 专业技能");
-      const sk = finalResume.skills;
-      if (sk.languages?.length) lines.push(`- 语言: ${sk.languages.join(" / ")}`);
-      if (sk.frameworks?.length) lines.push(`- 框架: ${sk.frameworks.join(" / ")}`);
-      if (sk.tools?.length) lines.push(`- 工具: ${sk.tools.join(" / ")}`);
-      if (sk.domain?.length) lines.push(`- 领域: ${sk.domain.join(" / ")}`);
+    // 教育背景放最后,对齐 Skill 规范
+    if (finalResume.education && finalResume.education.length > 0) {
+      lines.push("## 教育背景");
+      for (const ed of finalResume.education) {
+        const head = `**${ed.school ?? ""}** · ${ed.major ?? ""}`;
+        const right = `${ed.period ?? ""} ${ed.gpa ? `GPA ${ed.gpa}` : ""}`.trim();
+        lines.push(`${head}${right ? ` (${right})` : ""}`);
+        if (ed.courses && ed.courses.length > 0) {
+          lines.push(`- 相关课程: ${ed.courses.join("、")}`);
+        }
+        lines.push("");
+      }
     }
 
     const markdown = lines.join("\n");
