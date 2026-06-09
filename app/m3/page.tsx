@@ -190,6 +190,28 @@ function Module3Content() {
     });
   }
 
+  // 解析结果是否"像一份真简历":有任一非空 section,或有像样姓名(≥2 个中英文字符)。
+  function hasResumeSubstance(p: unknown): boolean {
+    if (!p || typeof p !== "object") return false;
+    const o = p as Record<string, unknown>;
+    const nonEmpty = (x: unknown) => Array.isArray(x) && x.length > 0;
+    const sk = (o.skills ?? {}) as Record<string, unknown>;
+    const skillCount = ["languages", "frameworks", "tools", "domain"].reduce(
+      (n, k) => n + (Array.isArray(sk[k]) ? (sk[k] as unknown[]).length : 0),
+      0,
+    );
+    const name = String((o.basic as Record<string, unknown> | undefined)?.name ?? "");
+    const plausibleName = /[一-龥a-zA-Z]{2,}/.test(name);
+    return (
+      nonEmpty(o.experience) ||
+      nonEmpty(o.projects) ||
+      nonEmpty(o.education) ||
+      nonEmpty(o.activities) ||
+      skillCount > 0 ||
+      plausibleName
+    );
+  }
+
   async function parseResumeText(text: string, source: "file" | "paste") {
     const normalized = text.trim();
     if (!normalized || normalized.length < 50) {
@@ -205,6 +227,12 @@ function Module3Content() {
       throw new Error(j.error ?? `解析失败 (${res.status})`);
     }
     const parsed = await res.json();
+    // 兜底:纯乱码/无效文本会被解析成 name="?"、各 section 全空的"空简历",
+    // 之前直接显示"✓ 已读到 ?"并放行(评委乱敲会看到、且白白浪费后续优化 LLM)。
+    // 至少要有一个有内容的 section,或一个像样的姓名,才算识别成功。
+    if (!hasResumeSubstance(parsed)) {
+      throw new Error("没识别出有效的简历内容 — 请确认粘贴的是完整简历文字(姓名 / 教育 / 经历 / 技能)");
+    }
     await persistParsed(parsed);
     setLastParsedAt(new Date().toISOString());
     setResumeInputMode(source);
