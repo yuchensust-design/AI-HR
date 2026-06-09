@@ -391,6 +391,39 @@ function ResultContent() {
     }
   }, [dbLoading, parsedResume, data, status, loadSuggestions]);
 
+  // ?backfill=1:从模块5复盘「采纳」直达 —— 落到「简历对比」tab,自动滚到并高亮
+  // 那条来自面试的回写建议(source=interview),保持待确认状态,用户点接受才写入。
+  const backfillParam = useSearchParams().get("backfill") === "1";
+  const backfillLandedRef = useRef(false);
+  // 落地时显式展示"刚从面试采纳"的上下文(不依赖另一条 note 的渲染)
+  const [backfillCtx, setBackfillCtx] = useState<{ question: string; excerpt: string } | null>(null);
+  useEffect(() => {
+    if (!backfillParam || backfillLandedRef.current) return;
+    if (status !== "ready" || !data) return;
+    backfillLandedRef.current = true;
+    /* eslint-disable react-hooks/set-state-in-effect */
+    setActiveTab("diff");
+    try {
+      const raw = window.localStorage.getItem("from_debrief_highlight");
+      if (raw) {
+        const p = JSON.parse(raw) as { question?: string; excerpt?: string };
+        if (p?.excerpt) setBackfillCtx({ question: p.question ?? "", excerpt: p.excerpt });
+      }
+    } catch {
+      /* ignore */
+    }
+    /* eslint-enable react-hooks/set-state-in-effect */
+    // 优先高亮"来自面试"那条;没有(内容已在简历里→变成普通改写)则停在对比页即可
+    const target = data.edits.find((e) => e.source === "interview");
+    if (!target?.id) return;
+    window.setTimeout(() => {
+      setHoveredEditId(target.id);
+      document
+        .querySelector(`[data-edit-id="${target.id}"]`)
+        ?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 350);
+  }, [backfillParam, status, data]);
+
   // === LLM diff-metrics(只取顶部 1 行评分需要的 JD 关键词命中数 + STAR/hard_req 提升)===
   const loadLlmMetrics = useCallback(async () => {
     if (!parsedResume) return;
@@ -1550,6 +1583,18 @@ function ResultContent() {
                 <div className="grid grid-cols-1 lg:grid-cols-[1fr_340px] gap-5">
                   {/* 对比列表 — 按"你要做什么"分 4 组 */}
                   <div className="min-w-0">
+                    {backfillCtx && (
+                      <Card className="mb-3 p-3 border-2 border-purple-500/40 bg-purple-500/5">
+                        <p className="text-[11px] font-medium text-purple-700 mb-1">
+                          🎤 刚从模拟面试复盘采纳 — 已加进这份简历
+                        </p>
+                        <p className="text-xs text-ink-soft leading-relaxed">
+                          你在{backfillCtx.question ? `「${backfillCtx.question.slice(0, 24)}」` : "面试"}里说:
+                          <span className="text-ink">“{backfillCtx.excerpt.slice(0, 60)}”</span>
+                          <br />下面 AI 已把它落到对应内容,点「采纳」即写进简历。
+                        </p>
+                      </Card>
+                    )}
                     <p className="text-sm text-ink-soft mb-3">
                       共 <span className="font-semibold text-ink">{data.edits.length}</span> 处建议 ·
                       按「你要做什么」分组

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Card } from "@/components/ui/card";
 import { Nav } from "@/components/Nav";
@@ -222,6 +222,64 @@ function Module5DebriefContent() {
     /* eslint-enable react-hooks/set-state-in-effect */
   }, [user, userLoading, convId]);
 
+  // 回传"已采纳"态:之前采纳过(写进了简历素材)的亮点,回到复盘显示"已采纳"而不是可点采纳。
+  // 登录查 m3_resumes.hidden_experience_json,游客查 localStorage,按 question_id 命中。只跑一次。
+  const adoptedHydratedRef = useRef(false);
+  useEffect(() => {
+    if (adoptedHydratedRef.current) return;
+    if (!session || !debrief) return;
+    const candidates = debrief.resumeBackfillCandidates ?? debrief.highlights ?? [];
+    if (candidates.length === 0) return;
+    adoptedHydratedRef.current = true;
+    let cancelled = false;
+    (async () => {
+      let presentIds = new Set<string>();
+      try {
+        if (user) {
+          const { data: row } = await createClient()
+            .from("m3_resumes")
+            .select("hidden_experience_json")
+            .not("parsed_resume_json", "is", null)
+            .order("updated_at", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          const arr = Array.isArray(row?.hidden_experience_json)
+            ? (row!.hidden_experience_json as Array<{ question_id?: string }>)
+            : [];
+          presentIds = new Set(arr.map((x) => x?.question_id).filter(Boolean) as string[]);
+        } else {
+          const raw = window.localStorage.getItem(STORAGE_KEYS.HIDDEN_EXPERIENCES);
+          const arr = raw ? (JSON.parse(raw) as Array<{ question_id?: string }>) : [];
+          presentIds = new Set(
+            (Array.isArray(arr) ? arr : []).map((x) => x?.question_id).filter(Boolean) as string[],
+          );
+        }
+      } catch (e) {
+        console.warn("[m5/debrief] hydrate adopted failed", e);
+        return;
+      }
+      if (cancelled || presentIds.size === 0) return;
+      const adoptedExcerpts = candidates
+        .filter((h) => presentIds.has(highlightToHiddenExperience(h, session.id).question_id))
+        .map((h) => h.excerpt);
+      if (adoptedExcerpts.length === 0) return;
+      setAdopted((s) => {
+        const n = new Set(s);
+        let changed = false;
+        adoptedExcerpts.forEach((e) => {
+          if (!n.has(e)) {
+            n.add(e);
+            changed = true;
+          }
+        });
+        return changed ? n : s; // 无新增返回原引用,避免无意义重渲染
+      });
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [session, debrief, user]);
+
   // m5 v5 G1：能力维度二次懒加载（debrief 4 维已渲染后，独立 capability 路由后填）
   // fallback-safe：失败/超时/无内容 → 不显示能力雷达，4 维复盘完全不受影响。
   useEffect(() => {
@@ -295,46 +353,62 @@ function Module5DebriefContent() {
     }
   }
 
-  function handleAdopt(h: DebriefHighlight) {
-    if (!session) return;
-    if (adopted.has(h.excerpt)) return;
-    const payload: FromDebriefHighlight = {
-      source_session_id: session.id,
-      question: h.question,
-      excerpt: h.excerpt,
-      why: h.why,
-      suggestedBullet: h.suggestedBullet,
-      sent_at: new Date().toISOString(),
-    };
+  /**
+   * 登录用户:把亮点写进**面试所用那份简历**(m3_resumes 最近一份)的 hidden_experience_json(DB)。
+   * 返回目标 conversation_id;没有 m3 简历(罕见,如面试时直接粘的简历)→ 返回 null 走兜底。
+   * 按 question_id 去重,重复采纳不插两次。
+   */
+  async function backfillToDbResume(
+    highlights: DebriefHighlight[],
+  ): Promise<string | null> {
+    if (!user || !session) return null;
     try {
-      // 1. 写最近一条 from_debrief_highlight(M3 result 用来展示"刚从面试来"提示 + 触发 suggest-edits 的 source=interview)
-      window.localStorage.setItem(
-        M5_STORAGE_KEYS.FROM_DEBRIEF_HIGHLIGHT,
-        JSON.stringify(payload),
+      const supabase = createClient();
+      const { data: row } = await supabase
+        .from("m3_resumes")
+        .select("conversation_id, hidden_experience_json")
+        .not("parsed_resume_json", "is", null)
+        .order("updated_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (!row?.conversation_id) return null;
+      const existing = Array.isArray(row.hidden_experience_json)
+        ? (row.hidden_experience_json as Array<{ question_id?: string }>)
+        : [];
+      const existingIds = new Set(
+        existing.map((x) => x?.question_id).filter(Boolean),
       );
-      // 2. 追加到统一素材池 HIDDEN_EXPERIENCES — 多次采纳不互相覆盖
-      appendHiddenExperiences([h]);
-      setAdopted((s) => new Set(s).add(h.excerpt));
-      router.push("/m3?from=debrief");
+      const toAdd = highlights
+        .map((h) => highlightToHiddenExperience(h, session.id))
+        .filter((he) => !existingIds.has(he.question_id));
+      const next = [...existing, ...toAdd];
+      const { error } = await supabase
+        .from("m3_resumes")
+        .update({ hidden_experience_json: next })
+        .eq("conversation_id", row.conversation_id);
+      if (error) {
+        console.error("[m5/debrief] DB hidden_experience append failed", error);
+        return null;
+      }
+      return row.conversation_id as string;
     } catch (e) {
-      console.error("[m5/debrief] adopt write failed", e);
-      alert("浏览器存储不可用,无法采纳");
+      console.error("[m5/debrief] backfillToDbResume failed", e);
+      return null;
     }
   }
 
-  function handleAdoptAll() {
-    if (!session) return;
-    const toAdopt = backfillCandidates.filter((h) => !adopted.has(h.excerpt));
-    if (toAdopt.length === 0) return;
+  /**
+   * 采纳 → 直达对应简历。
+   * 登录 + 有 m3 简历:写 DB → 跳 /m3/result?c=&backfill=1(落地自动高亮这条待确认建议)。
+   * 否则(游客 / 登录但无 m3 简历):写 localStorage 素材池 → 跳 /m3?from=debrief(先去建/选简历)。
+   */
+  async function adoptHighlights(
+    highlights: DebriefHighlight[],
+    head: DebriefHighlight,
+  ) {
+    if (!session || highlights.length === 0) return;
+    // 1. from_debrief_highlight:落地页"这句来自面试 Qx"上下文标签 + 触发 source=interview
     try {
-      // 1. 批量追加到 HIDDEN_EXPERIENCES
-      const ok = appendHiddenExperiences(toAdopt);
-      if (!ok) {
-        alert("浏览器存储不可用,无法批量采纳");
-        return;
-      }
-      // 2. 写最近一条 from_debrief_highlight(取第一条作为"最近一条提示")
-      const head = toAdopt[0];
       const payload: FromDebriefHighlight = {
         source_session_id: session.id,
         question: head.question,
@@ -347,16 +421,37 @@ function Module5DebriefContent() {
         M5_STORAGE_KEYS.FROM_DEBRIEF_HIGHLIGHT,
         JSON.stringify(payload),
       );
-      setAdopted((s) => {
-        const next = new Set(s);
-        toAdopt.forEach((h) => next.add(h.excerpt));
-        return next;
-      });
-      router.push("/m3?from=debrief");
-    } catch (e) {
-      console.error("[m5/debrief] adopt-all failed", e);
-      alert("批量采纳失败");
+    } catch {
+      /* localStorage 不可用也不阻断 DB 路径 */
     }
+    // 2. 标记已采纳
+    setAdopted((s) => {
+      const next = new Set(s);
+      highlights.forEach((h) => next.add(h.excerpt));
+      return next;
+    });
+    // 3. 登录优先写 DB 并直达对应简历
+    if (user) {
+      const convId = await backfillToDbResume(highlights);
+      if (convId) {
+        router.push(`/m3/result?c=${convId}&backfill=1`);
+        return;
+      }
+    }
+    // 兜底(游客 / 登录但无 m3 简历):写本地素材池 → 入口页先建/选简历
+    appendHiddenExperiences(highlights);
+    router.push("/m3?from=debrief");
+  }
+
+  function handleAdopt(h: DebriefHighlight) {
+    if (adopted.has(h.excerpt)) return;
+    void adoptHighlights([h], h);
+  }
+
+  function handleAdoptAll() {
+    const toAdopt = backfillCandidates.filter((h) => !adopted.has(h.excerpt));
+    if (toAdopt.length === 0) return;
+    void adoptHighlights(toAdopt, toAdopt[0]);
   }
 
   /**
