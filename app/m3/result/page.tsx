@@ -336,8 +336,13 @@ function ResultContent() {
     [contentSig, decisions, rewritten],
   );
 
+  const suggestInFlightRef = useRef<string | null>(null); // 在途 suggest-edits 的 contentSig 令牌,防并发重复请求
   const loadSuggestions = useCallback(async (force = false) => {
     if (!parsedResume) return;
+    // 防并发:首次分析期间 parsedResume 引用会因注入 id/saveField 反复变 → 自动 effect
+    // 重触发,导致一次「开始优化」并发打出多次 suggest-edits(实测 8 次,空烧 LLM)。
+    // 用 contentSig 当在途令牌:同一内容已在请求中就跳过;内容真变了(新 sig)才允许新请求。
+    if (!force && suggestInFlightRef.current === contentSig) return;
     setStatus("loading");
     setErrorMsg("");
     // 命中缓存(登录=DB / 游客=localStorage):内容没变就直接出,不重算。
@@ -356,6 +361,7 @@ function ResultContent() {
         return;
       }
     }
+    suggestInFlightRef.current = contentSig;
     try {
       const res = await fetch("/api/m3/suggest-edits", {
         method: "POST",
@@ -379,6 +385,8 @@ function ResultContent() {
       const message = err instanceof Error ? err.message : "加载失败";
       setErrorMsg(message);
       setStatus("error");
+    } finally {
+      suggestInFlightRef.current = null;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [parsedResume, jdContext, hiddenExperiences, fromDebriefHighlight, optimizationGoals, editsCacheKey, contentSig, readArtifact, writeArtifact]);
