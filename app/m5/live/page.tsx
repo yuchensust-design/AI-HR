@@ -1097,11 +1097,14 @@ function Module5LiveContent() {
     return (
       <main className="h-screen bg-warm-bg flex items-center justify-center">
         <div className="text-center">
-          <div className="text-3xl mb-3">🌸</div>
+          <div className="text-3xl mb-3 animate-pulse">🌸</div>
           <p className="text-ink-soft text-sm font-display italic mb-1">
             Preparing your interview
           </p>
-          <p className="text-ink text-base">让我看看你的简历…</p>
+          <p className="text-ink text-base mb-1">
+            正在按你的简历 + 目标岗位出题…
+          </p>
+          <p className="text-ink-muted text-xs">通常 10-20 秒,稍等一下就开始</p>
           {state.errorMsg && (
             <p className="text-esther-red text-sm mt-4 max-w-[400px]">
               {state.errorMsg}{" "}
