@@ -1,88 +1,86 @@
 "use client";
 
 /**
- * useM2DBSync — M2 经历挖掘数据双写 hook（localStorage + DB）
+ * useM2DBSync — M2「挖经历」per-conversation 数据同步(plan §8.24,照 useM3DBSync 模式)
  *
- * 游客：只走 localStorage（同原来行为）
- * 登录：额外同步到 m2_intakes 表（master conversation 模式，同 useM4Projects）
+ * 游客:不落 DB(页面走 localStorage 单轨,按会话 scope)
+ * 登录:按 ?c={conversationId} 读写 m2_intakes 表 → 每个会话独立数据(多会话隔离)
  *
- * DB 存储结构：m2_intakes.intake_json = { intake: IntakeArtifact, bullets: CandidateBullet[] }
+ * DB:m2_intakes.intake_json = { intake, bullets, fills }
  */
 
 import { useCallback, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { useUser } from "@/lib/auth/useUser";
 import { createClient } from "@/lib/supabase/client";
-import { listConversations, createConversation } from "@/lib/conversations";
 
-const CONV_CACHE_KEY = "m2_master_conv_id";
+export type M2Payload = { intake?: unknown; bullets?: unknown; fills?: unknown };
 
 export function useM2DBSync() {
-  const { user } = useUser();
-  const [masterConvId, setMasterConvId] = useState<string | null>(null);
+  const convId = useSearchParams().get("c");
+  const { user, loading: userLoading } = useUser();
+  const userId = user?.id ?? null;
 
-  // 找或创建"主 M2 会话"
+  const [dbData, setDbData] = useState<M2Payload | null>(null);
+  const [loading, setLoading] = useState(true);
+  // isReady = 已知该用哪条数据(游客立即 ready;登录则 DB 拉完才 ready)
+  const isReady = !userLoading && (!userId || !loading);
+
   useEffect(() => {
-    if (!user) return;
-    const cached =
-      typeof window !== "undefined"
-        ? window.localStorage.getItem(CONV_CACHE_KEY)
-        : null;
-    if (cached) {
-      setMasterConvId(cached);
+    let cancelled = false;
+    if (userLoading) return;
+    if (!userId || !convId) {
+      setDbData(null);
+      setLoading(false);
       return;
     }
-    listConversations("m2").then((convs) => {
-      if (convs.length > 0) {
-        const id = convs[0].id;
-        window.localStorage.setItem(CONV_CACHE_KEY, id);
-        setMasterConvId(id);
-      } else {
-        createConversation("m2", "我的经历挖掘").then((id) => {
-          if (id) {
-            window.localStorage.setItem(CONV_CACHE_KEY, id);
-            setMasterConvId(id);
-          }
-        });
-      }
-    });
-  }, [user]);
+    setLoading(true);
+    createClient()
+      .from("m2_intakes")
+      .select("intake_json")
+      .eq("conversation_id", convId)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (cancelled) return;
+        const j = (data?.intake_json as M2Payload) ?? null;
+        setDbData(j);
+        setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [userId, userLoading, convId]);
 
-  /** 将 intake + bullets 同步到 DB（fire-and-forget） */
+  /** 写回当前会话(fire-and-forget) */
   const syncToDb = useCallback(
-    async (intake: unknown, bullets: unknown): Promise<void> => {
-      if (!user || !masterConvId) return;
+    async (intake: unknown, bullets: unknown, fills: unknown): Promise<void> => {
+      if (!userId || !convId) return;
       try {
         await createClient()
           .from("m2_intakes")
-          .update({ intake_json: { intake, bullets } })
-          .eq("conversation_id", masterConvId);
+          .update({ intake_json: { intake, bullets, fills } })
+          .eq("conversation_id", convId);
       } catch (err) {
-        console.warn("[useM2DBSync] DB sync failed:", err);
+        console.warn("[useM2DBSync] sync failed:", err);
       }
     },
-    [user, masterConvId],
+    [userId, convId],
   );
 
-  /** 从 DB 恢复（localStorage 为空时的跨设备场景） */
-  const loadFromDB = useCallback(async (): Promise<{
-    intake: unknown;
-    bullets: unknown;
-  } | null> => {
-    if (!user || !masterConvId) return null;
+  /** 读当前会话(登录 + 有 conv 时) */
+  const loadFromDB = useCallback(async (): Promise<M2Payload | null> => {
+    if (!userId || !convId) return null;
     try {
       const { data } = await createClient()
         .from("m2_intakes")
         .select("intake_json")
-        .eq("conversation_id", masterConvId)
+        .eq("conversation_id", convId)
         .maybeSingle();
-      if (!data?.intake_json) return null;
-      const j = data.intake_json as { intake?: unknown; bullets?: unknown };
-      return { intake: j.intake ?? null, bullets: j.bullets ?? null };
-    } catch (err) {
-      console.warn("[useM2DBSync] loadFromDB failed:", err);
+      return (data?.intake_json as M2Payload) ?? null;
+    } catch {
       return null;
     }
-  }, [user, masterConvId]);
+  }, [userId, convId]);
 
-  return { syncToDb, loadFromDB, isReady: !!(user && masterConvId) };
+  return { user, convId, dbData, loading, isReady, syncToDb, loadFromDB, isGuest: !userId };
 }

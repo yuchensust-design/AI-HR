@@ -1,33 +1,28 @@
 "use client";
 
 /**
- * 模块 2 · 经历挖掘 — 真 chat(P1 真 LLM 接入版)
+ * 模块 2 · 挖经历 — v2.2 重构(plan 09 §0.7)
+ * 三段流程 spread→illuminate→wrap;认领多选(识别代替回忆)+ 实时素材台 + 结构化 reframe。
  * 路由 /m2
  */
 
 import Link from "next/link";
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Card } from "@/components/ui/card";
 import { Nav } from "@/components/Nav";
 import { BuerFloatingButton } from "@/components/BuerFloatingButton";
 import { useLocalState, STORAGE_KEYS } from "@/lib/use-local-state";
+import { useUser } from "@/lib/auth/useUser";
+import { listConversations, createConversation } from "@/lib/conversations";
 import ConversationSwitcher from "@/components/conversations/ConversationSwitcher";
 import { useM2DBSync } from "@/lib/sync/useM2DBSync";
+import { EXPERIENCE_CATEGORIES } from "@/lib/prompts/excavate-options";
 
-type Phase =
-  | "anchor"
-  | "per_role"
-  | "hero_story"
-  | "skeptical"
-  | "synthesis";
+type Phase = "spread" | "illuminate" | "wrap";
 
 type StoryCategory =
-  | "Peak"
-  | "Challenge"
-  | "Impact"
-  | "Failure"
-  | "LearningSprint"
-  | "Praise";
+  | "Peak" | "Challenge" | "Impact" | "Failure" | "LearningSprint" | "Praise";
 
 type IntakeRole = {
   org_type: string;
@@ -43,12 +38,7 @@ type IntakeStory = {
   title: string;
   category: StoryCategory;
   strength: 1 | 2 | 3 | 4 | 5;
-  star: {
-    situation: string;
-    task: string;
-    action: string;
-    result: string;
-  };
+  star: { situation: string; task: string; action: string; result: string };
   earned_secret?: string;
   jd_keywords?: string[];
 };
@@ -61,23 +51,50 @@ type IntakeArtifact = {
   skeptical_flags?: SkepticalFlag[];
 };
 
+type Sufficiency = "thin" | "draftable" | "strong";
+
 type CandidateBullet = {
-  source_story_id: string;
+  id?: string;
+  source_story_id?: string;
+  source_category?: string;
   text: string;
   star_breakdown?: { s: string; t: string; a: string; r: string };
+  competency?: string;
+  sufficiency?: Sufficiency;
+  depth_met?: boolean;
+  anti_fab_note?: string;
+  hidden_value?: boolean;
 };
 
-type ChatMsg = { from: "ai" | "user"; text: string };
+type AskOption = { label: string; competency: string; high_signal?: boolean };
+type ResolvedAsk =
+  | { type: "multi_select"; prompt: string; option_set: string; options: AskOption[]; other_label: string }
+  | { type: "open"; prompt: string };
+
+type ChatMsg = { from: "ai" | "user"; text: string; ask?: ResolvedAsk | null; picked?: string[] };
 
 type UserProfile = { persona_tag?: string; selected_at?: string };
 
 type Depth = "shallow" | "medium" | "deep";
 
 const DEPTH_OPTIONS: { value: Depth; label: string; hint: string }[] = [
-  { value: "shallow", label: "浅", hint: "简单聊聊,3-5 turn 收尾" },
-  { value: "medium", label: "中", hint: "平衡挖掘(默认)" },
-  { value: "deep", label: "深", hint: "详细 metric 追问" },
+  { value: "shallow", label: "浅(默认)", hint: "认一认 + 轻问一次量化就成稿,最省事" },
+  { value: "medium", label: "中", hint: "每段多追 1-2 个量化/影响维度" },
+  { value: "deep", label: "深", hint: "尽量补全 STAR + 反直觉收获" },
 ];
+const DEPTH_ORDER: Record<Depth, number> = { shallow: 0, medium: 1, deep: 2 };
+
+const SUFFICIENCY_BADGE: Record<Sufficiency, { label: string; cls: string }> = {
+  thin: { label: "待补", cls: "bg-ink-soft/15 text-ink-soft" },
+  draftable: { label: "可用", cls: "bg-esther-blue/15 text-esther-blue" },
+  strong: { label: "强", cls: "bg-esther-yellow/40 text-ink" },
+};
+
+const PHASE_LABEL: Record<Phase, string> = {
+  spread: "铺开经历",
+  illuminate: "逐段点亮",
+  wrap: "收口成稿",
+};
 
 const CATEGORY_BADGE: Record<StoryCategory, { label: string; cls: string }> = {
   Peak: { label: "Peak", cls: "bg-esther-blue/15 text-esther-blue" },
@@ -88,23 +105,20 @@ const CATEGORY_BADGE: Record<StoryCategory, { label: string; cls: string }> = {
   Praise: { label: "Praise", cls: "bg-esther-yellow/40 text-ink" },
 };
 
-function buildResumeMarkdown(intake: IntakeArtifact): string {
+// F1:导出 = roles/stories(story STAR 长名不动,修 N)+ 追加可用候选 bullets(滤掉 thin 草稿)
+function buildResumeMarkdown(intake: IntakeArtifact, bullets: CandidateBullet[]): string {
   const lines: string[] = [];
   if (intake.roles.length > 0) {
-    lines.push("## 经历");
-    lines.push("");
+    lines.push("## 经历", "");
     intake.roles.forEach((r) => {
-      const titleParts = [r.role, r.org_type, r.period].filter(Boolean);
       lines.push(`**${r.role}** | ${r.org_type}${r.period ? ` | ${r.period}` : ""}`);
       if (r.charter) lines.push(`- 核心: ${r.charter}`);
       if (r.scale) lines.push(`- 规模: ${r.scale}`);
       lines.push("");
-      void titleParts;
     });
   }
   if (intake.stories.length > 0) {
-    lines.push("## Hero Stories");
-    lines.push("");
+    lines.push("## Hero Stories", "");
     intake.stories.forEach((s) => {
       const stars = "⭐".repeat(s.strength || 0);
       lines.push(`### ${s.title || "未命名故事"}(${s.category}${stars ? `,${stars}` : ""})`);
@@ -116,239 +130,337 @@ function buildResumeMarkdown(intake: IntakeArtifact): string {
       lines.push("");
     });
   }
+  const usable = bullets.filter((b) => (b.sufficiency ?? "draftable") !== "thin");
+  if (usable.length > 0) {
+    lines.push("## 可用 bullets(可直接放进简历,【请补充】处填上你的真实数字)", "");
+    usable.forEach((b) => lines.push(`- ${b.text}`));
+    lines.push("");
+  }
   return lines.join("\n").trim() || "(还没素材 — 跟 AI 聊几轮就会有)";
 }
-
-const EXPERIENCE_CATEGORIES: { key: string; label: string; hint: string }[] = [
-  { key: "course_project", label: "课程项目", hint: "任何 final project / 小组作业" },
-  { key: "club", label: "社团 / 学生组织", hint: "任职 / 办活动 / 当过部长" },
-  { key: "teaching", label: "助教 / 教学", hint: "给同学补习 / 课程 TA / 答疑" },
-  { key: "competition", label: "比赛", hint: "编程 / 学科 / 商赛 / 设计 / 数模" },
-  { key: "internship", label: "实习", hint: "1 周也算 / 短期项目也算" },
-  { key: "personal", label: "个人项目", hint: "自学时做的东西 / Github / 博客" },
-  { key: "volunteer", label: "志愿者 / 公益", hint: "支教 / 公益 / 校园服务" },
-  { key: "campus_event", label: "校园活动", hint: "辩论 / 演讲 / 文艺 / 体育" },
-  { key: "parttime", label: "兼职", hint: "家教 / 翻译 / 任何赚过钱的事" },
-  { key: "hobby", label: "兴趣深挖", hint: "自学 / 收藏研究一年以上" },
-];
 
 function isAmbitiousPersonaTag(personaTag?: string): boolean {
   if (!personaTag) return false;
   const p = personaTag.toLowerCase();
   return (
-    p.includes("chen") ||
-    p.includes("陈昊") ||
-    p.includes("ambitious") ||
-    p.includes("拔高")
+    p.includes("chen") || p.includes("陈昊") ||
+    p.includes("ambitious") || p.includes("拔高")
   );
 }
 
-function buildOpener(personaTag?: string, categories: string[] = []): string {
+function openerText(personaTag?: string): string {
   if (isAmbitiousPersonaTag(personaTag)) {
-    return "嗨 — 看你目标偏拔高型 offer,我们直接挖最近这段最有分量的经历。先说:你最近做的这段(实习 / 项目 / 课程),负责的核心 charter 是什么?";
+    return "我们直奔最有分量的那段经历 —— 先说,你最近做的这段里,最拿得出手的是什么?";
   }
-  if (categories.length > 0) {
-    const labels = categories
-      .map((k) => EXPERIENCE_CATEGORIES.find((c) => c.key === k)?.label ?? k)
-      .join("、");
-    return `嗨 — 你勾了 ${labels}。我们一类一类挖,沾边都算简历素材。\n先说:这几类里,你最近(or 印象最深)的是哪段经历?简单几句描述就行,我会帮你 reframe 成简历语言。`;
-  }
-  return "嗨 — 大学里做过任何事都可能是简历素材,先不用想'有没有价值'。\n下方勾一下你沾边做过的类(沾边都算),然后我帮你逐个挖 → 翻译成简历能用的句子。";
+  return "别担心「没什么好写的」—— 很多人的亮点都藏在自己没在意的小事里。我们一点点认,我来帮你把它们变成简历能用的话。";
 }
 
 function mergeIntake(
   prev: IntakeArtifact,
-  delta: {
-    roles?: IntakeRole[];
-    stories?: IntakeStory[];
-    skeptical_flags?: SkepticalFlag[];
-  }
+  delta: { roles?: IntakeRole[]; stories?: IntakeStory[]; skeptical_flags?: SkepticalFlag[] }
 ): IntakeArtifact {
   const mergedRoles = [...(prev.roles ?? [])];
   for (const r of delta.roles ?? []) {
-    const idx = mergedRoles.findIndex(
-      (x) => x.role === r.role && x.period === r.period
-    );
-    if (idx >= 0) {
-      mergedRoles[idx] = { ...mergedRoles[idx], ...r };
-    } else {
-      mergedRoles.push(r);
-    }
+    const idx = mergedRoles.findIndex((x) => x.role === r.role && x.period === r.period);
+    if (idx >= 0) mergedRoles[idx] = { ...mergedRoles[idx], ...r };
+    else mergedRoles.push(r);
   }
   const mergedStories = [...(prev.stories ?? [])];
   for (const s of delta.stories ?? []) {
     const idx = mergedStories.findIndex((x) => x.id === s.id);
-    if (idx >= 0) {
-      mergedStories[idx] = { ...mergedStories[idx], ...s };
-    } else {
-      mergedStories.push(s);
-    }
+    if (idx >= 0) mergedStories[idx] = { ...mergedStories[idx], ...s };
+    else mergedStories.push(s);
   }
-  const mergedFlags = [
-    ...(prev.skeptical_flags ?? []),
-    ...(delta.skeptical_flags ?? []),
-  ];
   return {
     roles: mergedRoles,
     stories: mergedStories,
-    skeptical_flags: mergedFlags,
+    skeptical_flags: [...(prev.skeptical_flags ?? []), ...(delta.skeptical_flags ?? [])],
   };
 }
 
-export default function Module2Page() {
-  const [profile] = useLocalState<UserProfile>(STORAGE_KEYS.USER_PROFILE, {});
-  const [intake, setIntake] = useLocalState<IntakeArtifact>(
-    STORAGE_KEYS.M2_INTAKE,
-    { roles: [], stories: [] }
-  );
-  const [bullets, setBullets] = useLocalState<CandidateBullet[]>(
-    STORAGE_KEYS.M2_BULLETS,
-    []
-  );
-  const [categories, setCategories] = useLocalState<string[]>(
-    STORAGE_KEYS.M2_CATEGORIES,
-    []
-  );
-  const { syncToDb, loadFromDB, isReady: dbReady } = useM2DBSync();
+// upsert by id(plan 修 F:替代纯 append);老 bullet 无 id → 用 text 兜底匹配
+function mergeBullets(prev: CandidateBullet[], delta: CandidateBullet[]): CandidateBullet[] {
+  const out = [...prev];
+  for (const b of delta) {
+    const idx = out.findIndex((x) => (b.id && x.id === b.id) || x.text === b.text);
+    if (idx >= 0) out[idx] = { ...out[idx], ...b };
+    else out.push(b);
+  }
+  return out;
+}
 
-  // 登录用户且 intake 为空时从 DB 恢复
+// ===== 内联填空(复用 m3 思路:【请补充…】→ 可编辑输入框)=====
+const FILL_RE = /【请补充[^】]*?】/;
+const FILL_RE_G = /(【请补充[^】]*?】)/g;
+
+function gradeBulletFE(text: string): Sufficiency {
+  if (!text || /【请补充具体职责】/.test(text)) return "thin";
+  const stripped = text.replace(/【[^】]*】/g, "");
+  return /[0-9０-９]/.test(stripped) ? "strong" : "draftable";
+}
+
+// 把 canonical(含【请补充】)+ 用户填值 → 成稿文本(空白处保留占位)
+function assembleBullet(canonical: string, vals: string[]): string {
+  let i = -1;
+  return canonical.replace(FILL_RE_G, (m) => {
+    i++;
+    const v = (vals[i] ?? "").trim();
+    return v || m;
+  });
+}
+
+function FillableBulletText({
+  canonical,
+  vals,
+  onChange,
+  onBlur,
+}: {
+  canonical: string;
+  vals: string[];
+  onChange: (i: number, v: string) => void;
+  onBlur?: () => void;
+}) {
+  const parts = canonical.split(FILL_RE_G);
+  let blank = -1;
+  return (
+    <span className="leading-relaxed">
+      {parts.map((p, i) => {
+        if (FILL_RE.test(p)) {
+          blank++;
+          const idx = blank;
+          const hint = p.replace(/[【】]/g, "").replace(/^请补充/, "") || "填这里";
+          const v = vals[idx] ?? "";
+          // 中文 ~1.8ch、其它 ~1ch,再留 padding,避免裁切
+          const shown = v || hint;
+          const w = Array.from(shown).reduce((a, ch) => a + (/[一-龥]/.test(ch) ? 1.8 : 1), 0) + 2.5;
+          return (
+            <input
+              key={i}
+              value={v}
+              onChange={(e) => onChange(idx, e.target.value)}
+              onBlur={onBlur}
+              placeholder={hint}
+              className="inline-block mx-0.5 px-1.5 py-0 align-baseline rounded border border-esther-yellow bg-esther-yellow/15 text-ink text-xs text-center focus:outline-none focus:ring-1 focus:ring-esther-blue/50"
+              style={{ width: `${Math.max(w, 4)}ch` }}
+            />
+          );
+        }
+        return <span key={i}>{p}</span>;
+      })}
+    </span>
+  );
+}
+
+function categoryLabel(key?: string): string {
+  if (!key) return "其他";
+  return EXPERIENCE_CATEGORIES.find((c) => c.key === key)?.label ?? "其他";
+}
+
+export default function M2Page() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-warm-bg" />}>
+      <M2Outer />
+    </Suspense>
+  );
+}
+
+// 读 ?c → 登录但没选会话则跳到第一个/新建一个 → 内层按会话 remount(多会话隔离)
+function M2Outer() {
+  const convId = useSearchParams().get("c");
+  const { user, loading: userLoading } = useUser();
+  const router = useRouter();
   useEffect(() => {
-    if (!dbReady || intake.stories.length > 0) return;
-    loadFromDB().then((data) => {
-      if (!data) return;
-      if (data.intake) setIntake(data.intake as IntakeArtifact);
-      if (Array.isArray(data.bullets) && data.bullets.length > 0)
-        setBullets(data.bullets as CandidateBullet[]);
-    });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dbReady]);
+    if (userLoading || !user || convId) return;
+    let cancelled = false;
+    (async () => {
+      const convs = await listConversations("m2");
+      if (cancelled) return;
+      if (convs.length > 0) {
+        router.replace(`/m2?c=${convs[0].id}`);
+        return;
+      }
+      const id = await createConversation("m2", "我的挖经历");
+      if (id && !cancelled) router.replace(`/m2?c=${id}`);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [user, userLoading, convId, router]);
+  return <Module2Page key={convId ?? "guest"} scope={convId ?? "guest"} />;
+}
+
+function Module2Page({ scope }: { scope: string }) {
+  const [profile] = useLocalState<UserProfile>(STORAGE_KEYS.USER_PROFILE, {});
+  const [intake, setIntake] = useLocalState<IntakeArtifact>(`${STORAGE_KEYS.M2_INTAKE}:${scope}`, { roles: [], stories: [] });
+  const [bullets, setBullets] = useLocalState<CandidateBullet[]>(`${STORAGE_KEYS.M2_BULLETS}:${scope}`, []);
+  const [categories, setCategories] = useLocalState<string[]>(`${STORAGE_KEYS.M2_CATEGORIES}:${scope}`, []);
+  const { syncToDb, loadFromDB, isReady: dbReady, isGuest } = useM2DBSync();
 
   const [messages, setMessages] = useState<ChatMsg[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
-  const [phase, setPhase] = useState<Phase>("anchor");
+  const [phase, setPhase] = useState<Phase>("spread");
+  const [suggestWrap, setSuggestWrap] = useState(false);
   const [done, setDone] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pendingCats, setPendingCats] = useState<string[]>([]);
-  const [expandedBullets, setExpandedBullets] = useState<Set<number>>(new Set());
-  const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
+  const [expandedBullets, setExpandedBullets] = useState<Set<string>>(new Set());
+  const [copiedId, setCopiedId] = useState<string | null>(null);
   const [copiedAll, setCopiedAll] = useState(false);
-  const [depth, setDepth] = useLocalState<Depth>(STORAGE_KEYS.M2_DEPTH, "medium");
+  const [depth, setDepth] = useLocalState<Depth>(STORAGE_KEYS.M2_DEPTH, "shallow");
+  // 内联填空值:bulletId → 每个【请补充】的填值(plan:像 m3 一样可自行补充)
+  const [fills, setFills] = useLocalState<Record<string, string[]>>(`m2_bullet_fills:${scope}`, {});
+  const setFill = (id: string, i: number, v: string) =>
+    setFills((prev) => {
+      const arr = [...(prev[id] ?? [])];
+      arr[i] = v;
+      return { ...prev, [id]: arr };
+    });
 
-  // 拔高型 persona / 已勾过类别 / 已有 stories → 进 chat;否则进类别枚举
+  // 登录:从 DB 恢复当前会话数据(本地为空时;新会话 DB 空 → 保持空白 = 真·新建)
+  useEffect(() => {
+    if (isGuest || !dbReady) return;
+    if (intake.roles.length > 0 || intake.stories.length > 0 || bullets.length > 0) return;
+    loadFromDB().then((data) => {
+      if (!data) return;
+      if (data.intake) setIntake(data.intake as IntakeArtifact);
+      if (Array.isArray(data.bullets) && data.bullets.length > 0) setBullets(data.bullets as CandidateBullet[]);
+      if (data.fills && typeof data.fills === "object") setFills(data.fills as Record<string, string[]>);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dbReady, isGuest]);
+
+  // 认领多选 ephemeral state(每个 ask 独立,plan 修 I)
+  const [pickedOpts, setPickedOpts] = useState<string[]>([]);
+  const [otherText, setOtherText] = useState("");
+
   const ambitious = isAmbitiousPersonaTag(profile.persona_tag);
   const [enumerating, setEnumerating] = useState<boolean>(false);
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const seededRef = useRef(false);
+  const lastSentFill = useRef<Record<string, string>>({}); // 每条 bullet 上次自动告知 AI 的成稿,防重复发
 
   useEffect(() => {
     if (seededRef.current) return;
     seededRef.current = true;
-    const needEnum =
-      !ambitious && categories.length === 0 && intake.stories.length === 0;
+    const needEnum = !ambitious && categories.length === 0 && intake.stories.length === 0 && intake.roles.length === 0;
     setEnumerating(needEnum);
     setPendingCats(categories);
-    setMessages([
-      { from: "ai", text: buildOpener(profile.persona_tag, categories) },
-    ]);
-  }, [profile.persona_tag, ambitious, categories, intake.stories.length]);
+    setMessages([{ from: "ai", text: openerText(profile.persona_tag) }]);
+  }, [profile.persona_tag, ambitious, categories, intake.stories.length, intake.roles.length]);
 
   useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
+    if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
   }, [messages, loading]);
 
-  const send = useCallback(async () => {
+  // 新 ask 出现 → 清空上一题的勾选(ephemeral)
+  useEffect(() => {
+    setPickedOpts([]);
+    setOtherText("");
+  }, [messages.length]);
+
+  // 核心:跑一轮(可带显式 userText / intent / picked / 重置)
+  const runTurn = useCallback(
+    async (opts: { userText?: string; intent?: string; picked?: string[]; reset?: boolean }) => {
+      if (loading) return;
+      setError(null);
+      const base = opts.reset ? [] : messages;
+      const newMessages: ChatMsg[] = opts.userText
+        ? [...base, { from: "user", text: opts.userText, picked: opts.picked }]
+        : base;
+      if (opts.userText || opts.reset) setMessages(newMessages);
+      setLoading(true);
+      try {
+        const res = await fetch("/api/m2/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            history: newMessages.map((m) => ({ role: m.from === "ai" ? "assistant" : "user", content: m.text })),
+            persona_tag: profile.persona_tag,
+            depth,
+            intent: opts.intent,
+            current_intake: intake,
+            // 把内联填空的值组装进去,LLM 才看得到用户填的数字(修:llm 获取不到填值)
+            current_bullets: bullets.map((b) => ({ ...b, text: assembleBullet(b.text, fills[b.id ?? b.text] ?? []) })),
+          }),
+        });
+        if (!res.ok) {
+          const errBody = await res.json().catch(() => ({}));
+          throw new Error(errBody.error ?? `HTTP ${res.status}`);
+        }
+        const data = await res.json();
+
+        let nextIntake = intake;
+        if (Array.isArray(data.delta_roles) || Array.isArray(data.delta_stories)) {
+          nextIntake = mergeIntake(intake, {
+            roles: data.delta_roles ?? [],
+            stories: data.delta_stories ?? [],
+          });
+          setIntake(nextIntake);
+        }
+        let nextBullets = bullets;
+        if (Array.isArray(data.delta_bullets) && data.delta_bullets.length > 0) {
+          nextBullets = mergeBullets(bullets, data.delta_bullets as CandidateBullet[]);
+          setBullets(nextBullets);
+        }
+        void syncToDb(nextIntake, nextBullets, fills);
+
+        if (data.phase) setPhase(data.phase as Phase);
+        setSuggestWrap(Boolean(data.suggest_wrap));
+        if (data.done) setDone(true);
+
+        const say = (data.say ?? "").trim();
+        if (say || data.ask) {
+          setMessages((prev) => [...prev, { from: "ai", text: say || "(继续)", ask: data.ask ?? null }]);
+        } else if (data.done) {
+          setMessages((prev) => [...prev, { from: "ai", text: data.reason ?? "挖得差不多了 — 可以去整理简历啦。" }]);
+        }
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "网络或服务异常,稍后再试");
+      } finally {
+        setLoading(false);
+      }
+    },
+    [loading, messages, profile.persona_tag, depth, intake, bullets, fills, setIntake, setBullets, syncToDb]
+  );
+
+  const sendInput = () => {
     const text = input.trim();
-    if (!text || loading) return;
-    setError(null);
-    const newMessages: ChatMsg[] = [
-      ...messages,
-      { from: "user", text },
-    ];
-    setMessages(newMessages);
+    if (!text) return;
     setInput("");
-    setLoading(true);
+    runTurn({ userText: text });
+  };
 
-    try {
-      const res = await fetch("/api/m2/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          history: newMessages.map((m) => ({
-            role: m.from === "ai" ? "assistant" : "user",
-            content: m.text,
-          })),
-          persona_tag: profile.persona_tag,
-          categories,
-          depth,
-          current_intake: intake,
-          current_bullets: bullets,
-        }),
-      });
-      if (!res.ok) {
-        const errBody = await res.json().catch(() => ({}));
-        throw new Error(errBody.error ?? `HTTP ${res.status}`);
-      }
-      const data = await res.json();
+  const submitPicks = () => {
+    const labels = [...pickedOpts];
+    if (otherText.trim()) labels.push(otherText.trim());
+    if (labels.length === 0) return;
+    runTurn({ userText: `我做过:${labels.join("、")}`, picked: pickedOpts });
+  };
 
-      if (data.delta_intake) {
-        setIntake((prev) => {
-          const next = mergeIntake(prev, data.delta_intake);
-          // 同步到 DB（fire-and-forget）
-          void syncToDb(next, bullets);
-          return next;
-        });
-      }
-      if (Array.isArray(data.delta_bullets) && data.delta_bullets.length > 0) {
-        setBullets((prev) => {
-          const next = [...prev, ...data.delta_bullets];
-          void syncToDb(intake, next);
-          return next;
-        });
-      }
-      if (data.phase) setPhase(data.phase as Phase);
-      if (data.done) setDone(true);
-
-      const next = (data.next_question ?? "").trim();
-      if (next) {
-        setMessages((prev) => [...prev, { from: "ai", text: next }]);
-      } else if (data.done) {
-        setMessages((prev) => [
-          ...prev,
-          {
-            from: "ai",
-            text: data.reason ?? "我们挖得够了 — 可以去整理简历啦。",
-          },
-        ]);
-      }
-    } catch (err) {
-      const message =
-        err instanceof Error ? err.message : "网络或服务异常,稍后再试";
-      setError(message);
-    } finally {
-      setLoading(false);
-    }
-  }, [
-    input,
-    loading,
-    messages,
-    profile.persona_tag,
-    categories,
-    depth,
-    intake,
-    bullets,
-    setIntake,
-    setBullets,
-    syncToDb,
-  ]);
+  // 内联填空全部填完 + 失焦 → 自动告知 AI(B 方案),AI 接话并问下一题
+  const notifyIfComplete = (id: string, canonical: string) => {
+    const assembled = assembleBullet(canonical, fills[id] ?? []);
+    if (FILL_RE.test(assembled)) return; // 还有空没填,先不打扰
+    if (assembled === lastSentFill.current[id]) return; // 没变化,别重复发
+    if (loading) return;
+    lastSentFill.current[id] = assembled;
+    runTurn({ userText: `我把这条补充完整了:${assembled}` });
+  };
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      send();
+      sendInput();
+    }
+  };
+
+  const onDepthChange = (nd: Depth) => {
+    const up = DEPTH_ORDER[nd] > DEPTH_ORDER[depth];
+    setDepth(nd);
+    if (intake.roles.length > 0 || bullets.length > 0) {
+      runTurn({ intent: up ? "depth_change_up" : "depth_change_down" });
     }
   };
 
@@ -359,8 +471,9 @@ export default function Module2Page() {
     setCategories([]);
     setPendingCats([]);
     setEnumerating(!ambitious);
-    setMessages([{ from: "ai", text: buildOpener(profile.persona_tag, []) }]);
-    setPhase("anchor");
+    setMessages([{ from: "ai", text: openerText(profile.persona_tag) }]);
+    setPhase("spread");
+    setSuggestWrap(false);
     setDone(false);
     setError(null);
     setExpandedBullets(new Set());
@@ -369,31 +482,38 @@ export default function Module2Page() {
   const confirmCategories = () => {
     setCategories(pendingCats);
     setEnumerating(false);
-    setMessages([
-      { from: "ai", text: buildOpener(profile.persona_tag, pendingCats) },
-    ]);
-  };
-
-  const toggleCat = (key: string) => {
-    setPendingCats((prev) =>
-      prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]
-    );
-  };
-
-  const toggleBulletExpand = (i: number) => {
-    setExpandedBullets((prev) => {
-      const next = new Set(prev);
-      if (next.has(i)) next.delete(i);
-      else next.add(i);
-      return next;
+    const labels = pendingCats
+      .map((k) => EXPERIENCE_CATEGORIES.find((c) => c.key === k)?.label ?? k)
+      .join("、");
+    runTurn({
+      reset: true,
+      userText: labels ? `我大学里沾过:${labels}。先从印象最深的那段开始挖吧。` : "我不太确定有什么经历,你带我挖吧。",
     });
   };
 
-  const copyBullet = async (i: number, text: string) => {
+  const startFreeChat = () => {
+    setEnumerating(false);
+  };
+
+  const toggleCat = (key: string) =>
+    setPendingCats((prev) => (prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]));
+
+  const togglePick = (label: string) =>
+    setPickedOpts((prev) => (prev.includes(label) ? prev.filter((k) => k !== label) : [...prev, label]));
+
+  const toggleBulletExpand = (id: string) =>
+    setExpandedBullets((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
+  const copyBullet = async (id: string, text: string) => {
     try {
       await navigator.clipboard.writeText(text);
-      setCopiedIdx(i);
-      setTimeout(() => setCopiedIdx(null), 1500);
+      setCopiedId(id);
+      setTimeout(() => setCopiedId(null), 1500);
     } catch {
       setError("复制失败,请手动选中复制");
     }
@@ -401,7 +521,8 @@ export default function Module2Page() {
 
   const copyAllSummary = async () => {
     try {
-      await navigator.clipboard.writeText(buildResumeMarkdown(intake));
+      const assembled = bullets.map((b) => ({ ...b, text: assembleBullet(b.text, fills[b.id ?? b.text] ?? []) }));
+      await navigator.clipboard.writeText(buildResumeMarkdown(intake, assembled));
       setCopiedAll(true);
       setTimeout(() => setCopiedAll(false), 1500);
     } catch {
@@ -409,499 +530,372 @@ export default function Module2Page() {
     }
   };
 
-  const hasAnySummary = intake.roles.length > 0 || intake.stories.length > 0;
+  const hasAnySummary = intake.roles.length > 0 || intake.stories.length > 0 || bullets.length > 0;
+  // 素材台按来源类型分组(plan:按用户选的类型分)
+  const bulletGroups = (() => {
+    const order = [...EXPERIENCE_CATEGORIES.map((c) => c.key), "_other"];
+    const map: Record<string, CandidateBullet[]> = {};
+    bullets.forEach((b) => {
+      const k = b.source_category || "_other";
+      (map[k] = map[k] || []).push(b);
+    });
+    return order.filter((k) => map[k]?.length).map((k) => ({
+      key: k,
+      label: k === "_other" ? "其他" : categoryLabel(k),
+      items: map[k],
+    }));
+  })();
+  const lastMsg = messages[messages.length - 1];
+  const activeAsk = lastMsg && lastMsg.from === "ai" && !loading && !done ? lastMsg.ask ?? null : null;
+  const showMulti = activeAsk?.type === "multi_select";
 
   return (
     <>
       <Nav />
       <main className="min-h-screen bg-warm-bg" id="top">
         <div className="h-20" />
-
         <div className="flex">
           <Suspense fallback={<aside className="w-60 flex-shrink-0" />}>
-            <ConversationSwitcher module="m2" basePath="/m2" defaultTitle="经历" />
+            <ConversationSwitcher module="m2" basePath="/m2" defaultTitle="挖经历" />
           </Suspense>
           <div className="flex-1 min-w-0">
-
-        <section className="border-b border-border">
-          <div className="max-w-[1100px] mx-auto px-6 py-8">
-            <Link
-              href="/"
-              className="inline-flex items-center gap-1 text-sm text-ink-soft hover:text-esther-blue transition-colors mb-5"
-            >
-              ← 回首页
-            </Link>
-            <h1 className="text-3xl md:text-4xl font-bold text-ink mb-2 leading-tight">
-              把零散经历讲明白
-            </h1>
-            <p className="text-ink-soft text-sm">
-              没简历也行 — 我一段一段陪你挖,挖出来直接转 STAR bullet 进简历
-            </p>
-          </div>
-        </section>
-
-        <div className="max-w-[1100px] mx-auto px-6 py-10 grid grid-cols-1 lg:grid-cols-[1fr_1.6fr] gap-8">
-          {/* 左:你的素材积累 + 统计 */}
-          <aside className="space-y-5">
-            <Card className="p-5 border-2 border-border">
-              <div className="flex items-center justify-between mb-1">
-                <p className="text-sm font-semibold text-ink">
-                  📄 你的素材积累
+            <section className="border-b border-border">
+              <div className="max-w-[1100px] mx-auto px-6 py-8">
+                <Link href="/" className="inline-flex items-center gap-1 text-sm text-ink-soft hover:text-esther-blue transition-colors mb-5">
+                  ← 回首页
+                </Link>
+                <h1 className="text-3xl md:text-4xl font-bold text-ink mb-2 leading-tight">把零散经历讲明白</h1>
+                <p className="text-ink-soft text-sm">
+                  没简历也行 — 你认一认做过哪些,我帮你翻译成简历能用的 bullet,顺手点亮你没意识到的亮点
                 </p>
-                {hasAnySummary && (
-                  <button
-                    onClick={copyAllSummary}
-                    className="px-2 py-0.5 text-[10px] rounded-md bg-esther-yellow/30 text-ink hover:bg-esther-yellow/50 transition-colors"
-                  >
-                    {copiedAll ? "✓ 已复制" : "📋 全部"}
-                  </button>
-                )}
               </div>
-              <p className="text-[11px] text-ink-muted mb-3 italic">
-                {hasAnySummary
-                  ? "(随你说的内容慢慢成形,可直接复制到简历)"
-                  : "(还没素材 — 跟 AI 聊几轮,这里会自动累积)"}
-              </p>
-              {intake.roles.length > 0 && (
-                <div className="space-y-3">
-                  {intake.roles.map((r, i) => (
-                    <div
-                      key={`r-${i}`}
-                      className="bg-warm-bg-deep/30 border border-border rounded-lg p-2.5"
-                    >
-                      <p className="text-[11px] text-ink-muted mb-0.5">
-                        经历 {i + 1}
-                      </p>
-                      <p className="text-xs font-medium text-ink leading-tight">
-                        {r.role}{" "}
-                        <span className="text-ink-soft">· {r.org_type}</span>
-                      </p>
-                      {r.period && (
-                        <p className="text-[11px] text-ink-muted mt-0.5">
-                          {r.period}
-                        </p>
-                      )}
-                      {r.charter && (
-                        <p className="text-[11px] text-ink mt-1 leading-snug">
-                          核心: {r.charter}
-                        </p>
-                      )}
-                      {r.scale && (
-                        <p className="text-[11px] text-ink leading-snug">
-                          规模: {r.scale}
-                        </p>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-              {intake.stories.length > 0 && (
-                <>
-                  <div className="flex items-center gap-2 mt-4 mb-2">
-                    <div className="flex-1 h-px bg-border" />
-                    <p className="text-[10px] text-ink-muted">故事</p>
-                    <div className="flex-1 h-px bg-border" />
+            </section>
+
+            <div className="max-w-[1100px] mx-auto px-6 py-10 grid grid-cols-1 lg:grid-cols-[1fr_1.6fr] gap-8">
+              {/* 左:实时素材台 */}
+              <aside className="space-y-5">
+                <Card className="p-5 border-2 border-border">
+                  <div className="flex items-center justify-between mb-1">
+                    <p className="text-sm font-semibold text-ink">📄 实时素材台</p>
+                    {hasAnySummary && (
+                      <button
+                        onClick={copyAllSummary}
+                        className="px-2 py-0.5 text-[10px] rounded-md bg-esther-yellow/30 text-ink hover:bg-esther-yellow/50 transition-colors"
+                      >
+                        {copiedAll ? "✓ 已复制" : "📋 全部"}
+                      </button>
+                    )}
                   </div>
-                  <div className="space-y-2.5">
-                    {intake.stories.map((s, i) => {
-                      const badge = CATEGORY_BADGE[s.category];
-                      return (
-                        <div
-                          key={`s-${i}`}
-                          className="bg-warm-bg-deep/30 border border-border rounded-lg p-2.5"
-                        >
-                          <div className="flex items-start justify-between gap-2">
-                            <p className="text-xs font-medium text-ink leading-tight flex-1">
-                              {s.title || `故事 ${i + 1}`}
-                            </p>
-                            <span
-                              className={`inline-flex flex-shrink-0 items-center px-1.5 py-0.5 rounded text-[9px] font-medium ${badge.cls}`}
-                            >
-                              {badge.label}
-                            </span>
-                          </div>
-                          <p className="text-[10px] text-esther-yellow leading-none mt-1">
-                            {"⭐".repeat(s.strength || 0)}
+                  <p className="text-[11px] text-ink-muted mb-3 italic">
+                    {hasAnySummary ? "(随你认领的内容实时长出,可直接复制到简历)" : "(还没素材 — 认几下,这里会即时累积)"}
+                  </p>
+
+                  {/* 候选 bullets = 主角(实时长出,按来源类型分组,【请补充】可内联填) */}
+                  {bullets.length > 0 && (
+                    <div className="space-y-4 mb-4">
+                      {bulletGroups.map((g) => (
+                        <div key={g.key}>
+                          <p className="text-[11px] font-semibold text-ink-soft mb-1.5 flex items-center gap-1.5">
+                            <span className="w-1.5 h-1.5 rounded-full bg-esther-blue/60" />
+                            {g.label}
+                            <span className="text-ink-muted font-normal">· {g.items.length}</span>
                           </p>
-                          {s.earned_secret && (
-                            <p className="text-[11px] text-ink-soft italic mt-1.5 leading-snug">
-                              「{s.earned_secret}」
-                            </p>
-                          )}
+                          <div className="space-y-2">
+                            {g.items.map((b) => {
+                              const id = b.id ?? b.text;
+                              const vals = fills[id] ?? [];
+                              const display = assembleBullet(b.text, vals);
+                              const suf = SUFFICIENCY_BADGE[gradeBulletFE(display)];
+                              const star = b.star_breakdown;
+                              const expanded = expandedBullets.has(id);
+                              const fillable = FILL_RE.test(b.text);
+                              return (
+                                <div key={id} className="bg-card border border-border rounded-lg p-2.5">
+                                  <div className="flex items-start gap-2">
+                                    <p className="text-xs text-ink leading-snug flex-1 whitespace-pre-wrap">
+                                      {b.hidden_value && <span title="AI 帮你点亮的隐藏亮点">💡 </span>}
+                                      {fillable ? (
+                                        <FillableBulletText canonical={b.text} vals={vals} onChange={(i, v) => setFill(id, i, v)} onBlur={() => notifyIfComplete(id, b.text)} />
+                                      ) : (
+                                        b.text
+                                      )}
+                                    </p>
+                                    <span className={`flex-shrink-0 inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-medium ${suf.cls}`}>
+                                      {suf.label}
+                                    </span>
+                                  </div>
+                                  <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                                    {b.competency && <span className="text-[10px] text-ink-muted">{b.competency}</span>}
+                                    {b.anti_fab_note && <span className="text-[10px] text-ink-soft italic">· {b.anti_fab_note}</span>}
+                                    <button
+                                      onClick={() => copyBullet(id, display)}
+                                      className="ml-auto px-1.5 py-0.5 text-[9px] rounded bg-esther-yellow/30 text-ink hover:bg-esther-yellow/50"
+                                    >
+                                      {copiedId === id ? "✓" : "复制"}
+                                    </button>
+                                    {star && (
+                                      <button
+                                        onClick={() => toggleBulletExpand(id)}
+                                        className="px-1.5 py-0.5 text-[9px] rounded bg-warm-bg-deep text-ink-soft hover:bg-warm-bg-deep/70"
+                                      >
+                                        {expanded ? "收起" : "STAR"}
+                                      </button>
+                                    )}
+                                  </div>
+                                  {expanded && star && (
+                                    <div className="mt-2 pt-2 border-t border-border space-y-1 text-[11px] text-ink">
+                                      <div><b className="text-esther-blue">S</b> {star.s || "-"}</div>
+                                      <div><b className="text-esther-blue">T</b> {star.t || "-"}</div>
+                                      <div><b className="text-esther-blue">A</b> {star.a || "-"}</div>
+                                      <div><b className="text-esther-blue">R</b> {star.r || "-"}</div>
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
                         </div>
-                      );
-                    })}
-                  </div>
-                </>
-              )}
-            </Card>
-
-            <Card className="p-4 border border-border bg-card">
-              <p className="text-[11px] text-ink-muted leading-relaxed">
-                已挖 <b className="text-ink">{intake.roles.length}</b> 段经历 ·{" "}
-                <b className="text-ink">{intake.stories.length}</b> 个故事 ·{" "}
-                <b className="text-ink">{bullets.length}</b> 条候选 bullet
-              </p>
-
-              {/* 已识别证据 panel(plan offer-1-sparkling-hippo P1)
-                  从 roles 的 charter + scale 和 stories 的 star.result 抽取数字 / 规模 / 角色名等
-                  让用户看到 "原来这些细节已经被记住了" */}
-              {(() => {
-                const evidence: string[] = [];
-                // 从 roles 拿 scale 和 role
-                intake.roles.forEach((r) => {
-                  if (r.scale) evidence.push(`${r.scale}(${r.role ?? "角色"})`);
-                  else if (r.role) evidence.push(r.role);
-                });
-                // 从 stories 抽数字证据
-                const NUM_RE = /\d+\.?\d*[+]?[%]?(?:\s*(?:人|份|个|场|条|篇|轮|款|家|位|名|周|月|小时|分钟))?/g;
-                intake.stories.forEach((s) => {
-                  const result = s.star?.result ?? "";
-                  const matches = result.match(NUM_RE);
-                  if (matches) matches.slice(0, 2).forEach((m) => evidence.push(m));
-                });
-                const unique = Array.from(new Set(evidence)).slice(0, 8);
-                if (unique.length === 0) return null;
-                return (
-                  <div className="mt-3 pt-3 border-t border-border">
-                    <p className="text-[10px] text-ink-muted mb-1 font-display italic uppercase tracking-wider">
-                      Evidence captured
-                    </p>
-                    <p className="text-[10px] text-ink-soft mb-2">已识别证据:</p>
-                    <div className="flex flex-wrap gap-1">
-                      {unique.map((ev, i) => (
-                        <span
-                          key={i}
-                          className="inline-flex items-center px-1.5 py-0.5 rounded bg-esther-blue/10 text-esther-blue text-[10px]"
-                        >
-                          {ev}
-                        </span>
                       ))}
                     </div>
-                  </div>
-                );
-              })()}
+                  )}
 
-              <button
-                onClick={reset}
-                className="mt-3 text-[11px] text-ink-soft hover:text-esther-red transition-colors underline"
-              >
-                清空重来
-              </button>
-            </Card>
-          </aside>
-
-          {/* 右:真聊天 */}
-          <div>
-            <div className="flex items-center justify-between mb-4 gap-3 flex-wrap">
-              <p className="text-sm text-ink-soft">
-                <span className="font-medium text-ink">经历挖掘对话</span>{" "}
-                · 当前阶段:<span className="text-esther-blue">{phase}</span>
-              </p>
-              <div className="flex items-center gap-2">
-                <label className="text-[11px] text-ink-soft flex items-center gap-1">
-                  🎚 追问深度
-                  <select
-                    value={depth}
-                    onChange={(e) => setDepth(e.target.value as Depth)}
-                    className="ml-1 px-2 py-1 rounded-md border border-border bg-card text-xs text-ink focus:outline-none focus:ring-2 focus:ring-esther-blue/40 cursor-pointer"
-                    title={
-                      DEPTH_OPTIONS.find((d) => d.value === depth)?.hint
-                    }
-                  >
-                    {DEPTH_OPTIONS.map((opt) => (
-                      <option key={opt.value} value={opt.value}>
-                        {opt.label} — {opt.hint}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <span
-                  className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium border ${
-                    done
-                      ? "bg-esther-blue/15 text-esther-blue border-esther-blue/40"
-                      : "bg-warm-bg-deep text-ink-muted border-border"
-                  }`}
-                >
-                  {done ? "✓ 挖完了" : "P1 真 LLM"}
-                </span>
-              </div>
-            </div>
-
-            <Card className="border-2 border-border overflow-hidden">
-              <div className="bg-warm-bg-deep/40 px-5 py-3 border-b border-border flex items-center gap-3">
-                <div className="w-8 h-8 rounded-full bg-esther-blue/15 flex items-center justify-center text-base">
-                  🤖
-                </div>
-                <p className="text-xs text-ink">
-                  <span className="font-medium">经历挖掘 AI</span> ·
-                  一段一段问,一 turn 一问
-                </p>
-              </div>
-
-              <div
-                ref={scrollRef}
-                className="p-5 space-y-4 max-h-[600px] overflow-y-auto"
-              >
-                {enumerating && (
-                  <div className="bg-esther-yellow/10 border border-esther-yellow/40 rounded-xl p-4 mb-2">
-                    <p className="text-xs font-semibold text-ink mb-1">
-                      📋 Step 1 · 勾你大学里沾边做过的事(多选,沾边都算)
-                    </p>
-                    <p className="text-[11px] text-ink-soft mb-3 leading-relaxed">
-                      不用想"有没有价值" — 帮室友补习、组织聚餐、写过宿舍群通知都算。
-                      勾完点确认,AI 会按勾的类逐个挖 + 翻译成简历能用的句子。
-                    </p>
-                    <div className="grid grid-cols-2 gap-2 mb-3">
-                      {EXPERIENCE_CATEGORIES.map((cat) => {
-                        const selected = pendingCats.includes(cat.key);
+                  {/* 底座:roles / stories(只读,供导出 + 老数据) */}
+                  {intake.roles.length > 0 && (
+                    <div className="space-y-2">
+                      {intake.roles.map((r, i) => (
+                        <div key={`r-${i}`} className="bg-warm-bg-deep/30 border border-border rounded-lg p-2">
+                          <p className="text-xs font-medium text-ink leading-tight">
+                            {r.role} <span className="text-ink-soft">· {r.org_type}</span>
+                          </p>
+                          {r.charter && <p className="text-[11px] text-ink mt-0.5 leading-snug">核心: {r.charter}</p>}
+                          {r.scale && <p className="text-[11px] text-ink leading-snug">规模: {r.scale}</p>}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {intake.stories.length > 0 && (
+                    <div className="space-y-2 mt-3">
+                      {intake.stories.map((s, i) => {
+                        const badge = CATEGORY_BADGE[s.category];
                         return (
-                          <button
-                            key={cat.key}
-                            onClick={() => toggleCat(cat.key)}
-                            className={`text-left p-2.5 rounded-lg border transition-colors ${
-                              selected
-                                ? "bg-esther-blue text-white border-esther-blue"
-                                : "bg-card border-border hover:border-esther-blue/50 text-ink"
-                            }`}
-                          >
-                            <p className="text-xs font-medium">
-                              {selected ? "✓ " : ""}
-                              {cat.label}
-                            </p>
-                            <p
-                              className={`text-[10px] mt-0.5 ${
-                                selected ? "text-white/80" : "text-ink-muted"
-                              }`}
-                            >
-                              {cat.hint}
-                            </p>
-                          </button>
+                          <div key={`s-${i}`} className="bg-warm-bg-deep/30 border border-border rounded-lg p-2">
+                            <div className="flex items-start justify-between gap-2">
+                              <p className="text-xs font-medium text-ink leading-tight flex-1">{s.title || `故事 ${i + 1}`}</p>
+                              <span className={`inline-flex flex-shrink-0 items-center px-1.5 py-0.5 rounded text-[9px] font-medium ${badge.cls}`}>
+                                {badge.label}
+                              </span>
+                            </div>
+                            {s.earned_secret && (
+                              <p className="text-[11px] text-ink-soft italic mt-1 leading-snug">「{s.earned_secret}」</p>
+                            )}
+                          </div>
                         );
                       })}
                     </div>
-                    <div className="flex items-center justify-between gap-3">
-                      <p className="text-[10px] text-ink-muted">
-                        已勾 <b className="text-ink">{pendingCats.length}</b> 类
-                        {pendingCats.length === 0
-                          ? " · 0 也行,我会主动追问"
-                          : ""}
-                      </p>
-                      <button
-                        onClick={confirmCategories}
-                        className="px-4 py-1.5 rounded-full text-xs font-medium bg-esther-blue text-white hover:bg-esther-blue/90 transition-colors"
+                  )}
+                </Card>
+
+                <Card className="p-4 border border-border bg-card">
+                  <p className="text-[11px] text-ink-muted leading-relaxed">
+                    已挖 <b className="text-ink">{intake.roles.length}</b> 段经历 ·{" "}
+                    <b className="text-ink">{bullets.length}</b> 条候选 bullet
+                  </p>
+                  <button onClick={reset} className="mt-3 text-[11px] text-ink-soft hover:text-esther-red transition-colors underline">
+                    清空重来
+                  </button>
+                </Card>
+              </aside>
+
+              {/* 右:对话 */}
+              <div>
+                <div className="flex items-center justify-between mb-4 gap-3 flex-wrap">
+                  <p className="text-sm text-ink-soft">
+                    <span className="font-medium text-ink">挖经历对话</span> ·{" "}
+                    <span className="text-esther-blue">{PHASE_LABEL[phase]}</span>
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <label className="text-[11px] text-ink-soft flex items-center gap-1" title="觉得挖得太浅就调高,太细就调低 — AI 按档位决定追多深">
+                      🎚 挖掘深度
+                      <select
+                        value={depth}
+                        onChange={(e) => onDepthChange(e.target.value as Depth)}
+                        className="ml-1 px-2 py-1 rounded-md border border-border bg-card text-xs text-ink focus:outline-none focus:ring-2 focus:ring-esther-blue/40 cursor-pointer"
                       >
-                        确认 → 开始挖
-                      </button>
-                    </div>
+                        {DEPTH_OPTIONS.map((opt) => (
+                          <option key={opt.value} value={opt.value}>{opt.label} — {opt.hint}</option>
+                        ))}
+                      </select>
+                    </label>
                   </div>
-                )}
-                {messages.map((d, i) => (
-                  <div
-                    key={i}
-                    className={`flex gap-3 ${
-                      d.from === "user" ? "flex-row-reverse" : "flex-row"
+                </div>
+
+                <Card className="border-2 border-border overflow-hidden">
+                  <div className="bg-warm-bg-deep/40 px-5 py-3 border-b border-border flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-full bg-esther-blue/15 flex items-center justify-center text-base">🤖</div>
+                    <p className="text-xs text-ink"><span className="font-medium">挖经历 AI</span> · 认一认就好,不用凭空想</p>
+                  </div>
+
+                  <div ref={scrollRef} className="p-5 space-y-4 max-h-[600px] overflow-y-auto">
+                    {/* 入口:记忆唤醒多选 + 直接开聊 */}
+                    {enumerating && (
+                      <div className="bg-esther-yellow/10 border border-esther-yellow/40 rounded-xl p-4 mb-2">
+                        <p className="text-xs font-semibold text-ink mb-1">先认一认:大学里你沾边做过哪些?(多选,沾边都算)</p>
+                        <p className="text-[11px] text-ink-soft mb-3 leading-relaxed">
+                          帮室友补习、组织聚餐、写过宿舍群通知都算。勾完点开始,AI 按勾的类逐个挖。
+                        </p>
+                        <div className="grid grid-cols-2 gap-2 mb-3">
+                          {EXPERIENCE_CATEGORIES.map((cat) => {
+                            const selected = pendingCats.includes(cat.key);
+                            return (
+                              <button
+                                key={cat.key}
+                                onClick={() => toggleCat(cat.key)}
+                                className={`text-left p-2.5 rounded-lg border transition-colors ${
+                                  selected ? "bg-esther-blue text-white border-esther-blue" : "bg-card border-border hover:border-esther-blue/50 text-ink"
+                                }`}
+                              >
+                                <p className="text-xs font-medium">{selected ? "✓ " : ""}{cat.label}</p>
+                                <p className={`text-[10px] mt-0.5 ${selected ? "text-white/80" : "text-ink-muted"}`}>{cat.hint}</p>
+                              </button>
+                            );
+                          })}
+                        </div>
+                        <div className="flex items-center justify-between gap-3">
+                          <button onClick={startFreeChat} className="text-[11px] text-ink-soft hover:text-esther-blue underline underline-offset-2">
+                            懒得勾,直接开聊 →
+                          </button>
+                          <button
+                            onClick={confirmCategories}
+                            className="px-4 py-1.5 rounded-full text-xs font-medium bg-esther-blue text-white hover:bg-esther-blue/90 transition-colors"
+                          >
+                            开始挖 →
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {messages.map((d, i) => (
+                      <div key={i} className={`flex gap-3 ${d.from === "user" ? "flex-row-reverse" : "flex-row"}`}>
+                        <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-sm ${d.from === "user" ? "bg-esther-yellow/30" : "bg-esther-blue/15"}`}>
+                          {d.from === "user" ? "👤" : "🤖"}
+                        </div>
+                        <div className={`max-w-[80%] p-3 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap ${
+                          d.from === "user" ? "bg-esther-yellow text-ink rounded-tr-sm"
+                          : i === messages.length - 1 ? "bg-esther-blue text-white rounded-tl-sm"
+                          : "bg-warm-bg-deep text-ink rounded-tl-sm"
+                        }`}>
+                          {d.text}
+                        </div>
+                      </div>
+                    ))}
+
+                    {/* 认领多选控件(跟在最新 AI ask 之后) */}
+                    {showMulti && activeAsk?.type === "multi_select" && (
+                      <div className="ml-11 bg-card border border-esther-blue/30 rounded-xl p-3">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-2">
+                          {activeAsk.options.map((o) => {
+                            const sel = pickedOpts.includes(o.label);
+                            return (
+                              <button
+                                key={o.label}
+                                onClick={() => togglePick(o.label)}
+                                className={`text-left px-2.5 py-1.5 rounded-lg border text-xs transition-colors ${
+                                  sel ? "bg-esther-blue text-white border-esther-blue" : "bg-card border-border hover:border-esther-blue/50 text-ink"
+                                }`}
+                              >
+                                {sel ? "✓ " : ""}{o.label}
+                                {o.high_signal && <span className={sel ? "text-white/70" : "text-esther-yellow"}> ★</span>}
+                              </button>
+                            );
+                          })}
+                        </div>
+                        <input
+                          value={otherText}
+                          onChange={(e) => setOtherText(e.target.value)}
+                          placeholder={activeAsk.other_label + "(可填)"}
+                          className="w-full px-2.5 py-1.5 rounded-lg border border-border bg-warm-bg-deep/30 text-xs text-ink placeholder:text-ink-muted focus:outline-none focus:ring-2 focus:ring-esther-blue/40 mb-2"
+                        />
+                        <div className="flex justify-end">
+                          <button
+                            onClick={submitPicks}
+                            disabled={pickedOpts.length === 0 && !otherText.trim()}
+                            className={`px-4 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                              pickedOpts.length === 0 && !otherText.trim() ? "bg-esther-blue/40 text-white cursor-not-allowed" : "bg-esther-blue text-white hover:bg-esther-blue/90"
+                            }`}
+                          >
+                            认领这些 →
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {loading && (
+                      <div className="flex gap-3 flex-row">
+                        <div className="flex-shrink-0 w-8 h-8 rounded-full bg-esther-blue/15 flex items-center justify-center text-sm">🤖</div>
+                        <div className="max-w-[80%] p-3 rounded-2xl text-sm bg-warm-bg-deep text-ink-muted rounded-tl-sm italic">正在帮你整理…</div>
+                      </div>
+                    )}
+                    {error && (
+                      <div className="text-xs text-esther-red bg-esther-red/10 border border-esther-red/30 rounded-lg p-2">出错了: {error}</div>
+                    )}
+                  </div>
+
+                  <div className="border-t border-border px-3 py-3 bg-warm-bg-deep/30 flex items-end gap-3">
+                    <textarea
+                      value={input}
+                      onChange={(e) => setInput(e.target.value)}
+                      onKeyDown={onKeyDown}
+                      placeholder={enumerating ? "勾上方类别开始,或直接在这聊" : "想补充什么直接说 · Enter 发送 · Shift+Enter 换行"}
+                      disabled={loading}
+                      rows={2}
+                      className="flex-1 px-3 py-2 rounded-xl border border-border bg-card text-sm text-ink placeholder:text-ink-muted focus:outline-none focus:ring-2 focus:ring-esther-blue/40 resize-none disabled:opacity-60"
+                    />
+                    <button
+                      onClick={sendInput}
+                      disabled={loading || !input.trim()}
+                      className={`px-4 py-2 rounded-full text-white text-xs font-medium transition-colors flex-shrink-0 ${
+                        loading || !input.trim() ? "bg-esther-blue/50 cursor-not-allowed" : "bg-esther-blue hover:bg-esther-blue/90"
+                      }`}
+                    >
+                      {loading ? "..." : "发送"}
+                    </button>
+                  </div>
+                </Card>
+
+                {/* 常驻收口刹车(plan 修 E:不 gate 在 suggest_wrap) */}
+                {bullets.length > 0 && !done && (
+                  <button
+                    onClick={() => runTurn({ userText: "先看看现在能产出什么,帮我收口整理一下吧。" })}
+                    disabled={loading}
+                    className={`mt-4 w-full py-2.5 rounded-xl text-sm font-medium border-2 transition-colors ${
+                      suggestWrap ? "border-esther-blue bg-esther-blue/5 text-esther-blue ring-2 ring-esther-blue/20" : "border-border bg-card text-ink-soft hover:border-esther-blue/50"
                     }`}
                   >
-                    <div
-                      className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-sm ${
-                        d.from === "user"
-                          ? "bg-esther-yellow/30"
-                          : "bg-esther-blue/15"
-                      }`}
-                    >
-                      {d.from === "user" ? "👤" : "🤖"}
-                    </div>
-                    <div
-                      className={`max-w-[80%] p-3 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap ${
-                        d.from === "user"
-                          ? "bg-esther-yellow text-ink rounded-tr-sm"
-                          : i === messages.length - 1
-                          ? "bg-esther-blue text-white rounded-tl-sm"
-                          : "bg-warm-bg-deep text-ink rounded-tl-sm"
-                      }`}
-                    >
-                      {d.text}
-                    </div>
-                  </div>
-                ))}
-                {loading && (
-                  <div className="flex gap-3 flex-row">
-                    <div className="flex-shrink-0 w-8 h-8 rounded-full bg-esther-blue/15 flex items-center justify-center text-sm">
-                      🤖
-                    </div>
-                    <div className="max-w-[80%] p-3 rounded-2xl text-sm bg-warm-bg-deep text-ink-muted rounded-tl-sm italic">
-                      正在思考下一个问题…
-                    </div>
-                  </div>
+                    {suggestWrap ? "✓ 素材够了 — 看看成果 / 先收口" : "看看现在的成果 / 先收口"}
+                  </button>
                 )}
-                {error && (
-                  <div className="text-xs text-esther-red bg-esther-red/10 border border-esther-red/30 rounded-lg p-2">
-                    出错了: {error}
-                  </div>
-                )}
-              </div>
 
-              <div className="border-t border-border px-3 py-3 bg-warm-bg-deep/30 flex items-end gap-3">
-                <textarea
-                  value={input}
-                  onChange={(e) => setInput(e.target.value)}
-                  onKeyDown={onKeyDown}
-                  placeholder={
-                    enumerating
-                      ? "请先勾选上方类别,点确认后再聊"
-                      : done
-                      ? "已挖完 — 可以去简历整理啦,或继续补"
-                      : "Enter 发送 · Shift+Enter 换行"
-                  }
-                  disabled={loading || enumerating}
-                  rows={2}
-                  className="flex-1 px-3 py-2 rounded-xl border border-border bg-card text-sm text-ink placeholder:text-ink-muted focus:outline-none focus:ring-2 focus:ring-esther-blue/40 resize-none disabled:opacity-60"
-                />
-                <button
-                  onClick={send}
-                  disabled={loading || enumerating || !input.trim()}
-                  className={`px-4 py-2 rounded-full text-white text-xs font-medium transition-colors flex-shrink-0 ${
-                    loading || enumerating || !input.trim()
-                      ? "bg-esther-blue/50 cursor-not-allowed"
-                      : "bg-esther-blue hover:bg-esther-blue/90"
-                  }`}
-                >
-                  {loading ? "..." : "发送"}
-                </button>
-              </div>
-            </Card>
-
-            {bullets.length > 0 && (
-              <Card className="mt-6 border-2 border-esther-blue/30 bg-esther-blue/5 overflow-hidden">
-                <div className="bg-esther-blue/10 px-5 py-3 border-b border-esther-blue/20 flex items-center justify-between">
-                  <p className="text-sm font-semibold text-ink flex items-center gap-2">
-                    📝 你的候选 bullets ·{" "}
-                    <span className="text-esther-blue">{bullets.length}</span> 条
-                  </p>
-                  <p className="text-[10px] text-ink-muted">
-                    复制即可贴到简历,或下一步给 m3 整理
-                  </p>
+                <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <Link
+                    href="/m3"
+                    className={`block p-4 rounded-xl border-2 bg-card transition-colors ${
+                      done || suggestWrap ? "border-esther-blue ring-2 ring-esther-blue/30 hover:bg-esther-blue/5" : "border-border hover:border-esther-blue"
+                    }`}
+                  >
+                    <p className="text-sm font-medium text-esther-blue mb-1 flex items-center gap-2">
+                      挖完了 → 整理成简历 →
+                    </p>
+                    <p className="text-xs text-ink-soft">把候选 bullet + 经历带进简历整理(复制"全部"再粘进去)</p>
+                  </Link>
+                  <Link href="/m4" className="block p-4 rounded-xl border-2 border-border bg-card hover:border-esther-blue transition-colors">
+                    <p className="text-sm font-medium text-esther-blue mb-1">发现 gap → 设计项目补 →</p>
+                    <p className="text-xs text-ink-soft">挖完发现缺真用户研究?2-4 周可以做一个</p>
+                  </Link>
                 </div>
-                <div className="p-4 space-y-3">
-                  {bullets.map((b, i) => {
-                    const expanded = expandedBullets.has(i);
-                    const star = b.star_breakdown;
-                    return (
-                      <div
-                        key={i}
-                        className="bg-card border border-border rounded-xl p-3"
-                      >
-                        <div className="flex items-start justify-between gap-3 mb-2">
-                          <p className="text-xs text-ink leading-relaxed flex-1 whitespace-pre-wrap">
-                            <span className="text-esther-blue font-medium mr-1.5">
-                              {i + 1}.
-                            </span>
-                            {b.text}
-                          </p>
-                          <div className="flex gap-1 flex-shrink-0">
-                            <button
-                              onClick={() => copyBullet(i, b.text)}
-                              className="px-2 py-0.5 text-[10px] rounded-md bg-esther-yellow/30 text-ink hover:bg-esther-yellow/50 transition-colors"
-                            >
-                              {copiedIdx === i ? "✓ 已复制" : "复制"}
-                            </button>
-                            {star && (
-                              <button
-                                onClick={() => toggleBulletExpand(i)}
-                                className="px-2 py-0.5 text-[10px] rounded-md bg-warm-bg-deep text-ink-soft hover:bg-warm-bg-deep/70 transition-colors"
-                              >
-                                {expanded ? "收起 ▴" : "STAR ▾"}
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                        {expanded && star && (
-                          <div className="mt-2 pt-2 border-t border-border space-y-1.5">
-                            <div className="text-[11px] text-ink">
-                              <b className="text-esther-blue">S</b>{" "}
-                              <span className="text-ink-soft">情境 ·</span>{" "}
-                              {star.s ||
-                                (
-                                  star as unknown as {
-                                    situation?: string;
-                                  }
-                                ).situation ||
-                                "-"}
-                            </div>
-                            <div className="text-[11px] text-ink">
-                              <b className="text-esther-blue">T</b>{" "}
-                              <span className="text-ink-soft">任务 ·</span>{" "}
-                              {star.t ||
-                                (star as unknown as { task?: string }).task ||
-                                "-"}
-                            </div>
-                            <div className="text-[11px] text-ink">
-                              <b className="text-esther-blue">A</b>{" "}
-                              <span className="text-ink-soft">行动 ·</span>{" "}
-                              {star.a ||
-                                (
-                                  star as unknown as { action?: string }
-                                ).action ||
-                                "-"}
-                            </div>
-                            <div className="text-[11px] text-ink">
-                              <b className="text-esther-blue">R</b>{" "}
-                              <span className="text-ink-soft">结果 ·</span>{" "}
-                              {star.r ||
-                                (
-                                  star as unknown as { result?: string }
-                                ).result ||
-                                "-"}
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              </Card>
-            )}
-
-            <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-3">
-              <Link
-                href="/m3"
-                className={`block p-4 rounded-xl border-2 bg-card transition-colors ${
-                  done
-                    ? "border-esther-blue ring-2 ring-esther-blue/30 hover:bg-esther-blue/5"
-                    : "border-border hover:border-esther-blue"
-                }`}
-              >
-                <p className="text-sm font-medium text-esther-blue mb-1 flex items-center gap-2">
-                  挖完了 → 整理成简历 →
-                  {done && (
-                    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-medium bg-esther-blue text-white">
-                      就绪
-                    </span>
-                  )}
-                </p>
-                <p className="text-xs text-ink-soft">
-                  AI 把挖出的故事直接写成 STAR bullet 进 Word
-                </p>
-              </Link>
-              <Link
-                href="/m4"
-                className="block p-4 rounded-xl border-2 border-border bg-card hover:border-esther-blue transition-colors"
-              >
-                <p className="text-sm font-medium text-esther-blue mb-1">
-                  发现 gap → 设计项目补 →
-                </p>
-                <p className="text-xs text-ink-soft">
-                  挖完发现缺真用户研究?2-4 周可以做一个
-                </p>
-              </Link>
+              </div>
             </div>
           </div>
         </div>
-
-          </div>
-        </div>
-
         <BuerFloatingButton />
       </main>
     </>

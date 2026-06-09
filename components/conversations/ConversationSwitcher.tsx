@@ -61,6 +61,7 @@ export default function ConversationSwitcher({
 
   const [list, setList] = useState<Conversation[]>(() => listCache[module] ?? []);
   const [loading, setLoading] = useState(() => !listCache[module]);
+  const [creating, setCreating] = useState(false);
   const [renameId, setRenameId] = useState<string | null>(null);
   const [renameText, setRenameText] = useState("");
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
@@ -115,15 +116,21 @@ export default function ConversationSwitcher({
   }, [menuOpenId, renameId, confirmDeleteId]);
 
   async function onNew() {
-    const id = await createConversation(module, `${defaultTitle} ${list.length + 1}`);
-    if (id) {
-      // 先跳转(snappy),列表后台刷新 + 回写缓存
-      // new=1:新会话本就是空的,设置页直接出空表单、不显示加载态(消除闪烁)
-      router.push(`${basePath}?c=${id}&new=1`);
-      listConversations(module).then((data) => {
-        listCache[module] = data;
-        setList(data);
-      });
+    if (creating) return; // 防连点重复建会话(用户反馈:无反馈→狂点→建出十几个)
+    setCreating(true);
+    try {
+      const id = await createConversation(module, `${defaultTitle} ${list.length + 1}`);
+      if (id) {
+        // 先跳转(snappy),列表后台刷新 + 回写缓存
+        // new=1:新会话本就是空的,设置页直接出空表单、不显示加载态(消除闪烁)
+        router.push(`${basePath}?c=${id}&new=1`);
+        listConversations(module).then((data) => {
+          listCache[module] = data;
+          setList(data);
+        });
+      }
+    } finally {
+      setCreating(false);
     }
   }
 
@@ -161,10 +168,11 @@ export default function ConversationSwitcher({
         {user && (
           <button
             onClick={onNew}
+            disabled={creating}
             title="新建会话"
-            className="w-full py-2 text-esther-blue hover:bg-warm-bg-deep transition flex justify-center text-lg"
+            className="w-full py-2 text-esther-blue hover:bg-warm-bg-deep transition flex justify-center text-lg disabled:opacity-50 disabled:cursor-wait"
           >
-            +
+            {creating ? "⏳" : "+"}
           </button>
         )}
       </aside>
@@ -225,11 +233,12 @@ export default function ConversationSwitcher({
         </div>
         <button
           onClick={onNew}
+          disabled={creating}
           data-m3-create-conversation
-          className="w-full mb-3 px-3 py-2 rounded-xl bg-esther-blue text-white text-sm hover:bg-esther-blue-dark transition flex items-center justify-center gap-1"
+          className="w-full mb-3 px-3 py-2 rounded-xl bg-esther-blue text-white text-sm hover:bg-esther-blue-dark transition flex items-center justify-center gap-1 disabled:opacity-60 disabled:cursor-wait"
         >
-          <span className="text-base">+</span>
-          <span>新建{defaultTitle}</span>
+          <span className="text-base">{creating ? "⏳" : "+"}</span>
+          <span>{creating ? "新建中…" : `新建${defaultTitle}`}</span>
         </button>
 
         {loading && (

@@ -59,12 +59,15 @@ export async function createConversation(
 ): Promise<string | null> {
   const supabase = client(c);
   // RLS 要求 user_id = auth.uid(),我们 insert 时手动填(supabase-js 不会自动填)
-  const { data: userData } = await supabase.auth.getUser();
-  if (!userData.user) return null;
+  // 用 getSession()(读本地 JWT,无网络往返)而非 getUser()(每次都打服务器验证,首次点击慢的主因);
+  // user_id 真伪由服务端 RLS 兜底,本地读取够用
+  const { data: sessionData } = await supabase.auth.getSession();
+  const uid = sessionData.session?.user?.id;
+  if (!uid) return null;
 
   const { data, error } = await supabase
     .from("conversations")
-    .insert({ module, title, user_id: userData.user.id })
+    .insert({ module, title, user_id: uid })
     .select("id")
     .single();
   if (error || !data) {
