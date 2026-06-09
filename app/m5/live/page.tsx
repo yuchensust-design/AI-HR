@@ -319,7 +319,7 @@ function Module5LiveContent() {
   const router = useRouter();
   const sp = useSearchParams();
   const convId = sp.get("c");
-  const { user } = useUser();
+  const { user, loading: userLoading } = useUser();
   const convQs = convId ? `?c=${convId}` : "";
   const [state, dispatch] = useReducer(reducer, initial);
   const [config, setConfig] = useState<InterviewSessionConfig | null>(null);
@@ -344,7 +344,10 @@ function Module5LiveContent() {
   const [resumeChecked, setResumeChecked] = useState(false);
 
   // 加载 config:登录 + 有 convId → DB;否则 localStorage
+  // 必须等 auth 状态确定(userLoading=false)再决定分支 —— 否则登录用户点历史会话时,
+  // 挂载瞬间 user 还没 resolve → 误走 localStorage 兜底 → "没有面试配置"(竞态 bug)。
   useEffect(() => {
+    if (userLoading) return;
     if (user && convId) {
       let cancelled = false;
       const supabase = createClient();
@@ -386,7 +389,7 @@ function Module5LiveContent() {
         msg: "读取面试配置失败",
       });
     }
-  }, []);
+  }, [user, userLoading, convId]);
 
   // v5-R1：config 就绪后，先检测 localStorage 是否有"本场配置"的可恢复进度
   useEffect(() => {

@@ -104,7 +104,7 @@ function Module5DebriefContent() {
   const router = useRouter();
   const sp = useSearchParams();
   const convId = sp.get("c");
-  const { user } = useUser();
+  const { user, loading: userLoading } = useUser();
   const [session, setSession] = useState<InterviewSession | null>(null);
   const [debrief, setDebrief] = useState<DebriefResult | null>(null);
   const [loading, setLoading] = useState(true);
@@ -117,6 +117,9 @@ function Module5DebriefContent() {
   const [capLoading, setCapLoading] = useState(false);
 
   useEffect(() => {
+    // 等 auth 状态确定再决定走 DB 还是 localStorage —— 否则登录用户从历史进来时,
+    // 挂载瞬间 user 未 resolve → 误走 localStorage / 误报"没有面试记录"(竞态 bug)。
+    if (userLoading) return;
     /* eslint-disable react-hooks/set-state-in-effect */
     (async () => {
       let last: InterviewSession | null = null;
@@ -217,7 +220,7 @@ function Module5DebriefContent() {
       })();
     })();
     /* eslint-enable react-hooks/set-state-in-effect */
-  }, [user, convId]);
+  }, [user, userLoading, convId]);
 
   // m5 v5 G1：能力维度二次懒加载（debrief 4 维已渲染后，独立 capability 路由后填）
   // fallback-safe：失败/超时/无内容 → 不显示能力雷达，4 维复盘完全不受影响。

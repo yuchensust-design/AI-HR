@@ -130,13 +130,20 @@ function Module5ConfigContent() {
     const supabase = createClient();
     supabase
       .from("m5_interviews")
-      .select("config_json")
+      .select("config_json, debrief_md, turns_json")
       .eq("conversation_id", convId)
       .maybeSingle()
       .then(({ data }) => {
         if (cancelled) return;
         const cfg = (data?.config_json as Record<string, unknown> | undefined) ?? null;
-        if (cfg && Object.keys(cfg).length > 0) {
+        const hasDebrief = !!data?.debrief_md;
+        const turns = data?.turns_json as { answers?: unknown[] } | undefined;
+        const hasAnswers = Array.isArray(turns?.answers) && turns!.answers.length > 0;
+        // 点历史会话:已完成(有复盘) → 看复盘结果;答过但没复盘 → 也进复盘(会重建生成);
+        // 仅配置过没答 → 进 live 开始/续答;全空(新建) → 留在配置表单。
+        if (hasDebrief || hasAnswers) {
+          router.replace(`/m5/debrief?c=${convId}`);
+        } else if (cfg && Object.keys(cfg).length > 0) {
           router.replace(`/m5/live?c=${convId}`);
         }
       });
