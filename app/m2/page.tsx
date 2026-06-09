@@ -225,14 +225,17 @@ function FillableBulletText({
           const idx = blank;
           const hint = p.replace(/[【】]/g, "").replace(/^请补充/, "") || "填这里";
           const v = vals[idx] ?? "";
+          // 中文 ~1.8ch、其它 ~1ch,再留 padding,避免裁切
+          const shown = v || hint;
+          const w = Array.from(shown).reduce((a, ch) => a + (/[一-龥]/.test(ch) ? 1.8 : 1), 0) + 2.5;
           return (
             <input
               key={i}
               value={v}
               onChange={(e) => onChange(idx, e.target.value)}
               placeholder={hint}
-              className="inline-block mx-0.5 px-1 py-0 align-baseline rounded border border-esther-yellow bg-esther-yellow/15 text-ink text-xs text-center focus:outline-none focus:ring-1 focus:ring-esther-blue/50"
-              style={{ width: `${Math.max((v || hint).length + 1, 3)}ch` }}
+              className="inline-block mx-0.5 px-1.5 py-0 align-baseline rounded border border-esther-yellow bg-esther-yellow/15 text-ink text-xs text-center focus:outline-none focus:ring-1 focus:ring-esther-blue/50"
+              style={{ width: `${Math.max(w, 4)}ch` }}
             />
           );
         }
