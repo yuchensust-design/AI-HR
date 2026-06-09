@@ -179,6 +179,15 @@ ${OPTION_SET_SUMMARY}
 - 用户选了"以上都不是 / 我做的是别的"或自由描述 → 用下面的 reframe 规则,贴标签 + 用相邻类目追问(不要甩空输入框):
 ${REFRAME_SUMMARY}
 
+【兜底 — 预设品类都不贴合时,自己生成认领卡(重要,常用!)】
+- **判定标准**:如果某预设卡里"过半选项跟用户这段经历无关"(如用 hobby 的"写教程/系统自学"去套乐队、用 personal 的"写代码"去套自媒体),就算"不贴合" → **别硬套**
+- 不贴合时你**自己即兴生成一张场景化认领卡**:ask.type="multi_select"、option_set 填一个短英文 slug(如 "band"/"family_store"/"esports")、并在 ask.options 里直接给 4-6 个**贴合该场景的"可能做过的动作"**项,每项 { "label":"动作", "competency":"能力标签", "high_signal": true/false }
+- 风格照预设:动作要具体、"沾边都算"、覆盖该场景主要分工;能力标签贴在动作上
+- 例(这些都该自己生成,别硬塞预设):乐队/演出、电竞战队、摆摊/小生意、帮家里店铺、手工/汉服/cosplay 接单、养殖种植、配音/绘画接单 等
+  · 如乐队 → 主唱/乐手、作词作曲/编曲、排练统筹、接商演谈价、宣传引流、livehouse 演出
+- ⚠️ 这些选项是"让用户认领他可能做过的事",**不是断言他做了** —— anti-fab 不变
+- 实在连场景动作都难枚举(信息太少)→ 才退回 ask.type="open" 追问
+
 【逐类覆盖 — 别漏(重要)】
 - 用户一次提到多类经历(如"校园活动、助教/教学")时,**逐类挖,别只挖第一类就停或跳到收口**
 - 一类挖到 ≥1 条可用 bullet 后,**主动转下一类**:"这段[X]先到这~ 我们看看你的[下一类]?"(用对应 option_set 的认领卡)
@@ -239,7 +248,8 @@ AI 上一轮:"这段社团你做过哪些?" [multi_select club]
   "ask": {
     "type": "multi_select | open",
     "prompt": "问法(认领多选时是'这段X你做过哪些?')",
-    "option_set": "multi_select 时填上面的 key 之一;open 时省略"
+    "option_set": "multi_select 时:贴合预设就填上面的 key 之一;预设都不贴合就填自定义 slug;open 时省略",
+    "options": "仅当用自定义 slug(兜底)时填:[{label,competency,high_signal}] 4-6 项;用预设 key 时省略(系统会自动补全)"
   },
   "delta_roles": [ { "org_type":"行业(非公司名)", "role":"", "period":"", "charter":"", "scale":"", "excavation_depth":"shallow|medium|deep|thin" } ],
   "delta_stories": [ { "id":"S001", "title":"", "category":"Peak|Challenge|Impact|Failure|LearningSprint|Praise", "strength":1, "star":{"situation":"","task":"","action":"","result":""}, "earned_secret":"" } ],
@@ -389,6 +399,26 @@ type ResolvedAsk =
   | { type: "multi_select"; prompt: string; option_set: string; options: OptionItem[]; other_label: string }
   | { type: "open"; prompt: string }
   | null;
+// 兜底:解析 LLM 即兴生成的认领项(预设品类都不贴合时)。
+// 这些仍是"可能做过的动作"供用户认领(识别 > 回忆),不虚构用户事实 —— anti-fab 不变。
+function parseCustomOptions(raw: unknown): OptionItem[] {
+  if (!Array.isArray(raw)) return [];
+  const out: OptionItem[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const o = item as Record<string, unknown>;
+    const label = scrub(((o.label as string) ?? (o.text as string) ?? "").trim());
+    if (!label) continue;
+    out.push({
+      label,
+      competency: scrub(((o.competency as string) ?? "").trim()) || "通用能力",
+      high_signal: Boolean(o.high_signal),
+    });
+    if (out.length >= 6) break;
+  }
+  return out;
+}
+
 function resolveAsk(raw: unknown): ResolvedAsk {
   if (!raw || typeof raw !== "object") return null;
   const o = raw as Record<string, unknown>;
@@ -397,8 +427,21 @@ function resolveAsk(raw: unknown): ResolvedAsk {
   if (type === "multi_select") {
     const key = (o.option_set as string) ?? "";
     const os = OPTION_SETS[key];
-    if (!os) return prompt ? { type: "open", prompt } : null; // key 不认 → 退化 open
-    return { type: "multi_select", prompt: prompt || os.prompt, option_set: key, options: os.options, other_label: os.other_label };
+    if (os) {
+      return { type: "multi_select", prompt: prompt || os.prompt, option_set: key, options: os.options, other_label: os.other_label };
+    }
+    // 预设品类不认 → 兜底用 LLM 即兴生成的认领项(场景化),≥2 条才成立
+    const custom = parseCustomOptions(o.options);
+    if (custom.length >= 2) {
+      return {
+        type: "multi_select",
+        prompt: prompt || "这段经历你具体做过哪些?(多选,沾边都算)",
+        option_set: key || "_custom",
+        options: custom,
+        other_label: "以上都不是 / 我做的是别的",
+      };
+    }
+    return prompt ? { type: "open", prompt } : null; // 连兜底项都没有 → 退化 open
   }
   if (type === "open") return prompt ? { type: "open", prompt } : null;
   return null;
