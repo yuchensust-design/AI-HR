@@ -22,5 +22,27 @@
 ---
 ## 迭代记录
 
-### 静态审计(轮 0)
-（待填）
+### 静态审计(轮 0)— commit 完成
+- **修** 5 个 LLM route 缺 maxDuration(chat/不二、tracker-diagnose、m4-ask、m4-generate-projects、m4-generate-from-role)→ 补 `export const maxDuration=60`。线上 Vercel 默认 10s 静默超时杀手。**注:本地测不出,需线上复测。**
+- **修** 首页 footer 3 条 `href="#"` 死链 → 改非点击文本。
+
+### 迭代 1(改简历核心流 + 计时)— commit 完成
+**计时表(本地 3100,DeepSeek):**
+| 步骤 | 耗时 | 判定 |
+|---|---|---|
+| parse-resume(简历解析) | 6.1s | 可接受(有"解析中"反馈需确认) |
+| parse-jd(JD 解析) | 8.4s | 偏重,但后台自动、不阻塞 |
+| suggest-edits(改简历建议) | 11-19s/次 | 偏重;**有分步进度("正在清理…✓"+预计10-15s)→ 体验 OK** |
+| diff-metrics(评分) | 4.2s | 良好 |
+
+**Finding #1【严重·已修已验】** 一次「开始优化」并发打出 **8 次** suggest-edits(11-19s each)。根因:首次分析期 parsedResume 引用反复变(注入 id/saveField/dbData)→ 自动 effect 在第一次 fetch 未返回(data 仍 null)时反复重触发。修:contentSig 在途令牌防并发。**验证:8→1。** commit `防并发`.
+
+**练面试计时(实测):** 出题 prep-questions **16.3s**(一次性);逐题 follow-up **3.8s** + evaluate **3.2s**(带"面试官说话中…"反馈)→ 逐题节奏 OK。语音无麦→一键切文字兜底 良好。动态追问 工作正常。
+**Finding #2【一般·已修】** 出题 16s 加载屏是静态"让我看看你的简历…",无预计时间/进度。修:加"正在按简历+岗位出题…通常10-20秒"+ pulse。commit `出题加载屏`.
+
+### 迭代 2(看岗位 + 多会话 + 对抗)
+**看岗位 recommend 计时/质量:** match-resume **30.4s**(优于"60-90秒"预估),4 阶段流水线进度 UI 良好;输出 5 个推荐带匹配分 + ✓命中/△Gap + "AI 是这么挑的"简历依据 → **核心任务①可信、无 bug**。爬虫兜底信息诚实("平台兜底生效:51job/liepin/zhilian 暂不可用")。
+**Finding #3【轻微】** `?tab=recommend` deep-link 未生效(直接进默认进搜索 tab,需手点)。记录,低优先。
+
+**待续:** 改前/改后命中率;Word 导出;登录历史多会话回归;对抗输入(空/超长/乱码、刷新中途);移动窄屏;m1/m2/m4 辅助模块快扫。
+
