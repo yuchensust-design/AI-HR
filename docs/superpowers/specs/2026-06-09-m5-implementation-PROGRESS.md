@@ -41,6 +41,9 @@
 
 ## 三、需要你做的事（按优先级）
 
+### ✅ R1 中途刷新恢复 —— 已完成
+增量持久化(localStorage 每步写 + 登录增量写 DB)+ "继续上次面试"恢复(按 config.started_at 匹配本场)+ REHYDRATE(回到当前题重播 TTS)+ finished 清进度。**手测**：答几题→刷新→应弹"发现一场没答完的面试"→继续→回到当前题。
+
 ### ✅ 1. live/page.tsx 动态追问接线 —— 已完成（commit S7b），**仍需真麦克风手测一场**
 已把 live-machine 纯函数接进 reducer：USER_ANSWER_DONE→thinking 挂起、RESOLVE_FOLLOWUP(B1 守卫+插入/推进)、follow-up effect(12s abort/暂停重试)、evaluate-turn G2 在途去重、methodology_id 透传、"面试官思考中…"提示。**决策**：未改 TTS/ASR 的 index 去重（C3 降级为非必须，只向后插入不会错乱，降低改坏语音风险）。build/lint/test/dev 200 全过。
 **手测重点**：答完→"面试官思考中…"→追问紧接母题被念出 / 或进下一题；追问与回答相关；暂停时追问返回不乱跳；插入追问后总题数增长正常。
