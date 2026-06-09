@@ -10,6 +10,20 @@
 // - Alt-2:REFRAME_RULES 是结构化数据(触发短语→能力标签→相邻类目→追问),
 //   服务多选覆盖不到的高价值长尾(创业/科研/小众),与 OPTION_SETS 并列为第一支柱。
 
+// 入口"记忆唤醒"10 类(key 必须与 OPTION_SETS 一一对应)
+export const EXPERIENCE_CATEGORIES: { key: string; label: string; hint: string }[] = [
+  { key: "course_project", label: "课程项目", hint: "任何 final project / 小组作业" },
+  { key: "club", label: "社团 / 学生组织", hint: "任职 / 办活动 / 当过部长" },
+  { key: "teaching", label: "助教 / 教学", hint: "给同学补习 / 课程 TA / 答疑" },
+  { key: "competition", label: "比赛", hint: "编程 / 学科 / 商赛 / 设计 / 数模" },
+  { key: "internship", label: "实习", hint: "1 周也算 / 短期项目也算" },
+  { key: "personal", label: "个人项目", hint: "自学时做的东西 / Github / 博客" },
+  { key: "volunteer", label: "志愿者 / 公益", hint: "支教 / 公益 / 校园服务" },
+  { key: "campus_event", label: "校园活动", hint: "辩论 / 演讲 / 文艺 / 体育" },
+  { key: "parttime", label: "兼职", hint: "家教 / 翻译 / 任何赚过钱的事" },
+  { key: "hobby", label: "兴趣深挖", hint: "自学 / 收藏研究一年以上" },
+];
+
 export type OptionItem = {
   /** 用户看到、用来"认领"的动作项 */
   label: string;
