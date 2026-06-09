@@ -394,16 +394,25 @@ function Module5LiveContent() {
     try {
       const raw = window.localStorage.getItem(M5_STORAGE_KEYS.LIVE_PROGRESS);
       if (raw) {
-        const wrapper = JSON.parse(raw) as { startedAt?: string; data?: string };
-        // 只恢复"本场配置"的进度（用 config.started_at 区分不同次面试）
-        if (wrapper.startedAt === config.started_at && wrapper.data) {
+        const wrapper = JSON.parse(raw) as {
+          startedAt?: string;
+          convId?: string | null;
+          data?: string;
+        };
+        // 会话隔离：只恢复"本场配置"的进度。
+        // started_at 区分不同次面试；convId 进一步隔离登录用户的不同 conversation，
+        // 防止 A 会话的进度被错误恢复进 B 会话（多份面试互不串）。
+        const sameInterview =
+          wrapper.startedAt === config.started_at &&
+          (wrapper.convId ?? null) === (convId ?? null);
+        if (sameInterview && wrapper.data) {
           const snap = deserializeLiveState(wrapper.data);
           if (snap && hasResumableProgress(snap)) {
             // eslint-disable-next-line react-hooks/set-state-in-effect
             setResumeCandidate(snap);
           }
         } else {
-          // 不是本场（用户重新配置过）→ 清掉旧进度
+          // 不是本场（换了配置 / 换了 conversation）→ 清掉旧进度，避免串场
           window.localStorage.removeItem(M5_STORAGE_KEYS.LIVE_PROGRESS);
         }
       }
@@ -411,7 +420,7 @@ function Module5LiveContent() {
       console.warn("[m5/live] resume check failed", e);
     }
     setResumeChecked(true);
-  }, [config]);
+  }, [config, convId]);
 
   // 用 config 调 prep-questions（仅在无可恢复进度时；有候选则等用户决定）
   useEffect(() => {
@@ -844,7 +853,8 @@ function Module5LiveContent() {
     try {
       window.localStorage.setItem(
         M5_STORAGE_KEYS.LIVE_PROGRESS,
-        JSON.stringify({ startedAt: config.started_at, data })
+        // convId 一并存：会话隔离，恢复时要求 started_at + convId 都匹配
+        JSON.stringify({ startedAt: config.started_at, convId: convId ?? null, data })
       );
     } catch (e) {
       console.warn("[m5/live] incremental save failed", e);
@@ -919,7 +929,10 @@ function Module5LiveContent() {
       const exist = existRaw
         ? (JSON.parse(existRaw) as InterviewSession[])
         : [];
-      const next = [...exist, newSession].slice(-SESSIONS_MAX);
+      // 按 id upsert：finished effect 会因 turnEvaluations 迟到更新而重跑，
+      // 直接 push 会把同一场存两次（挤掉真正的上一场）。先剔除同 id 再追加。
+      const deduped = exist.filter((s) => s.id !== newSession.id);
+      const next = [...deduped, newSession].slice(-SESSIONS_MAX);
       window.localStorage.setItem(
         M5_STORAGE_KEYS.SESSIONS,
         JSON.stringify(next)
