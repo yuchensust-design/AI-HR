@@ -210,10 +210,12 @@ function FillableBulletText({
   canonical,
   vals,
   onChange,
+  onBlur,
 }: {
   canonical: string;
   vals: string[];
   onChange: (i: number, v: string) => void;
+  onBlur?: () => void;
 }) {
   const parts = canonical.split(FILL_RE_G);
   let blank = -1;
@@ -233,6 +235,7 @@ function FillableBulletText({
               key={i}
               value={v}
               onChange={(e) => onChange(idx, e.target.value)}
+              onBlur={onBlur}
               placeholder={hint}
               className="inline-block mx-0.5 px-1.5 py-0 align-baseline rounded border border-esther-yellow bg-esther-yellow/15 text-ink text-xs text-center focus:outline-none focus:ring-1 focus:ring-esther-blue/50"
               style={{ width: `${Math.max(w, 4)}ch` }}
@@ -298,6 +301,7 @@ export default function Module2Page() {
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const seededRef = useRef(false);
+  const lastSentFill = useRef<Record<string, string>>({}); // 每条 bullet 上次自动告知 AI 的成稿,防重复发
 
   useEffect(() => {
     if (seededRef.current) return;
@@ -339,7 +343,8 @@ export default function Module2Page() {
             depth,
             intent: opts.intent,
             current_intake: intake,
-            current_bullets: bullets,
+            // 把内联填空的值组装进去,LLM 才看得到用户填的数字(修:llm 获取不到填值)
+            current_bullets: bullets.map((b) => ({ ...b, text: assembleBullet(b.text, fills[b.id ?? b.text] ?? []) })),
           }),
         });
         if (!res.ok) {
@@ -379,7 +384,7 @@ export default function Module2Page() {
         setLoading(false);
       }
     },
-    [loading, messages, profile.persona_tag, depth, intake, bullets, setIntake, setBullets, syncToDb]
+    [loading, messages, profile.persona_tag, depth, intake, bullets, fills, setIntake, setBullets, syncToDb]
   );
 
   const sendInput = () => {
@@ -394,6 +399,16 @@ export default function Module2Page() {
     if (otherText.trim()) labels.push(otherText.trim());
     if (labels.length === 0) return;
     runTurn({ userText: `我做过:${labels.join("、")}`, picked: pickedOpts });
+  };
+
+  // 内联填空全部填完 + 失焦 → 自动告知 AI(B 方案),AI 接话并问下一题
+  const notifyIfComplete = (id: string, canonical: string) => {
+    const assembled = assembleBullet(canonical, fills[id] ?? []);
+    if (FILL_RE.test(assembled)) return; // 还有空没填,先不打扰
+    if (assembled === lastSentFill.current[id]) return; // 没变化,别重复发
+    if (loading) return;
+    lastSentFill.current[id] = assembled;
+    runTurn({ userText: `我把这条补充完整了:${assembled}` });
   };
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -562,7 +577,7 @@ export default function Module2Page() {
                                     <p className="text-xs text-ink leading-snug flex-1 whitespace-pre-wrap">
                                       {b.hidden_value && <span title="AI 帮你点亮的隐藏亮点">💡 </span>}
                                       {fillable ? (
-                                        <FillableBulletText canonical={b.text} vals={vals} onChange={(i, v) => setFill(id, i, v)} />
+                                        <FillableBulletText canonical={b.text} vals={vals} onChange={(i, v) => setFill(id, i, v)} onBlur={() => notifyIfComplete(id, b.text)} />
                                       ) : (
                                         b.text
                                       )}
