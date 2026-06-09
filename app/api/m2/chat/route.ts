@@ -124,10 +124,9 @@ function shortHash(s: string): string {
 function slug(s: string): string {
   return (s || "x").replace(/[\s·/]+/g, "-").slice(0, 12);
 }
-// 稳定 id:按 来源类目 + 来源故事 + 能力 — **不含 textHash**(补数字后文本变也仍是同一条,可 upsert,修去重 bug)
-function makeBulletId(b: { competency?: string; source_story_id?: string; source_category?: string; text: string }): string {
-  const key = [slug(b.source_category ?? ""), slug(b.source_story_id ?? ""), slug(b.competency ?? "")]
-    .filter(Boolean).join("#");
+// 稳定 id:只按 来源类目 + 能力(不含 source_story_id / textHash —— 这俩每轮会变,导致 refine 不合并)
+function makeBulletId(b: { competency?: string; source_category?: string; text: string }): string {
+  const key = [slug(b.source_category ?? ""), slug(b.competency ?? "")].filter(Boolean).join("#");
   return key || `b-${shortHash(b.text)}`;
 }
 
@@ -185,9 +184,22 @@ ${REFRAME_SUMMARY}
 - 一类挖到 ≥1 条可用 bullet 后,**主动转下一类**:"这段[X]先到这~ 我们看看你的[下一类]?"(用对应 option_set 的认领卡)
 - 看 user prompt 里"已产出 bullet 的类目"对照用户提到的类:**还有没覆盖的就继续挖,全覆盖了才提议收口**
 
-【产出节奏(关键)】
-- 用户**每认领一次**,**当轮就产 1 条草稿 bullet**放进 delta_bullets(数字/效果先用占位),让素材台即时增长 —— 不要憋着等数字齐了才产
-- 然后 say 里**追 1 次**量化(见下)
+【产出节奏(最重要 — 违反即失败)】
+- 用户每认领/描述**一类**经历的动作,**当轮必须在 delta_bullets 产出该类的草稿 bullet**(source_category = 该类;数字/效果未知就用占位),让素材台即时增长 —— 别憋着等数字齐
+- 产该类 bullet 时,把用户这一类认领的**所有动作都织进去**(如"答疑 + 出题 + 备课"合成一条),**别只用第一个动作**
+- **绝不允许连续两轮只提问、不产 bullet**;也**不要重复**"X 这条已记下了"这类话,直接推进
+- 产出后,say 里**追 1 次**量化(见下);量化答案回来后**更新那条 bullet**(同 source_category/competency → 同 id,会自动合并)
+- ⚠️ 同一类经历的 competency 标签**每轮必须用完全一样的词**(如一直用"教学·沟通"),换词会被当成两条 → 重复
+
+【一轮示范 — 照这个节奏(很重要)】
+AI 上一轮:"这段社团你做过哪些?" [multi_select club]
+用户:"我做过:策划执行活动、运营公众号"
+✅ 正确反应(本轮):
+  - delta_bullets **立刻产 1 条 club 草稿**(两个动作都写进去,数字占位):"负责社团活动策划执行,并运营公众号,覆盖【请补充】名成员"
+  - say:"收到!策划活动 + 运营公众号都记下了~ 公众号大概多少粉丝?活动多少人参加?"
+  - ask:{ "type":"open" }(**不要再弹 club 卡**)
+❌ 禁止:用户报了动作,你却又弹一遍同一个 multi_select、这轮不产 bullet。
+❌ 禁止:已经在挖某一类时,还说"我们看看你的[这同一类]"(那是转下一类才说的)。
 
 【尽量量化(主动但轻)】
 - 认领动作后,主动给"一次"轻量量化抓手 + 量级锚点,让他认/估:"大概帮了几个人?更接近 10 还是 100?"
@@ -315,7 +327,7 @@ function normalizeBullet(b: unknown, depth: Depth): CandidateBullet | null {
   const source_story_id = (o.source_story_id as string) ?? (o.story_id as string) ?? undefined;
   const sc = (o.source_category as string) ?? (o.category as string) ?? undefined;
   const source_category = sc && OPTION_SETS[sc] ? sc : undefined;
-  const id = (o.id as string) || makeBulletId({ competency, source_story_id, source_category, text });
+  const id = (o.id as string) || makeBulletId({ competency, source_category, text });
   const sufficiency = gradeBullet(text);
   return {
     id,
