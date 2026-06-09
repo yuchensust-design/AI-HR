@@ -19,7 +19,7 @@ const NAV_ITEMS = [
   { label: "改简历", href: "/m3" },
   { label: "练面试", href: "/m5" },
   { label: "复盘投递", href: "/tracker" },
-  { label: "经历", href: "/m2" },
+  { label: "挖经历", href: "/m2" },
   { label: "项目", href: "/m4" },
   { label: "日记", href: "/diary" },
 ];
