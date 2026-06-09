@@ -277,7 +277,11 @@ function normalizeTranscriptSummary(
   });
 }
 
-function buildUserPrompt(session: InterviewSession): string {
+function buildUserPrompt(
+  session: InterviewSession,
+  answeredCount: number,
+  totalCount: number,
+): string {
   const qaPairs = session.questions.map((q, i) => {
     const a = session.answers.find((x) => x.question_id === q.id);
     if (!a) {
@@ -293,6 +297,8 @@ function buildUserPrompt(session: InterviewSession): string {
   });
 
   return `面试类型:${session.config.type} / 性格:${session.config.persona} / 题数:${session.config.num_questions}
+
+本场 ${totalCount} 题中**已作答 ${answeredCount} 题**。只要 answeredCount ≥ 1,就**必须**基于已作答的题给出 evaluable=true 的真实评分(逻辑/具体/清晰/口水话四维),N/A 短路(evaluable=false + "本次未完成任何回答")**仅当 answeredCount=0(全部未答)时才用**。用户答了几题就提前结束,是正常的,不要因为还有题没答就判全场未完成。未作答/跳过的题在 transcript_summary 里 score=0、不参与维度平均即可。
 
 完整 transcript:
 ${qaPairs.join("\n\n")}
@@ -380,7 +386,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ debrief });
     }
 
-    const userPrompt = buildUserPrompt(session);
+    const userPrompt = buildUserPrompt(session, answeredCount, totalCount);
 
     // V3.1 (deepseek-chat) 优先 — 速度 5-10s,demo 可接受
     // R1 (reasoner) 留作 P3 升级:深度更好但 30s+,演示太慢
@@ -412,8 +418,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const evaluable =
-      typeof parsed.evaluable === "boolean" ? parsed.evaluable : true;
+    // evaluable 由确定性 answeredCount 决定,不让 LLM 因"部分题未答"误判全场未完成
+    // (评委常答几题就提前结束看复盘 → 之前会丢已答内容显示"无评估")。
+    const evaluable = answeredCount > 0;
     const scores = evaluable ? normalizeScores(parsed.scores) : [];
     const validScored = scores.filter((s) => s.score > 0);
     const avg =
