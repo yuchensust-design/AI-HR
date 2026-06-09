@@ -66,6 +66,7 @@ type Sufficiency = "thin" | "draftable" | "strong";
 type CandidateBullet = {
   id: string;
   source_story_id?: string;
+  source_category?: string; // = option_set key(用于素材台按类型分组)
   text: string;
   star_breakdown?: { s: string; t: string; a: string; r: string };
   competency?: string;
@@ -123,8 +124,11 @@ function shortHash(s: string): string {
 function slug(s: string): string {
   return (s || "x").replace(/[\s·/]+/g, "-").slice(0, 12);
 }
-function makeBulletId(b: { competency?: string; source_story_id?: string; text: string }): string {
-  return `${slug(b.competency ?? "")}#${slug(b.source_story_id ?? "")}#${shortHash(b.text)}`;
+// 稳定 id:按 来源类目 + 来源故事 + 能力 — **不含 textHash**(补数字后文本变也仍是同一条,可 upsert,修去重 bug)
+function makeBulletId(b: { competency?: string; source_story_id?: string; source_category?: string; text: string }): string {
+  const key = [slug(b.source_category ?? ""), slug(b.source_story_id ?? ""), slug(b.competency ?? "")]
+    .filter(Boolean).join("#");
+  return key || `b-${shortHash(b.text)}`;
 }
 
 // ============ prompt 资产(从 excavate-options 派生,plan 修 C) ============
@@ -208,7 +212,7 @@ ${REFRAME_SUMMARY}
   },
   "delta_roles": [ { "org_type":"行业(非公司名)", "role":"", "period":"", "charter":"", "scale":"", "excavation_depth":"shallow|medium|deep|thin" } ],
   "delta_stories": [ { "id":"S001", "title":"", "category":"Peak|Challenge|Impact|Failure|LearningSprint|Praise", "strength":1, "star":{"situation":"","task":"","action":"","result":""}, "earned_secret":"" } ],
-  "delta_bullets": [ { "source_story_id":"S001", "text":"可直接写进简历的句子(未知用占位)", "star_breakdown":{"s":"","t":"","a":"","r":""}, "competency":"能力标签", "anti_fab_note":"草稿待补 / 标签推断", "hidden_value": false } ],
+  "delta_bullets": [ { "source_story_id":"S001", "source_category":"当前在挖的 option_set key(如 club/teaching,用于分组)", "text":"可直接写进简历的句子(未知用占位)", "star_breakdown":{"s":"","t":"","a":"","r":""}, "competency":"能力标签", "anti_fab_note":"草稿待补 / 标签推断", "hidden_value": false } ],
   "done": false,
   "reason": "done=true 时一句话总结"
 }
@@ -301,11 +305,14 @@ function normalizeBullet(b: unknown, depth: Depth): CandidateBullet | null {
   if (!text) return null;
   const competency = (o.competency as string) ?? undefined;
   const source_story_id = (o.source_story_id as string) ?? (o.story_id as string) ?? undefined;
-  const id = (o.id as string) || makeBulletId({ competency, source_story_id, text });
+  const sc = (o.source_category as string) ?? (o.category as string) ?? undefined;
+  const source_category = sc && OPTION_SETS[sc] ? sc : undefined;
+  const id = (o.id as string) || makeBulletId({ competency, source_story_id, source_category, text });
   const sufficiency = gradeBullet(text);
   return {
     id,
     source_story_id,
+    source_category,
     text,
     star_breakdown: (o.star_breakdown ?? o.starBreakdown ?? undefined) as CandidateBullet["star_breakdown"],
     competency,

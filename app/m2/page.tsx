@@ -53,6 +53,7 @@ type Sufficiency = "thin" | "draftable" | "strong";
 type CandidateBullet = {
   id?: string;
   source_story_id?: string;
+  source_category?: string;
   text: string;
   star_breakdown?: { s: string; t: string; a: string; r: string };
   competency?: string;
@@ -185,6 +186,67 @@ function mergeBullets(prev: CandidateBullet[], delta: CandidateBullet[]): Candid
   return out;
 }
 
+// ===== 内联填空(复用 m3 思路:【请补充…】→ 可编辑输入框)=====
+const FILL_RE = /【请补充[^】]*?】/;
+const FILL_RE_G = /(【请补充[^】]*?】)/g;
+
+function gradeBulletFE(text: string): Sufficiency {
+  if (!text || /【请补充具体职责】/.test(text)) return "thin";
+  const stripped = text.replace(/【[^】]*】/g, "");
+  return /[0-9０-９]/.test(stripped) ? "strong" : "draftable";
+}
+
+// 把 canonical(含【请补充】)+ 用户填值 → 成稿文本(空白处保留占位)
+function assembleBullet(canonical: string, vals: string[]): string {
+  let i = -1;
+  return canonical.replace(FILL_RE_G, (m) => {
+    i++;
+    const v = (vals[i] ?? "").trim();
+    return v || m;
+  });
+}
+
+function FillableBulletText({
+  canonical,
+  vals,
+  onChange,
+}: {
+  canonical: string;
+  vals: string[];
+  onChange: (i: number, v: string) => void;
+}) {
+  const parts = canonical.split(FILL_RE_G);
+  let blank = -1;
+  return (
+    <span className="leading-relaxed">
+      {parts.map((p, i) => {
+        if (FILL_RE.test(p)) {
+          blank++;
+          const idx = blank;
+          const hint = p.replace(/[【】]/g, "").replace(/^请补充/, "") || "填这里";
+          const v = vals[idx] ?? "";
+          return (
+            <input
+              key={i}
+              value={v}
+              onChange={(e) => onChange(idx, e.target.value)}
+              placeholder={hint}
+              className="inline-block mx-0.5 px-1 py-0 align-baseline rounded border border-esther-yellow bg-esther-yellow/15 text-ink text-xs text-center focus:outline-none focus:ring-1 focus:ring-esther-blue/50"
+              style={{ width: `${Math.max((v || hint).length + 1, 3)}ch` }}
+            />
+          );
+        }
+        return <span key={i}>{p}</span>;
+      })}
+    </span>
+  );
+}
+
+function categoryLabel(key?: string): string {
+  if (!key) return "其他";
+  return EXPERIENCE_CATEGORIES.find((c) => c.key === key)?.label ?? "其他";
+}
+
 export default function Module2Page() {
   const [profile] = useLocalState<UserProfile>(STORAGE_KEYS.USER_PROFILE, {});
   const [intake, setIntake] = useLocalState<IntakeArtifact>(STORAGE_KEYS.M2_INTAKE, { roles: [], stories: [] });
@@ -215,6 +277,14 @@ export default function Module2Page() {
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [copiedAll, setCopiedAll] = useState(false);
   const [depth, setDepth] = useLocalState<Depth>(STORAGE_KEYS.M2_DEPTH, "shallow");
+  // 内联填空值:bulletId → 每个【请补充】的填值(plan:像 m3 一样可自行补充)
+  const [fills, setFills] = useLocalState<Record<string, string[]>>("m2_bullet_fills", {});
+  const setFill = (id: string, i: number, v: string) =>
+    setFills((prev) => {
+      const arr = [...(prev[id] ?? [])];
+      arr[i] = v;
+      return { ...prev, [id]: arr };
+    });
 
   // 认领多选 ephemeral state(每个 ask 独立,plan 修 I)
   const [pickedOpts, setPickedOpts] = useState<string[]>([]);
@@ -395,7 +465,8 @@ export default function Module2Page() {
 
   const copyAllSummary = async () => {
     try {
-      await navigator.clipboard.writeText(buildResumeMarkdown(intake, bullets));
+      const assembled = bullets.map((b) => ({ ...b, text: assembleBullet(b.text, fills[b.id ?? b.text] ?? []) }));
+      await navigator.clipboard.writeText(buildResumeMarkdown(intake, assembled));
       setCopiedAll(true);
       setTimeout(() => setCopiedAll(false), 1500);
     } catch {
@@ -404,6 +475,20 @@ export default function Module2Page() {
   };
 
   const hasAnySummary = intake.roles.length > 0 || intake.stories.length > 0 || bullets.length > 0;
+  // 素材台按来源类型分组(plan:按用户选的类型分)
+  const bulletGroups = (() => {
+    const order = [...EXPERIENCE_CATEGORIES.map((c) => c.key), "_other"];
+    const map: Record<string, CandidateBullet[]> = {};
+    bullets.forEach((b) => {
+      const k = b.source_category || "_other";
+      (map[k] = map[k] || []).push(b);
+    });
+    return order.filter((k) => map[k]?.length).map((k) => ({
+      key: k,
+      label: k === "_other" ? "其他" : categoryLabel(k),
+      items: map[k],
+    }));
+  })();
   const lastMsg = messages[messages.length - 1];
   const activeAsk = lastMsg && lastMsg.from === "ai" && !loading && !done ? lastMsg.ask ?? null : null;
   const showMulti = activeAsk?.type === "multi_select";
@@ -449,58 +534,72 @@ export default function Module2Page() {
                     {hasAnySummary ? "(随你认领的内容实时长出,可直接复制到简历)" : "(还没素材 — 认几下,这里会即时累积)"}
                   </p>
 
-                  {/* 候选 bullets = 主角(实时长出) */}
+                  {/* 候选 bullets = 主角(实时长出,按来源类型分组,【请补充】可内联填) */}
                   {bullets.length > 0 && (
-                    <div className="space-y-2.5 mb-4">
-                      {bullets.map((b) => {
-                        const id = b.id ?? b.text;
-                        const suf = SUFFICIENCY_BADGE[b.sufficiency ?? "draftable"];
-                        const star = b.star_breakdown;
-                        const expanded = expandedBullets.has(id);
-                        return (
-                          <div key={id} className="bg-card border border-border rounded-lg p-2.5">
-                            <div className="flex items-start gap-2">
-                              <p className="text-xs text-ink leading-snug flex-1 whitespace-pre-wrap">
-                                {b.hidden_value && <span title="AI 帮你点亮的隐藏亮点">💡 </span>}
-                                {b.text}
-                              </p>
-                              <span className={`flex-shrink-0 inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-medium ${suf.cls}`}>
-                                {suf.label}
-                              </span>
-                            </div>
-                            <div className="flex items-center gap-2 mt-1.5 flex-wrap">
-                              {b.competency && (
-                                <span className="text-[10px] text-ink-muted">{b.competency}</span>
-                              )}
-                              {b.anti_fab_note && (
-                                <span className="text-[10px] text-ink-soft italic">· {b.anti_fab_note}</span>
-                              )}
-                              <button
-                                onClick={() => copyBullet(id, b.text)}
-                                className="ml-auto px-1.5 py-0.5 text-[9px] rounded bg-esther-yellow/30 text-ink hover:bg-esther-yellow/50"
-                              >
-                                {copiedId === id ? "✓" : "复制"}
-                              </button>
-                              {star && (
-                                <button
-                                  onClick={() => toggleBulletExpand(id)}
-                                  className="px-1.5 py-0.5 text-[9px] rounded bg-warm-bg-deep text-ink-soft hover:bg-warm-bg-deep/70"
-                                >
-                                  {expanded ? "收起" : "STAR"}
-                                </button>
-                              )}
-                            </div>
-                            {expanded && star && (
-                              <div className="mt-2 pt-2 border-t border-border space-y-1 text-[11px] text-ink">
-                                <div><b className="text-esther-blue">S</b> {star.s || "-"}</div>
-                                <div><b className="text-esther-blue">T</b> {star.t || "-"}</div>
-                                <div><b className="text-esther-blue">A</b> {star.a || "-"}</div>
-                                <div><b className="text-esther-blue">R</b> {star.r || "-"}</div>
-                              </div>
-                            )}
+                    <div className="space-y-4 mb-4">
+                      {bulletGroups.map((g) => (
+                        <div key={g.key}>
+                          <p className="text-[11px] font-semibold text-ink-soft mb-1.5 flex items-center gap-1.5">
+                            <span className="w-1.5 h-1.5 rounded-full bg-esther-blue/60" />
+                            {g.label}
+                            <span className="text-ink-muted font-normal">· {g.items.length}</span>
+                          </p>
+                          <div className="space-y-2">
+                            {g.items.map((b) => {
+                              const id = b.id ?? b.text;
+                              const vals = fills[id] ?? [];
+                              const display = assembleBullet(b.text, vals);
+                              const suf = SUFFICIENCY_BADGE[gradeBulletFE(display)];
+                              const star = b.star_breakdown;
+                              const expanded = expandedBullets.has(id);
+                              const fillable = FILL_RE.test(b.text);
+                              return (
+                                <div key={id} className="bg-card border border-border rounded-lg p-2.5">
+                                  <div className="flex items-start gap-2">
+                                    <p className="text-xs text-ink leading-snug flex-1 whitespace-pre-wrap">
+                                      {b.hidden_value && <span title="AI 帮你点亮的隐藏亮点">💡 </span>}
+                                      {fillable ? (
+                                        <FillableBulletText canonical={b.text} vals={vals} onChange={(i, v) => setFill(id, i, v)} />
+                                      ) : (
+                                        b.text
+                                      )}
+                                    </p>
+                                    <span className={`flex-shrink-0 inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-medium ${suf.cls}`}>
+                                      {suf.label}
+                                    </span>
+                                  </div>
+                                  <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                                    {b.competency && <span className="text-[10px] text-ink-muted">{b.competency}</span>}
+                                    {b.anti_fab_note && <span className="text-[10px] text-ink-soft italic">· {b.anti_fab_note}</span>}
+                                    <button
+                                      onClick={() => copyBullet(id, display)}
+                                      className="ml-auto px-1.5 py-0.5 text-[9px] rounded bg-esther-yellow/30 text-ink hover:bg-esther-yellow/50"
+                                    >
+                                      {copiedId === id ? "✓" : "复制"}
+                                    </button>
+                                    {star && (
+                                      <button
+                                        onClick={() => toggleBulletExpand(id)}
+                                        className="px-1.5 py-0.5 text-[9px] rounded bg-warm-bg-deep text-ink-soft hover:bg-warm-bg-deep/70"
+                                      >
+                                        {expanded ? "收起" : "STAR"}
+                                      </button>
+                                    )}
+                                  </div>
+                                  {expanded && star && (
+                                    <div className="mt-2 pt-2 border-t border-border space-y-1 text-[11px] text-ink">
+                                      <div><b className="text-esther-blue">S</b> {star.s || "-"}</div>
+                                      <div><b className="text-esther-blue">T</b> {star.t || "-"}</div>
+                                      <div><b className="text-esther-blue">A</b> {star.a || "-"}</div>
+                                      <div><b className="text-esther-blue">R</b> {star.r || "-"}</div>
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
                           </div>
-                        );
-                      })}
+                        </div>
+                      ))}
                     </div>
                   )}
 
