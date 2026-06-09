@@ -773,12 +773,16 @@ function Module5LiveContent() {
     setTextDraft("");
   }, [state.currentIdx]);
 
-  // 切到文字模式时,自动把左侧 panel 切到 transcript tab 让 textarea 可见
+  // 切到文字模式时,自动把左侧 panel 切到 transcript tab 让 textarea 可见。
+  // 修复:只在 inputMode "变成" text 的那一刻切一次,不再锁死 —— 否则用户在文字模式下
+  // 永远点不开"答题思路"(一点就被弹回 transcript)。
+  const prevInputModeRef = useRef<InputMode>(inputMode);
   useEffect(() => {
-    if (inputMode === "text" && state.panelTab !== "transcript") {
+    if (inputMode === "text" && prevInputModeRef.current !== "text") {
       dispatch({ type: "PANEL_TAB", tab: "transcript" });
     }
-  }, [inputMode, state.panelTab]);
+    prevInputModeRef.current = inputMode;
+  }, [inputMode]);
 
   /** 文字模式:点提交 → 把 textDraft 合并到 transcript → 走 USER_ANSWER_DONE */
   const handleTextSubmit = useCallback(() => {
