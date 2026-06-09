@@ -253,18 +253,22 @@ function ResultContent() {
     }
   }, [parsedResume, isLoggedInWithConv, saveField, setLocalParsedResume]);
 
-  // 内容签名(parsedResume + jd + hidden)— 输入没变就走缓存,变了自动失效
+  // 内容签名(parsedResume + jd + hidden)— 输入没变就走缓存,变了自动失效。
+  // 注:剥掉注入的稳定 id(ensureResumeIds 首次会给简历注 id 改变引用),否则"打开旧简历"
+  // 会因 id 注入导致签名漂移 → 误判内容变了 → 重新分析。签名只认真实内容。
+  const stripIds = (k: string, v: unknown) => (k === "id" ? undefined : v);
   const contentSig = useMemo(
     () =>
       cheapSig(
-        JSON.stringify(parsedResume ?? null) +
+        JSON.stringify(parsedResume ?? null, stripIds) +
           JSON.stringify(jdContext ?? null) +
-          JSON.stringify(hiddenExperiences ?? []) +
+          JSON.stringify(hiddenExperiences ?? [], stripIds) +
           JSON.stringify(optimizationGoals ?? []),
       ),
     [parsedResume, jdContext, hiddenExperiences, optimizationGoals],
   );
-  // suggest-edits prompt 版本 — 改 prompt 后 bump,让旧缓存失效自动重生成
+  // suggest-edits prompt 版本 — 仅用于写入标记;**自动命中缓存只认 contentSig**,
+  // prompt bump 不再自动触发重分析(用户嫌烦),要新 prompt 结果点"重新生成"即可。
   const editsSig = `${contentSig}-p6`;
   const editsCacheKey = `m3_edits_${convId ?? "guest"}_${editsSig}`;
   // metrics 缓存 key:内容 + 决策(决策变 → v2 bullets 变 → STAR/硬门槛要重算)
@@ -336,14 +340,19 @@ function ResultContent() {
     if (!parsedResume) return;
     setStatus("loading");
     setErrorMsg("");
-    // 命中缓存(登录=DB / 游客=localStorage)+ sig 匹配 → 直接出,不重算
+    // 命中缓存(登录=DB / 游客=localStorage):内容没变就直接出,不重算。
+    // 只比 contentSig(内容签名),不比 prompt 版本 → "以前分析过的不再重复分析"。
+    // 旧格式只有 sig 没 contentSig → 退回精确匹配,首次会重算一次后按新格式落库。
     if (!force) {
-      const cached = readArtifact<{ sig: string; result: SuggestEditsResult }>(
+      const cached = readArtifact<{ sig?: string; contentSig?: string; result: SuggestEditsResult }>(
         "edits_json",
         editsCacheKey,
       );
-      if (cached?.result && cached.sig === editsSig) {
-        applyEditsResult(cached.result);
+      const hit =
+        cached?.result &&
+        (cached.contentSig === contentSig || cached.sig === editsSig);
+      if (hit) {
+        applyEditsResult(cached!.result);
         return;
       }
     }
@@ -364,7 +373,7 @@ function ResultContent() {
         throw new Error(j.error ?? `HTTP ${res.status}`);
       }
       const parsed = (await res.json()) as SuggestEditsResult;
-      writeArtifact("edits_json", editsCacheKey, { sig: editsSig, result: parsed });
+      writeArtifact("edits_json", editsCacheKey, { sig: editsSig, contentSig, result: parsed });
       applyEditsResult(parsed);
     } catch (err) {
       const message = err instanceof Error ? err.message : "加载失败";
@@ -385,12 +394,16 @@ function ResultContent() {
   // === LLM diff-metrics(只取顶部 1 行评分需要的 JD 关键词命中数 + STAR/hard_req 提升)===
   const loadLlmMetrics = useCallback(async () => {
     if (!parsedResume) return;
-    // 先查缓存(登录=DB / 游客=localStorage)+ sig 匹配 → 复用,避免刷新现算导致分数忽高忽低
-    const cachedMetrics = readArtifact<{ sig: string; metrics: LlmMetrics }>(
+    // 先查缓存(登录=DB / 游客=localStorage):内容没变就复用,避免重开/刷新重算分数忽高忽低。
+    // 只比 contentSig(内容)→ 与 suggest-edits 一致:重开不重算;旧格式退回 sig 精确匹配。
+    const cachedMetrics = readArtifact<{ sig?: string; contentSig?: string; metrics: LlmMetrics }>(
       "metrics_json",
       metricsCacheKey,
     );
-    if (cachedMetrics?.metrics && cachedMetrics.sig === metricsSig) {
+    if (
+      cachedMetrics?.metrics &&
+      (cachedMetrics.contentSig === contentSig || cachedMetrics.sig === metricsSig)
+    ) {
       setLlmMetrics(cachedMetrics.metrics);
       return;
     }
@@ -477,14 +490,14 @@ function ResultContent() {
         llm_explain: parsed.llm_explain ?? "",
       };
       setLlmMetrics(metrics);
-      // 缓存(登录=DB / 游客=localStorage),同内容 + 同决策 → 同分数
-      writeArtifact("metrics_json", metricsCacheKey, { sig: metricsSig, metrics });
+      // 缓存(登录=DB / 游客=localStorage):带 contentSig,重开按内容命中不重算
+      writeArtifact("metrics_json", metricsCacheKey, { sig: metricsSig, contentSig, metrics });
     } catch (err) {
       console.error("[loadLlmMetrics] failed:", err);
     } finally {
       setLlmMetricsRefreshing(false);
     }
-  }, [parsedResume, jdContext, data, decisions, rewritten, metricsCacheKey, metricsSig, readArtifact, writeArtifact]);
+  }, [parsedResume, jdContext, data, decisions, rewritten, metricsCacheKey, metricsSig, contentSig, readArtifact, writeArtifact]);
 
   // 进 ready 状态后自动跑 1 次 LLM diff-metrics
   useEffect(() => {

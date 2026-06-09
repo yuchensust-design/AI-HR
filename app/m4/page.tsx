@@ -8,6 +8,7 @@ import { Nav } from "@/components/Nav";
 import { BuerFloatingButton } from "@/components/BuerFloatingButton";
 import ConversationSwitcher from "@/components/conversations/ConversationSwitcher";
 import { STORAGE_KEYS, useLocalState } from "@/lib/use-local-state";
+import { useLatestResume } from "@/lib/sync/useLatestResume";
 import { useM4Projects } from "@/lib/useM4Projects";
 import type {
   M4Project,
@@ -159,10 +160,9 @@ function Module4Content() {
     STORAGE_KEYS.JD_CONTEXT,
     null,
   );
-  const [parsedResume] = useLocalState<ParsedResume>(
-    STORAGE_KEYS.PARSED_RESUME,
-    null,
-  );
+  // 统一读简历:登录读账号最近简历(DB),游客读 localStorage(见 useLatestResume)
+  const latestResume = useLatestResume();
+  const parsedResume = latestResume.parsedResume as unknown as ParsedResume;
   const [projects, setProjects] = useM4Projects();
 
   // M1→M4 直通：读取 m1_target_role

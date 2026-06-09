@@ -11,6 +11,7 @@ import ConversationSwitcher from "@/components/conversations/ConversationSwitche
 import { useUser } from "@/lib/auth/useUser";
 import { createClient } from "@/lib/supabase/client";
 import { createConversation } from "@/lib/conversations";
+import { useLatestResume } from "@/lib/sync/useLatestResume";
 import {
   M5_STORAGE_KEYS,
   type InterviewSessionConfig,
@@ -152,6 +153,8 @@ function Module5ConfigContent() {
     };
   }, [user, userLoading, convId, router]);
 
+  const latestResume = useLatestResume();
+  const autoPickedResumeRef = useRef(false);
   const [resumeSource, setResumeSource] = useState<ResumeSource | null>(null);
   const [savedResumeText, setSavedResumeText] = useState<string>("");
   const [savedResumeSummary, setSavedResumeSummary] = useState<string | null>(
@@ -224,49 +227,26 @@ function Module5ConfigContent() {
     }
   }, []);
 
+  // 统一读简历:登录读账号最近一份简历(DB),游客读 localStorage(见 useLatestResume)。
+  // 修"换设备/清缓存后账号有简历却读不到" + 不再直接喂原始 JSON 给出题模型。
   useEffect(() => {
-    // 初始化:hydration 后从 localStorage 读简历快照,setState 是必要的副作用
     /* eslint-disable react-hooks/set-state-in-effect */
-    try {
-      const finalRaw = window.localStorage.getItem("final_resume");
-      if (finalRaw) {
-        const parsed = JSON.parse(finalRaw) as {
-          markdown?: string;
-          lastUpdated?: string;
-        };
-        if (parsed?.markdown) {
-          const md = parsed.markdown;
-          const firstLine = md.split("\n")[0]?.slice(0, 40) ?? "";
-          setSavedResumeText(md);
-          // 只有内容够长(>20)才自动选中,否则卡片置灰给原因 —— 避免"卡片显示✓但开始键灰着"的矛盾
-          if (md.trim().length > 20) {
-            setSavedResumeSummary(
-              firstLine
-                ? `已有简历(${firstLine.replace(/^#+\s*/, "")}…)`
-                : "已有简历"
-            );
-            setResumeSource("saved");
-          } else {
-            setSavedResumeSummary("已有简历内容过短 — 请上传或粘贴");
-          }
-          return;
-        }
+    if (latestResume.loading) return; // 等 auth/DB 确定,避免误判"没简历"
+    setSavedResumeText(latestResume.resumeText);
+    if (latestResume.hasResume) {
+      const name = latestResume.parsedResume?.basic?.name?.trim();
+      const who = latestResume.source === "db" ? "账号最新" : "本地";
+      setSavedResumeSummary(name ? `已有简历(${name} · ${who})` : `已有简历(${who})`);
+      // 首次且用户还没手动选别的源 → 自动选中(functional update 防 stale)
+      if (!autoPickedResumeRef.current) {
+        autoPickedResumeRef.current = true;
+        setResumeSource((cur) => cur ?? "saved");
       }
-      const parsedRaw = window.localStorage.getItem("parsed_resume");
-      if (parsedRaw) {
-        setSavedResumeText(parsedRaw);
-        if (parsedRaw.trim().length > 20) {
-          setSavedResumeSummary("已有简历(parsed_resume)");
-          setResumeSource("saved");
-        } else {
-          setSavedResumeSummary("已有简历内容过短 — 请上传或粘贴");
-        }
-      }
-    } catch {
-      // localStorage 异常 → 走粘贴流程
+    } else {
+      setSavedResumeSummary("还没有简历 — 请上传或粘贴");
     }
     /* eslint-enable react-hooks/set-state-in-effect */
-  }, []);
+  }, [latestResume]);
 
   const resumeText =
     resumeSource === "saved"

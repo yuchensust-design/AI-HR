@@ -7,6 +7,7 @@ import { BuerFloatingButton } from "@/components/BuerFloatingButton";
 import { JobCard } from "@/components/m6/JobCard";
 import { AgentProgress } from "@/components/m6/AgentProgress";
 import { useLocalState, STORAGE_KEYS } from "@/lib/use-local-state";
+import { useLatestResume } from "@/lib/sync/useLatestResume";
 import type {
   AgentStepState,
   Job,
@@ -54,7 +55,9 @@ function DiscoverPageInner() {
     reasoning?: string;
     stats?: MatchResumeResponse["stats"];
   }>(STORAGE_KEYS.DISCOVER_MATCH_META, {});
-  const [parsedResume] = useLocalState<ParsedResume | null>(STORAGE_KEYS.PARSED_RESUME, null);
+  // 统一读简历:登录读账号最近简历(DB),游客读 localStorage(见 useLatestResume)
+  const latestResume = useLatestResume();
+  const parsedResume = latestResume.parsedResume as unknown as ParsedResume | null;
 
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
@@ -317,6 +320,8 @@ function DiscoverPageInner() {
           ) : (
             <RecommendTab
               parsedResume={parsedResume}
+              resumeLoading={latestResume.loading}
+              resumeSource={latestResume.source}
               runMatch={runMatchResume}
               loading={matchLoading}
               error={matchError}
@@ -470,6 +475,8 @@ function SearchTab({
 
 function RecommendTab({
   parsedResume,
+  resumeLoading,
+  resumeSource,
   runMatch,
   loading,
   error,
@@ -477,6 +484,8 @@ function RecommendTab({
   meta,
 }: {
   parsedResume: ParsedResume | null;
+  resumeLoading: boolean;
+  resumeSource: "db" | "local" | "none";
   runMatch: () => void;
   loading: boolean;
   error: string | null;
@@ -495,12 +504,16 @@ function RecommendTab({
     <div className="space-y-4">
       {/* 简历状态 + CTA */}
       <div className="bg-card border-2 border-border rounded-2xl p-5">
-        {hasResume ? (
+        {resumeLoading ? (
+          <div className="text-center py-3">
+            <p className="text-sm text-ink-muted">读取你的简历中…</p>
+          </div>
+        ) : hasResume ? (
           <>
             <div className="flex items-center gap-2 mb-3">
               <span className="text-esther-blue text-base">✓</span>
               <p className="text-sm text-ink">
-                已检测到你的简历(本地)
+                已检测到你的简历{resumeSource === "db" ? "(账号最新)" : "(本地)"}
                 {parsedResume?.basic?.name ? ` — ${parsedResume.basic.name}` : ""}
               </p>
             </div>
