@@ -18,6 +18,7 @@ export const EXPERIENCE_CATEGORIES: { key: string; label: string; hint: string }
   { key: "competition", label: "比赛", hint: "编程 / 学科 / 商赛 / 设计 / 数模" },
   { key: "internship", label: "实习", hint: "1 周也算 / 短期项目也算" },
   { key: "personal", label: "个人项目", hint: "自学时做的东西 / Github / 博客" },
+  { key: "content", label: "自媒体 / 内容创作", hint: "公众号 / 视频号 / 小红书 / B站 / 抖音" },
   { key: "volunteer", label: "志愿者 / 公益", hint: "支教 / 公益 / 校园服务" },
   { key: "campus_event", label: "校园活动", hint: "辩论 / 演讲 / 文艺 / 体育" },
   { key: "parttime", label: "兼职", hint: "家教 / 翻译 / 任何赚过钱的事" },
@@ -123,6 +124,19 @@ export const OPTION_SETS: Record<string, OptionSet> = {
     ],
     other_label: "以上都不是 / 我做的是别的",
   },
+  content: {
+    key: "content",
+    prompt: "这段自媒体 / 内容创作,你做过哪些?(多选,沾边都算)",
+    options: [
+      { label: "选题策划 / 内容定位", competency: "内容策划 · 用户洞察", high_signal: true },
+      { label: "拍摄 / 剪辑 / 出图 / 排版", competency: "内容制作 · 审美" },
+      { label: "写文案 / 脚本 / 推文", competency: "文案 · 表达" },
+      { label: "涨粉 / 看数据做复盘", competency: "增长 · 数据驱动", high_signal: true },
+      { label: "多平台分发 / 日常运营", competency: "运营 · 渠道" },
+      { label: "接广 / 带货 / 变现", competency: "商业化 · 变现", high_signal: true },
+    ],
+    other_label: "以上都不是 / 我做的是别的",
+  },
   volunteer: {
     key: "volunteer",
     prompt: "这段志愿 / 公益经历,你做过哪些?(多选,沾边都算)",
@@ -209,6 +223,12 @@ export const REFRAME_RULES: ReframeRule[] = [
     competency: "工程协作 · 开源实践",
     adjacent: "personal",
     probe: "你贡献的是哪部分?有没有被合并 / 被别人用?star 或下载量大概多少?",
+  },
+  {
+    trigger: /自媒体|公众号|视频号|短视频|博主|up\s?主|UP\s?主|小红书|抖音|快手|b\s?站|B\s?站|微博|粉丝|涨粉|播放量|内容创作|做号|运营.{0,4}账号/,
+    competency: "内容运营 · 影响力",
+    adjacent: "content",
+    probe: "你大概多少粉丝 / 播放量?主要哪个平台?内容是你一个人做还是有团队?有没有变现?",
   },
   // —— 被低估的常见经历(多选也能接,但用户常自己不提)——
   {
