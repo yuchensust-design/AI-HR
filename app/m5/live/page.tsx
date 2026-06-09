@@ -22,6 +22,16 @@ import {
   type TurnEvaluation,
 } from "@/lib/interview-types";
 import { PERSONA_SPECS } from "@/lib/interviewer-personas";
+import {
+  isStaleResolve,
+  resolveFollowUp as resolveAdvance,
+  shouldStartEvaluate,
+  type LiveStatus,
+} from "@/lib/m5/live-machine";
+import {
+  computeFollowUpBudget,
+  shouldRequestFollowUp,
+} from "@/lib/m5/follow-up";
 import { useASR } from "@/lib/use-asr";
 import { useMediaStream } from "@/lib/use-media-stream";
 import { useUser } from "@/lib/auth/useUser";
@@ -58,6 +68,10 @@ type State = {
   prevStatus: Status | null;
   questions: InterviewQuestion[];
   sessionId: string;
+  /** m5 v5：本场方法论 id（prep 返回），喂给 follow-up */
+  methodologyId: string;
+  /** m5 v5：已用动态追问数（预算控制） */
+  followUpsUsed: number;
   currentIdx: number;
   answers: TurnAnswer[];
   turnEvaluations: TurnEvaluation[];
@@ -73,8 +87,18 @@ type State = {
 };
 
 type Action =
-  | { type: "QUESTIONS_LOADED"; questions: InterviewQuestion[]; sessionId: string }
+  | {
+      type: "QUESTIONS_LOADED";
+      questions: InterviewQuestion[];
+      sessionId: string;
+      methodologyId: string;
+    }
   | { type: "TTS_END" }
+  | {
+      type: "RESOLVE_FOLLOWUP";
+      forId: string;
+      followUp: InterviewQuestion | null;
+    }
   | { type: "ASR_INTERIM"; text: string }
   | { type: "ASR_FINAL"; text: string }
   | { type: "USER_ANSWER_DONE" }
@@ -97,6 +121,8 @@ const initial: State = {
   prevStatus: null,
   questions: [],
   sessionId: "",
+  methodologyId: "",
+  followUpsUsed: 0,
   currentIdx: 0,
   answers: [],
   turnEvaluations: [],
@@ -119,6 +145,7 @@ function reducer(s: State, a: Action): State {
         status: "asking",
         questions: a.questions,
         sessionId: a.sessionId,
+        methodologyId: a.methodologyId,
       };
     case "TTS_END":
       if (s.status !== "asking") return s;
@@ -141,22 +168,35 @@ function reducer(s: State, a: Action): State {
         filler_word_count: countFillers(finalText),
         answered_at: new Date().toISOString(),
       };
-      const nextAnswers = [...s.answers, answer];
-      const nextIdx = s.currentIdx + 1;
-      if (nextIdx >= s.questions.length) {
-        return {
-          ...s,
-          answers: nextAnswers,
-          status: "finished",
-          currentTranscript: "",
-          interimTranscript: "",
-        };
-      }
+      // m5 v5：答完不直接推进，先进 thinking 挂起（不动 currentIdx），
+      // 由 follow-up effect 决定追问/推进（RESOLVE_FOLLOWUP）。推进/finished 逻辑下移。
       return {
         ...s,
-        answers: nextAnswers,
-        currentIdx: nextIdx,
-        status: "asking",
+        answers: [...s.answers, answer],
+        status: "thinking",
+        currentTranscript: "",
+        interimTranscript: "",
+      };
+    }
+    case "RESOLVE_FOLLOWUP": {
+      // B1 幂等守卫（spec §5）：非 thinking / 母题不匹配（暂停、结束、过期响应）→ no-op
+      // Status 是 LiveStatus 的超集(多 loading/error)；isStaleResolve 对非 thinking 均判 stale，
+      // 运行时值保留、行为正确，类型上断言为 LiveStatus。
+      const slice = {
+        status: s.status as LiveStatus,
+        currentIdx: s.currentIdx,
+        questions: s.questions,
+        followUpsUsed: s.followUpsUsed,
+      };
+      if (isStaleResolve(slice, a.forId)) return s;
+      // 用已单测的纯函数决定推进/插入（追问 insert 到 currentIdx+1，越界 finished）
+      const adv = resolveAdvance(slice, a.forId, a.followUp);
+      return {
+        ...s,
+        questions: adv.questions,
+        currentIdx: adv.currentIdx,
+        followUpsUsed: adv.followUpsUsed,
+        status: adv.status,
         currentTranscript: "",
         interimTranscript: "",
         silenceShownForIdx: null,
@@ -347,6 +387,7 @@ function Module5LiveContent() {
         const j = (await res.json()) as {
           questions: InterviewQuestion[];
           session_id: string;
+          methodology_id?: string;
         };
         if (cancelled) return;
         if (!j.questions || j.questions.length === 0) {
@@ -356,6 +397,7 @@ function Module5LiveContent() {
           type: "QUESTIONS_LOADED",
           questions: j.questions,
           sessionId: j.session_id,
+          methodologyId: j.methodology_id ?? "",
         });
       } catch (err) {
         if (cancelled) return;
@@ -547,16 +589,28 @@ function Module5LiveContent() {
   }, [state.status, state.currentIdx, currentQuestion, config]);
 
   // evaluate-turn fire-and-forget(当 answer 被 push 后)
+  // G2：本 effect 依赖 state.questions，follow-up insert 改 questions 会重跑；
+  // 首评未返回时 turnEvaluations 仍空 → 会对同一答案重复打分。用 in-flight Set 挡住在途窗口。
+  const inflightEvalIds = useRef<Set<string>>(new Set());
   useEffect(() => {
     if (state.answers.length === 0) return;
     const lastAns = state.answers[state.answers.length - 1];
     if (!lastAns) return;
-    const alreadyEvaluated = state.turnEvaluations.some(
-      (e) => e.question_id === lastAns.question_id
+    const evaluatedIds = new Set(
+      state.turnEvaluations.map((e) => e.question_id)
     );
-    if (alreadyEvaluated) return;
+    if (
+      !shouldStartEvaluate(
+        lastAns.question_id,
+        evaluatedIds,
+        inflightEvalIds.current
+      )
+    ) {
+      return;
+    }
     const q = state.questions.find((x) => x.id === lastAns.question_id);
     if (!q) return;
+    inflightEvalIds.current.add(lastAns.question_id);
     fetch("/api/m5/evaluate-turn", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -570,8 +624,91 @@ function Module5LiveContent() {
       })
       .catch((err) =>
         console.warn("[m5/live] evaluate-turn failed (silent)", err)
-      );
+      )
+      .finally(() => {
+        inflightEvalIds.current.delete(lastAns.question_id);
+      });
   }, [state.answers, state.questions, state.turnEvaluations]);
+
+  // m5 v5 动态追问：thinking 态 → 判断是否追问 → 调 follow-up → RESOLVE_FOLLOWUP
+  // thinking 期间依赖稳定 → 本 effect 只跑一次；暂停时 status 变 → cleanup abort，
+  // 恢复回 thinking → 自动重试（不加 ref 锁，避免"恢复后卡 thinking"）。
+  // RESOLVE 的迟到/暂停/结束响应由 reducer 的 isStaleResolve 幂等守卫兜底（B1）。
+  useEffect(() => {
+    if (state.status !== "thinking" || !config) return;
+    const parent = state.questions[state.currentIdx];
+    if (!parent) return;
+    const ans = state.answers.find((x) => x.question_id === parent.id);
+    if (!ans) return;
+
+    const budget =
+      config.follow_up_budget ?? computeFollowUpBudget(config.num_questions);
+    const wantFollowUp = shouldRequestFollowUp({
+      followUpsUsed: state.followUpsUsed,
+      budget,
+      parentIsFollowUp: parent.source === "follow_up",
+      gateInput: {
+        transcript: ans.transcript,
+        filler_count: ans.filler_word_count,
+        skipped: !!ans.skipped,
+      },
+    });
+
+    if (!wantFollowUp) {
+      dispatch({ type: "RESOLVE_FOLLOWUP", forId: parent.id, followUp: null });
+      return;
+    }
+
+    const ctrl = new AbortController();
+    // 语音热路径：10-12s abort（B3）；超时即按"进下一题"处理
+    const timer = window.setTimeout(() => ctrl.abort(), 12000);
+    (async () => {
+      let followUp: InterviewQuestion | null = null;
+      try {
+        const res = await fetch("/api/m5/follow-up", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            main_question: parent,
+            answer_transcript: ans.transcript,
+            filler_count: ans.filler_word_count ?? 0,
+            methodology_id: state.methodologyId || undefined,
+            persona: config.persona,
+            follow_ups_used: state.followUpsUsed,
+            follow_up_budget: budget,
+            asked_texts: state.questions.map((qq) => qq.text),
+            session_id: state.sessionId,
+          }),
+          signal: ctrl.signal,
+        });
+        if (res.ok) {
+          const j = (await res.json()) as {
+            follow_up?: InterviewQuestion | null;
+          };
+          followUp = j.follow_up ?? null;
+        }
+      } catch {
+        followUp = null; // abort/超时/网络错 → 不追问，进下一题
+      } finally {
+        window.clearTimeout(timer);
+        // 迟到/暂停/结束场景由 reducer isStaleResolve 守卫为 no-op（B1）
+        dispatch({ type: "RESOLVE_FOLLOWUP", forId: parent.id, followUp });
+      }
+    })();
+    return () => {
+      window.clearTimeout(timer);
+      ctrl.abort();
+    };
+  }, [
+    state.status,
+    state.currentIdx,
+    state.questions,
+    state.answers,
+    state.followUpsUsed,
+    state.methodologyId,
+    state.sessionId,
+    config,
+  ]);
 
   // 切到下一题时清空文字草稿
   useEffect(() => {
@@ -1156,7 +1293,18 @@ function Module5LiveContent() {
                   : `听你回答中... (${asr.mode ?? "init"})`}
               </>
             )}
-            {state.status === "thinking" && "思考中…"}
+            {state.status === "thinking" && (
+              <>
+                <span className="flex gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-esther-yellow animate-pulse" />
+                  <span
+                    className="w-1.5 h-1.5 rounded-full bg-esther-yellow animate-pulse"
+                    style={{ animationDelay: "0.2s" }}
+                  />
+                </span>
+                面试官思考中…
+              </>
+            )}
             {state.status === "paused" && "已暂停"}
           </div>
 
