@@ -215,6 +215,8 @@ export const M5_STORAGE_KEYS = {
   SESSION_CONFIG: "interview_session_config",
   SESSIONS: "interview_sessions",
   FROM_DEBRIEF_HIGHLIGHT: "from_debrief_highlight",
+  /** m5 v5-R1：进行中进度（增量写，刷新恢复用） */
+  LIVE_PROGRESS: "m5_live_progress",
 } as const;
 
 export const SESSIONS_MAX = 2;

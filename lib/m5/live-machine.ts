@@ -114,6 +114,8 @@ export type PersistedLiveState = {
   questions: InterviewQuestion[];
   answers: TurnAnswer[];
   turnEvaluations: TurnEvaluation[];
+  /** 本场方法论 id（恢复后 follow-up 仍带方法论）；旧快照可空 */
+  methodologyId?: string;
 };
 
 export type SerializableLiveState = Omit<PersistedLiveState, "v">;
@@ -141,6 +143,7 @@ export function deserializeLiveState(raw: string): PersistedLiveState | null {
       questions: o.questions,
       answers: o.answers,
       turnEvaluations: o.turnEvaluations,
+      methodologyId: typeof o.methodologyId === "string" ? o.methodologyId : "",
     };
   } catch {
     return null;

@@ -26,7 +26,11 @@ import {
   isStaleResolve,
   resolveFollowUp as resolveAdvance,
   shouldStartEvaluate,
+  serializeLiveState,
+  deserializeLiveState,
+  hasResumableProgress,
   type LiveStatus,
+  type PersistedLiveState,
 } from "@/lib/m5/live-machine";
 import {
   computeFollowUpBudget,
@@ -99,6 +103,7 @@ type Action =
       forId: string;
       followUp: InterviewQuestion | null;
     }
+  | { type: "REHYDRATE"; snapshot: PersistedLiveState }
   | { type: "ASR_INTERIM"; text: string }
   | { type: "ASR_FINAL"; text: string }
   | { type: "USER_ANSWER_DONE" }
@@ -147,6 +152,24 @@ function reducer(s: State, a: Action): State {
         sessionId: a.sessionId,
         methodologyId: a.methodologyId,
       };
+    case "REHYDRATE": {
+      // v5-R1：刷新恢复 — 语音瞬时态不存，恢复到"准备答第 currentIdx 题"(asking → 重播 TTS)
+      const p = a.snapshot;
+      return {
+        ...s,
+        status: "asking",
+        questions: p.questions,
+        sessionId: p.sessionId,
+        currentIdx: p.currentIdx,
+        answers: p.answers,
+        turnEvaluations: p.turnEvaluations,
+        followUpsUsed: p.followUpsUsed,
+        methodologyId: p.methodologyId ?? "",
+        currentTranscript: "",
+        interimTranscript: "",
+        silenceShownForIdx: null,
+      };
+    }
     case "TTS_END":
       if (s.status !== "asking") return s;
       return { ...s, status: "listening", interimTranscript: "" };
@@ -315,6 +338,10 @@ function Module5LiveContent() {
   const [textDraft, setTextDraft] = useState("");
   /** TTS 失败标志:显示顶部 banner 并自动切文字模式 */
   const [ttsFailed, setTtsFailed] = useState(false);
+  /** v5-R1：刷新恢复 — 待用户确认的"继续上次"候选；resumeChecked 防止 prep 抢跑 */
+  const [resumeCandidate, setResumeCandidate] =
+    useState<PersistedLiveState | null>(null);
+  const [resumeChecked, setResumeChecked] = useState(false);
 
   // 加载 config:登录 + 有 convId → DB;否则 localStorage
   useEffect(() => {
@@ -361,9 +388,37 @@ function Module5LiveContent() {
     }
   }, []);
 
-  // 用 config 调 prep-questions
+  // v5-R1：config 就绪后，先检测 localStorage 是否有"本场配置"的可恢复进度
   useEffect(() => {
     if (!config) return;
+    try {
+      const raw = window.localStorage.getItem(M5_STORAGE_KEYS.LIVE_PROGRESS);
+      if (raw) {
+        const wrapper = JSON.parse(raw) as { startedAt?: string; data?: string };
+        // 只恢复"本场配置"的进度（用 config.started_at 区分不同次面试）
+        if (wrapper.startedAt === config.started_at && wrapper.data) {
+          const snap = deserializeLiveState(wrapper.data);
+          if (snap && hasResumableProgress(snap)) {
+            // eslint-disable-next-line react-hooks/set-state-in-effect
+            setResumeCandidate(snap);
+          }
+        } else {
+          // 不是本场（用户重新配置过）→ 清掉旧进度
+          window.localStorage.removeItem(M5_STORAGE_KEYS.LIVE_PROGRESS);
+        }
+      }
+    } catch (e) {
+      console.warn("[m5/live] resume check failed", e);
+    }
+    setResumeChecked(true);
+  }, [config]);
+
+  // 用 config 调 prep-questions（仅在无可恢复进度时；有候选则等用户决定）
+  useEffect(() => {
+    if (!config) return;
+    if (!resumeChecked || resumeCandidate) return;
+    // 已有题目（REHYDRATE 恢复 或 已 prep 过）→ 不再 prep
+    if (state.questions.length > 0 || state.status !== "loading") return;
     let cancelled = false;
     (async () => {
       try {
@@ -408,7 +463,9 @@ function Module5LiveContent() {
     return () => {
       cancelled = true;
     };
-  }, [config]);
+    // state.questions.length/state.status 仅作幂等守卫读取，不应触发重跑
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [config, resumeChecked, resumeCandidate]);
 
   // 媒体流(摄像头 + 麦克风)
   const wantVideo = config?.mode === "camera";
@@ -763,9 +820,70 @@ function Module5LiveContent() {
     return () => window.clearInterval(t);
   }, [state.status, state.currentIdx, state.silenceShownForIdx]);
 
+  // v5-R1：增量持久化 — 进行中每次进度变化就写（不再只在 finished 写），刷新可恢复
+  useEffect(() => {
+    if (!config) return;
+    const active =
+      state.status === "asking" ||
+      state.status === "listening" ||
+      state.status === "thinking";
+    if (!active || state.questions.length === 0) return;
+    const data = serializeLiveState({
+      sessionId: state.sessionId,
+      currentIdx: state.currentIdx,
+      followUpsUsed: state.followUpsUsed,
+      questions: state.questions,
+      answers: state.answers,
+      turnEvaluations: state.turnEvaluations,
+      methodologyId: state.methodologyId,
+    });
+    try {
+      window.localStorage.setItem(
+        M5_STORAGE_KEYS.LIVE_PROGRESS,
+        JSON.stringify({ startedAt: config.started_at, data })
+      );
+    } catch (e) {
+      console.warn("[m5/live] incremental save failed", e);
+    }
+    // 登录用户：增量写 DB（移出原 finished 门，刷新/换设备可续）
+    if (user && convId && state.answers.length > 0) {
+      createClient()
+        .from("m5_interviews")
+        .update({
+          turns_json: {
+            questions: state.questions,
+            answers: state.answers,
+            turn_evaluations: state.turnEvaluations,
+          },
+        })
+        .eq("conversation_id", convId)
+        .then(({ error }) => {
+          if (error) console.warn("[m5/live] DB incremental save failed:", error);
+        });
+    }
+  }, [
+    state.status,
+    state.answers,
+    state.questions,
+    state.currentIdx,
+    state.followUpsUsed,
+    state.turnEvaluations,
+    state.sessionId,
+    state.methodologyId,
+    config,
+    user,
+    convId,
+  ]);
+
   // session 完成 → 写 localStorage + 录制下载 + 跳 debrief
   useEffect(() => {
     if (state.status !== "finished" || !config) return;
+    // v5-R1：完成 → 清掉进行中进度（避免下次进来误提示"继续上次"）
+    try {
+      window.localStorage.removeItem(M5_STORAGE_KEYS.LIVE_PROGRESS);
+    } catch {
+      /* ignore */
+    }
     // 停录制 + 产 download URL
     if (recorderRef.current && recorderRef.current.state !== "inactive") {
       recorderRef.current.onstop = () => {
@@ -888,6 +1006,58 @@ function Module5LiveContent() {
     const s = (elapsedSec % 60).toString().padStart(2, "0");
     return `${m}:${s}`;
   }, [elapsedSec]);
+
+  // v5-R1：检测到本场未完成进度 → 让用户选"继续上次 / 重新开始"（在 loading 屏之前）
+  if (resumeCandidate && config && state.status === "loading") {
+    const answered = resumeCandidate.answers.length;
+    const total = resumeCandidate.questions.length;
+    return (
+      <main className="h-screen bg-warm-bg flex items-center justify-center px-6">
+        <div className="max-w-[440px] w-full bg-card border-2 border-border rounded-2xl p-8 text-center">
+          <div className="text-4xl mb-3">⏸️</div>
+          <h1 className="text-xl font-bold text-ink mb-2">
+            发现一场没答完的面试
+          </h1>
+          <p className="text-sm text-ink-soft mb-6 leading-relaxed">
+            你上次答到第 {Math.min(resumeCandidate.currentIdx + 1, total)} /{" "}
+            {total} 题（已记录 {answered} 个回答）。要接着上次继续，还是重新开始？
+            <br />
+            <span className="text-xs text-ink-muted">
+              （语音无法续在半句，会从当前这题重新念给你听）
+            </span>
+          </p>
+          <div className="flex gap-3 justify-center">
+            <button
+              type="button"
+              onClick={() => {
+                dispatch({ type: "REHYDRATE", snapshot: resumeCandidate });
+                setResumeCandidate(null);
+              }}
+              className="rounded-full bg-esther-blue text-white px-6 py-2.5 text-sm font-medium hover:bg-esther-blue-dark transition-colors"
+            >
+              继续上次 →
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                try {
+                  window.localStorage.removeItem(
+                    M5_STORAGE_KEYS.LIVE_PROGRESS
+                  );
+                } catch {
+                  /* ignore */
+                }
+                setResumeCandidate(null);
+              }}
+              className="rounded-full bg-warm-bg-deep text-ink px-6 py-2.5 text-sm font-medium hover:bg-warm-bg-deep/70 transition-colors"
+            >
+              重新开始
+            </button>
+          </div>
+        </div>
+      </main>
+    );
+  }
 
   if (state.status === "loading" || !config) {
     return (
