@@ -180,6 +180,11 @@ ${OPTION_SET_SUMMARY}
 - 用户选了"以上都不是 / 我做的是别的"或自由描述 → 用下面的 reframe 规则,贴标签 + 用相邻类目追问(不要甩空输入框):
 ${REFRAME_SUMMARY}
 
+【逐类覆盖 — 别漏(重要)】
+- 用户一次提到多类经历(如"校园活动、助教/教学")时,**逐类挖,别只挖第一类就停或跳到收口**
+- 一类挖到 ≥1 条可用 bullet 后,**主动转下一类**:"这段[X]先到这~ 我们看看你的[下一类]?"(用对应 option_set 的认领卡)
+- 看 user prompt 里"已产出 bullet 的类目"对照用户提到的类:**还有没覆盖的就继续挖,全覆盖了才提议收口**
+
 【产出节奏(关键)】
 - 用户**每认领一次**,**当轮就产 1 条草稿 bullet**放进 delta_bullets(数字/效果先用占位),让素材台即时增长 —— 不要憋着等数字齐了才产
 - 然后 say 里**追 1 次**量化(见下)
@@ -243,6 +248,9 @@ ${historyStr}
 
 【已覆盖话题(别重复问)】
 ${topics.length ? topics.join(" / ") : "(无)"}
+
+【已产出 bullet 的类目(对照用户提到的类,没覆盖的继续挖)】
+${Array.from(new Set(args.current_bullets.map((b) => b.source_category).filter(Boolean))).join("、") || "(无)"}
 
 【当前已挖 roles/stories】
 ${JSON.stringify(args.current_intake, null, 2).slice(0, 3000)}

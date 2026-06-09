@@ -8,10 +8,13 @@
 
 import Link from "next/link";
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Card } from "@/components/ui/card";
 import { Nav } from "@/components/Nav";
 import { BuerFloatingButton } from "@/components/BuerFloatingButton";
 import { useLocalState, STORAGE_KEYS } from "@/lib/use-local-state";
+import { useUser } from "@/lib/auth/useUser";
+import { listConversations, createConversation } from "@/lib/conversations";
 import ConversationSwitcher from "@/components/conversations/ConversationSwitcher";
 import { useM2DBSync } from "@/lib/sync/useM2DBSync";
 import { EXPERIENCE_CATEGORIES } from "@/lib/prompts/excavate-options";
@@ -147,9 +150,9 @@ function isAmbitiousPersonaTag(personaTag?: string): boolean {
 
 function openerText(personaTag?: string): string {
   if (isAmbitiousPersonaTag(personaTag)) {
-    return "嗨 — 看你目标偏拔高型,我们直接挖最近最有分量的那段。先说:这段你负责的核心是什么?";
+    return "我们直奔最有分量的那段经历 —— 先说,你最近做的这段里,最拿得出手的是什么?";
   }
-  return "嗨 — 大学里做过任何事都可能是简历素材,先不用想'有没有价值'。\n下面勾一下你沾边做过的类(沾边都算),我帮你一类一类挖、翻译成简历能用的句子;懒得勾也可以直接开聊。";
+  return "别担心「没什么好写的」—— 很多人的亮点都藏在自己没在意的小事里。我们一点点认,我来帮你把它们变成简历能用的话。";
 }
 
 function mergeIntake(
@@ -253,23 +256,45 @@ function categoryLabel(key?: string): string {
   return EXPERIENCE_CATEGORIES.find((c) => c.key === key)?.label ?? "其他";
 }
 
-export default function Module2Page() {
-  const [profile] = useLocalState<UserProfile>(STORAGE_KEYS.USER_PROFILE, {});
-  const [intake, setIntake] = useLocalState<IntakeArtifact>(STORAGE_KEYS.M2_INTAKE, { roles: [], stories: [] });
-  const [bullets, setBullets] = useLocalState<CandidateBullet[]>(STORAGE_KEYS.M2_BULLETS, []);
-  const [categories, setCategories] = useLocalState<string[]>(STORAGE_KEYS.M2_CATEGORIES, []);
-  const { syncToDb, loadFromDB, isReady: dbReady } = useM2DBSync();
+export default function M2Page() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-warm-bg" />}>
+      <M2Outer />
+    </Suspense>
+  );
+}
 
+// 读 ?c → 登录但没选会话则跳到第一个/新建一个 → 内层按会话 remount(多会话隔离)
+function M2Outer() {
+  const convId = useSearchParams().get("c");
+  const { user, loading: userLoading } = useUser();
+  const router = useRouter();
   useEffect(() => {
-    if (!dbReady || intake.stories.length > 0 || intake.roles.length > 0) return;
-    loadFromDB().then((data) => {
-      if (!data) return;
-      if (data.intake) setIntake(data.intake as IntakeArtifact);
-      if (Array.isArray(data.bullets) && data.bullets.length > 0)
-        setBullets(data.bullets as CandidateBullet[]);
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dbReady]);
+    if (userLoading || !user || convId) return;
+    let cancelled = false;
+    (async () => {
+      const convs = await listConversations("m2");
+      if (cancelled) return;
+      if (convs.length > 0) {
+        router.replace(`/m2?c=${convs[0].id}`);
+        return;
+      }
+      const id = await createConversation("m2", "我的挖经历");
+      if (id && !cancelled) router.replace(`/m2?c=${id}`);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [user, userLoading, convId, router]);
+  return <Module2Page key={convId ?? "guest"} scope={convId ?? "guest"} />;
+}
+
+function Module2Page({ scope }: { scope: string }) {
+  const [profile] = useLocalState<UserProfile>(STORAGE_KEYS.USER_PROFILE, {});
+  const [intake, setIntake] = useLocalState<IntakeArtifact>(`${STORAGE_KEYS.M2_INTAKE}:${scope}`, { roles: [], stories: [] });
+  const [bullets, setBullets] = useLocalState<CandidateBullet[]>(`${STORAGE_KEYS.M2_BULLETS}:${scope}`, []);
+  const [categories, setCategories] = useLocalState<string[]>(`${STORAGE_KEYS.M2_CATEGORIES}:${scope}`, []);
+  const { syncToDb, loadFromDB, isReady: dbReady, isGuest } = useM2DBSync();
 
   const [messages, setMessages] = useState<ChatMsg[]>([]);
   const [input, setInput] = useState("");
@@ -284,13 +309,26 @@ export default function Module2Page() {
   const [copiedAll, setCopiedAll] = useState(false);
   const [depth, setDepth] = useLocalState<Depth>(STORAGE_KEYS.M2_DEPTH, "shallow");
   // 内联填空值:bulletId → 每个【请补充】的填值(plan:像 m3 一样可自行补充)
-  const [fills, setFills] = useLocalState<Record<string, string[]>>("m2_bullet_fills", {});
+  const [fills, setFills] = useLocalState<Record<string, string[]>>(`m2_bullet_fills:${scope}`, {});
   const setFill = (id: string, i: number, v: string) =>
     setFills((prev) => {
       const arr = [...(prev[id] ?? [])];
       arr[i] = v;
       return { ...prev, [id]: arr };
     });
+
+  // 登录:从 DB 恢复当前会话数据(本地为空时;新会话 DB 空 → 保持空白 = 真·新建)
+  useEffect(() => {
+    if (isGuest || !dbReady) return;
+    if (intake.roles.length > 0 || intake.stories.length > 0 || bullets.length > 0) return;
+    loadFromDB().then((data) => {
+      if (!data) return;
+      if (data.intake) setIntake(data.intake as IntakeArtifact);
+      if (Array.isArray(data.bullets) && data.bullets.length > 0) setBullets(data.bullets as CandidateBullet[]);
+      if (data.fills && typeof data.fills === "object") setFills(data.fills as Record<string, string[]>);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dbReady, isGuest]);
 
   // 认领多选 ephemeral state(每个 ask 独立,plan 修 I)
   const [pickedOpts, setPickedOpts] = useState<string[]>([]);
@@ -366,7 +404,7 @@ export default function Module2Page() {
           nextBullets = mergeBullets(bullets, data.delta_bullets as CandidateBullet[]);
           setBullets(nextBullets);
         }
-        void syncToDb(nextIntake, nextBullets);
+        void syncToDb(nextIntake, nextBullets, fills);
 
         if (data.phase) setPhase(data.phase as Phase);
         setSuggestWrap(Boolean(data.suggest_wrap));
