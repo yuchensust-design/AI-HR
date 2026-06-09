@@ -11,6 +11,7 @@ import ConversationSwitcher from "@/components/conversations/ConversationSwitche
 import { useUser } from "@/lib/auth/useUser";
 import { createClient } from "@/lib/supabase/client";
 import { createConversation } from "@/lib/conversations";
+import { useLatestResume } from "@/lib/sync/useLatestResume";
 import {
   M5_STORAGE_KEYS,
   type InterviewSessionConfig,
@@ -130,13 +131,20 @@ function Module5ConfigContent() {
     const supabase = createClient();
     supabase
       .from("m5_interviews")
-      .select("config_json")
+      .select("config_json, debrief_md, turns_json")
       .eq("conversation_id", convId)
       .maybeSingle()
       .then(({ data }) => {
         if (cancelled) return;
         const cfg = (data?.config_json as Record<string, unknown> | undefined) ?? null;
-        if (cfg && Object.keys(cfg).length > 0) {
+        const hasDebrief = !!data?.debrief_md;
+        const turns = data?.turns_json as { answers?: unknown[] } | undefined;
+        const hasAnswers = Array.isArray(turns?.answers) && turns!.answers.length > 0;
+        // 点历史会话:已完成(有复盘) → 看复盘结果;答过但没复盘 → 也进复盘(会重建生成);
+        // 仅配置过没答 → 进 live 开始/续答;全空(新建) → 留在配置表单。
+        if (hasDebrief || hasAnswers) {
+          router.replace(`/m5/debrief?c=${convId}`);
+        } else if (cfg && Object.keys(cfg).length > 0) {
           router.replace(`/m5/live?c=${convId}`);
         }
       });
@@ -145,6 +153,8 @@ function Module5ConfigContent() {
     };
   }, [user, userLoading, convId, router]);
 
+  const latestResume = useLatestResume();
+  const autoPickedResumeRef = useRef(false);
   const [resumeSource, setResumeSource] = useState<ResumeSource | null>(null);
   const [savedResumeText, setSavedResumeText] = useState<string>("");
   const [savedResumeSummary, setSavedResumeSummary] = useState<string | null>(
@@ -217,39 +227,26 @@ function Module5ConfigContent() {
     }
   }, []);
 
+  // 统一读简历:登录读账号最近一份简历(DB),游客读 localStorage(见 useLatestResume)。
+  // 修"换设备/清缓存后账号有简历却读不到" + 不再直接喂原始 JSON 给出题模型。
   useEffect(() => {
-    // 初始化:hydration 后从 localStorage 读简历快照,setState 是必要的副作用
     /* eslint-disable react-hooks/set-state-in-effect */
-    try {
-      const finalRaw = window.localStorage.getItem("final_resume");
-      if (finalRaw) {
-        const parsed = JSON.parse(finalRaw) as {
-          markdown?: string;
-          lastUpdated?: string;
-        };
-        if (parsed?.markdown) {
-          const firstLine = parsed.markdown.split("\n")[0]?.slice(0, 40) ?? "";
-          setSavedResumeText(parsed.markdown);
-          setSavedResumeSummary(
-            firstLine
-              ? `已有简历(${firstLine.replace(/^#+\s*/, "")}…)`
-              : "已有简历"
-          );
-          setResumeSource("saved");
-          return;
-        }
+    if (latestResume.loading) return; // 等 auth/DB 确定,避免误判"没简历"
+    setSavedResumeText(latestResume.resumeText);
+    if (latestResume.hasResume) {
+      const name = latestResume.parsedResume?.basic?.name?.trim();
+      const who = latestResume.source === "db" ? "账号最新" : "本地";
+      setSavedResumeSummary(name ? `已有简历(${name} · ${who})` : `已有简历(${who})`);
+      // 首次且用户还没手动选别的源 → 自动选中(functional update 防 stale)
+      if (!autoPickedResumeRef.current) {
+        autoPickedResumeRef.current = true;
+        setResumeSource((cur) => cur ?? "saved");
       }
-      const parsedRaw = window.localStorage.getItem("parsed_resume");
-      if (parsedRaw) {
-        setSavedResumeText(parsedRaw);
-        setSavedResumeSummary("已有简历(parsed_resume)");
-        setResumeSource("saved");
-      }
-    } catch {
-      // localStorage 异常 → 走粘贴流程
+    } else {
+      setSavedResumeSummary("还没有简历 — 请上传或粘贴");
     }
     /* eslint-enable react-hooks/set-state-in-effect */
-  }, []);
+  }, [latestResume]);
 
   const resumeText =
     resumeSource === "saved"
@@ -257,6 +254,9 @@ function Module5ConfigContent() {
       : resumeSource === "paste" || resumeSource === "upload"
         ? pastedResume.trim()
         : "";
+
+  // 已有简历是否可用(够长才算)—— 驱动「用我已有简历」卡片可不可选,避免选中态和校验态打架
+  const savedResumeUsable = savedResumeText.trim().length > 20;
 
   async function handleFilePick(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -362,7 +362,7 @@ function Module5ConfigContent() {
               先告诉我点信息,然后开始
             </h1>
             <p className="text-ink-soft text-sm">
-              填齐下面,我用你的简历 + JD 出题,面试结束后给你 4 维评分复盘
+              填齐下面,我按岗位用你的简历 + JD 出题。面试中会就你的回答追问深挖,结束后给你双层评分复盘
             </p>
           </div>
         </section>
@@ -374,11 +374,11 @@ function Module5ConfigContent() {
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs text-ink-soft">
               <div className="flex items-start gap-2">
                 <span className="text-esther-blue text-sm">①</span>
-                <span><strong className="text-ink">4 维评分</strong> · 逻辑性 / 具体性 / 应答清晰度 / 口水话频次,每维 1-5 分 + 引用你的原话</span>
+                <span><strong className="text-ink">面试官会追问</strong> · 答得含糊 / 缺数字会被当场追问深挖,像真面试一样接话</span>
               </div>
               <div className="flex items-start gap-2">
                 <span className="text-esther-blue text-sm">②</span>
-                <span><strong className="text-ink">逐题摘要</strong> · 你答的核心点 + 该题得分 + 改进示范</span>
+                <span><strong className="text-ink">双层评分</strong> · 表达 4 维(逻辑 / 具体 / 清晰 / 口水话) + 岗位能力维度,引用你的原话</span>
               </div>
               <div className="flex items-start gap-2">
                 <span className="text-esther-blue text-sm">③</span>
@@ -405,7 +405,7 @@ function Module5ConfigContent() {
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <button
                   type="button"
-                  disabled={!savedResumeSummary}
+                  disabled={!savedResumeSummary || !savedResumeUsable}
                   onClick={() => setResumeSource("saved")}
                   className={`p-4 rounded-xl border-2 text-left transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
                     resumeSource === "saved"
@@ -417,7 +417,7 @@ function Module5ConfigContent() {
                     {resumeSource === "saved" ? "✓ " : ""}用我已有简历
                   </p>
                   <p className="text-[11px] text-ink-soft truncate">
-                    {savedResumeSummary ?? "(localStorage 里还没有简历)"}
+                    {savedResumeSummary ?? "(还没有简历 — 请上传或粘贴)"}
                   </p>
                 </button>
                 <button

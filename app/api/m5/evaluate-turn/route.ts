@@ -21,6 +21,9 @@ import type {
   TurnEvaluation,
 } from "@/lib/interview-types";
 
+// 线上必须显式声明，否则 Vercel 默认 10s 超时静默退化（本地正常、线上坏）
+export const maxDuration = 60;
+
 const SYSTEM_PROMPT = `你是「Offer 捕手」的面试单题评分员。给定一题 + 用户回答 → 输出 4 维(逻辑/具体/清晰/口水话)1-5 分 + 1 句 brief。
 
 【4 维 anchor — PRD §3.6.8(注意是 4 维不是 5 维)】

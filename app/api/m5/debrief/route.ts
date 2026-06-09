@@ -15,8 +15,9 @@
  *   - 反 rationalization:不让态度/长度=高分
  */
 
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { chat } from "@/lib/llm";
+import { recordTrace } from "@/lib/m5/trace";
 import { scrubCompanyNames } from "@/lib/scrub-company";
 import {
   VALID_DIMS,
@@ -28,6 +29,9 @@ import {
   type InterviewSession,
   type TranscriptSummaryItem,
 } from "@/lib/interview-types";
+
+// 线上必须显式声明，否则 Vercel 默认 10s 超时静默退化（本地正常、线上坏）
+export const maxDuration = 60;
 
 const SYSTEM_PROMPT = `你是「Offer 捕手」的面试复盘评分师。整场面试(N 题)→ 给 4 维评分 + 找 highlight + 10 题摘要。
 
@@ -66,6 +70,11 @@ const SYSTEM_PROMPT = `你是「Offer 捕手」的面试复盘评分师。整场
 - **Skeptical Recruiter**:evidence 必须能扛"你怎么知道"反问 — 不引原话不算证据
 - **Anti-fabrication**:用户没说过的数字不能编(transcript 里没"60% 成本" → 不能 suggestedBullet 写"节省 60%")
 - **反 rationalization**:不让"用户态度好就 5 分" / "答得长就高"
+
+【★ 顶端校准 — 5 分要克制(避免人人满分)★】
+- 5 分代表"整场该维度几乎无瑕疵";只要全场**有任何一道**回答在该维度明显偏弱(eg 含糊、缺数字、回避、跑题、未讲个人贡献),该维度**最高给 4 分**,并在 evidence 里点出是哪道拖了后腿。
+- 不要因为大部分答得好就把一两道弱答案抹平成满分 — 区分度比好看更重要。
+- 一场里若各维度都接近满分,优先用 4 分而非 5 分,把 5 分留给真正无可挑剔的表现。
 
 【输出格式 — 严格 JSON,无 markdown 包裹】
 {
@@ -304,7 +313,10 @@ async function callDebriefLLM(
     {
       model,
       temperature: 0.4,
-      max_tokens: model === "reasoner" ? 4000 : 3000,
+      // v5：动态追问后题数可显著增多(本测 5→8)，复盘输出(每题 transcript_summary
+      // + 4 维 evidence + highlights)随之变长。3000 易截断→JSON 解析失败→整页 502。
+      // 提到 6000/8000(deepseek 上限 8192)给足余量。
+      max_tokens: model === "reasoner" ? 8000 : 6000,
       jsonMode: true,
     }
   );
@@ -372,7 +384,22 @@ export async function POST(request: NextRequest) {
 
     // V3.1 (deepseek-chat) 优先 — 速度 5-10s,demo 可接受
     // R1 (reasoner) 留作 P3 升级:深度更好但 30s+,演示太慢
+    const t0 = Date.now();
     const raw = await callDebriefLLM(SYSTEM_PROMPT, userPrompt, "chat");
+    const llmMs = Date.now() - t0;
+    // v5-O1 可观测性：fire-and-forget 记 trace
+    after(() =>
+      recordTrace({
+        session_id: session.id,
+        route: "debrief",
+        methodology_id: session.config?.target_role,
+        model: "chat",
+        input_snapshot: userPrompt,
+        output_snapshot: raw,
+        latency_ms: llmMs,
+        ok: true,
+      }),
+    );
 
     let parsed: Record<string, unknown>;
     try {

@@ -22,6 +22,20 @@ import {
   type TurnEvaluation,
 } from "@/lib/interview-types";
 import { PERSONA_SPECS } from "@/lib/interviewer-personas";
+import {
+  isStaleResolve,
+  resolveFollowUp as resolveAdvance,
+  shouldStartEvaluate,
+  serializeLiveState,
+  deserializeLiveState,
+  hasResumableProgress,
+  type LiveStatus,
+  type PersistedLiveState,
+} from "@/lib/m5/live-machine";
+import {
+  computeFollowUpBudget,
+  shouldRequestFollowUp,
+} from "@/lib/m5/follow-up";
 import { useASR } from "@/lib/use-asr";
 import { useMediaStream } from "@/lib/use-media-stream";
 import { useUser } from "@/lib/auth/useUser";
@@ -58,6 +72,10 @@ type State = {
   prevStatus: Status | null;
   questions: InterviewQuestion[];
   sessionId: string;
+  /** m5 v5：本场方法论 id（prep 返回），喂给 follow-up */
+  methodologyId: string;
+  /** m5 v5：已用动态追问数（预算控制） */
+  followUpsUsed: number;
   currentIdx: number;
   answers: TurnAnswer[];
   turnEvaluations: TurnEvaluation[];
@@ -73,8 +91,19 @@ type State = {
 };
 
 type Action =
-  | { type: "QUESTIONS_LOADED"; questions: InterviewQuestion[]; sessionId: string }
+  | {
+      type: "QUESTIONS_LOADED";
+      questions: InterviewQuestion[];
+      sessionId: string;
+      methodologyId: string;
+    }
   | { type: "TTS_END" }
+  | {
+      type: "RESOLVE_FOLLOWUP";
+      forId: string;
+      followUp: InterviewQuestion | null;
+    }
+  | { type: "REHYDRATE"; snapshot: PersistedLiveState }
   | { type: "ASR_INTERIM"; text: string }
   | { type: "ASR_FINAL"; text: string }
   | { type: "USER_ANSWER_DONE" }
@@ -97,6 +126,8 @@ const initial: State = {
   prevStatus: null,
   questions: [],
   sessionId: "",
+  methodologyId: "",
+  followUpsUsed: 0,
   currentIdx: 0,
   answers: [],
   turnEvaluations: [],
@@ -119,7 +150,26 @@ function reducer(s: State, a: Action): State {
         status: "asking",
         questions: a.questions,
         sessionId: a.sessionId,
+        methodologyId: a.methodologyId,
       };
+    case "REHYDRATE": {
+      // v5-R1：刷新恢复 — 语音瞬时态不存，恢复到"准备答第 currentIdx 题"(asking → 重播 TTS)
+      const p = a.snapshot;
+      return {
+        ...s,
+        status: "asking",
+        questions: p.questions,
+        sessionId: p.sessionId,
+        currentIdx: p.currentIdx,
+        answers: p.answers,
+        turnEvaluations: p.turnEvaluations,
+        followUpsUsed: p.followUpsUsed,
+        methodologyId: p.methodologyId ?? "",
+        currentTranscript: "",
+        interimTranscript: "",
+        silenceShownForIdx: null,
+      };
+    }
     case "TTS_END":
       if (s.status !== "asking") return s;
       return { ...s, status: "listening", interimTranscript: "" };
@@ -141,22 +191,35 @@ function reducer(s: State, a: Action): State {
         filler_word_count: countFillers(finalText),
         answered_at: new Date().toISOString(),
       };
-      const nextAnswers = [...s.answers, answer];
-      const nextIdx = s.currentIdx + 1;
-      if (nextIdx >= s.questions.length) {
-        return {
-          ...s,
-          answers: nextAnswers,
-          status: "finished",
-          currentTranscript: "",
-          interimTranscript: "",
-        };
-      }
+      // m5 v5：答完不直接推进，先进 thinking 挂起（不动 currentIdx），
+      // 由 follow-up effect 决定追问/推进（RESOLVE_FOLLOWUP）。推进/finished 逻辑下移。
       return {
         ...s,
-        answers: nextAnswers,
-        currentIdx: nextIdx,
-        status: "asking",
+        answers: [...s.answers, answer],
+        status: "thinking",
+        currentTranscript: "",
+        interimTranscript: "",
+      };
+    }
+    case "RESOLVE_FOLLOWUP": {
+      // B1 幂等守卫（spec §5）：非 thinking / 母题不匹配（暂停、结束、过期响应）→ no-op
+      // Status 是 LiveStatus 的超集(多 loading/error)；isStaleResolve 对非 thinking 均判 stale，
+      // 运行时值保留、行为正确，类型上断言为 LiveStatus。
+      const slice = {
+        status: s.status as LiveStatus,
+        currentIdx: s.currentIdx,
+        questions: s.questions,
+        followUpsUsed: s.followUpsUsed,
+      };
+      if (isStaleResolve(slice, a.forId)) return s;
+      // 用已单测的纯函数决定推进/插入（追问 insert 到 currentIdx+1，越界 finished）
+      const adv = resolveAdvance(slice, a.forId, a.followUp);
+      return {
+        ...s,
+        questions: adv.questions,
+        currentIdx: adv.currentIdx,
+        followUpsUsed: adv.followUpsUsed,
+        status: adv.status,
         currentTranscript: "",
         interimTranscript: "",
         silenceShownForIdx: null,
@@ -256,7 +319,7 @@ function Module5LiveContent() {
   const router = useRouter();
   const sp = useSearchParams();
   const convId = sp.get("c");
-  const { user } = useUser();
+  const { user, loading: userLoading } = useUser();
   const convQs = convId ? `?c=${convId}` : "";
   const [state, dispatch] = useReducer(reducer, initial);
   const [config, setConfig] = useState<InterviewSessionConfig | null>(null);
@@ -275,9 +338,16 @@ function Module5LiveContent() {
   const [textDraft, setTextDraft] = useState("");
   /** TTS 失败标志:显示顶部 banner 并自动切文字模式 */
   const [ttsFailed, setTtsFailed] = useState(false);
+  /** v5-R1：刷新恢复 — 待用户确认的"继续上次"候选；resumeChecked 防止 prep 抢跑 */
+  const [resumeCandidate, setResumeCandidate] =
+    useState<PersistedLiveState | null>(null);
+  const [resumeChecked, setResumeChecked] = useState(false);
 
   // 加载 config:登录 + 有 convId → DB;否则 localStorage
+  // 必须等 auth 状态确定(userLoading=false)再决定分支 —— 否则登录用户点历史会话时,
+  // 挂载瞬间 user 还没 resolve → 误走 localStorage 兜底 → "没有面试配置"(竞态 bug)。
   useEffect(() => {
+    if (userLoading) return;
     if (user && convId) {
       let cancelled = false;
       const supabase = createClient();
@@ -319,11 +389,48 @@ function Module5LiveContent() {
         msg: "读取面试配置失败",
       });
     }
-  }, []);
+  }, [user, userLoading, convId]);
 
-  // 用 config 调 prep-questions
+  // v5-R1：config 就绪后，先检测 localStorage 是否有"本场配置"的可恢复进度
   useEffect(() => {
     if (!config) return;
+    try {
+      const raw = window.localStorage.getItem(M5_STORAGE_KEYS.LIVE_PROGRESS);
+      if (raw) {
+        const wrapper = JSON.parse(raw) as {
+          startedAt?: string;
+          convId?: string | null;
+          data?: string;
+        };
+        // 会话隔离：只恢复"本场配置"的进度。
+        // started_at 区分不同次面试；convId 进一步隔离登录用户的不同 conversation，
+        // 防止 A 会话的进度被错误恢复进 B 会话（多份面试互不串）。
+        const sameInterview =
+          wrapper.startedAt === config.started_at &&
+          (wrapper.convId ?? null) === (convId ?? null);
+        if (sameInterview && wrapper.data) {
+          const snap = deserializeLiveState(wrapper.data);
+          if (snap && hasResumableProgress(snap)) {
+            // eslint-disable-next-line react-hooks/set-state-in-effect
+            setResumeCandidate(snap);
+          }
+        } else {
+          // 不是本场（换了配置 / 换了 conversation）→ 清掉旧进度，避免串场
+          window.localStorage.removeItem(M5_STORAGE_KEYS.LIVE_PROGRESS);
+        }
+      }
+    } catch (e) {
+      console.warn("[m5/live] resume check failed", e);
+    }
+    setResumeChecked(true);
+  }, [config, convId]);
+
+  // 用 config 调 prep-questions（仅在无可恢复进度时；有候选则等用户决定）
+  useEffect(() => {
+    if (!config) return;
+    if (!resumeChecked || resumeCandidate) return;
+    // 已有题目（REHYDRATE 恢复 或 已 prep 过）→ 不再 prep
+    if (state.questions.length > 0 || state.status !== "loading") return;
     let cancelled = false;
     (async () => {
       try {
@@ -347,6 +454,7 @@ function Module5LiveContent() {
         const j = (await res.json()) as {
           questions: InterviewQuestion[];
           session_id: string;
+          methodology_id?: string;
         };
         if (cancelled) return;
         if (!j.questions || j.questions.length === 0) {
@@ -356,6 +464,7 @@ function Module5LiveContent() {
           type: "QUESTIONS_LOADED",
           questions: j.questions,
           sessionId: j.session_id,
+          methodologyId: j.methodology_id ?? "",
         });
       } catch (err) {
         if (cancelled) return;
@@ -366,7 +475,9 @@ function Module5LiveContent() {
     return () => {
       cancelled = true;
     };
-  }, [config]);
+    // state.questions.length/state.status 仅作幂等守卫读取，不应触发重跑
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [config, resumeChecked, resumeCandidate]);
 
   // 媒体流(摄像头 + 麦克风)
   const wantVideo = config?.mode === "camera";
@@ -547,16 +658,28 @@ function Module5LiveContent() {
   }, [state.status, state.currentIdx, currentQuestion, config]);
 
   // evaluate-turn fire-and-forget(当 answer 被 push 后)
+  // G2：本 effect 依赖 state.questions，follow-up insert 改 questions 会重跑；
+  // 首评未返回时 turnEvaluations 仍空 → 会对同一答案重复打分。用 in-flight Set 挡住在途窗口。
+  const inflightEvalIds = useRef<Set<string>>(new Set());
   useEffect(() => {
     if (state.answers.length === 0) return;
     const lastAns = state.answers[state.answers.length - 1];
     if (!lastAns) return;
-    const alreadyEvaluated = state.turnEvaluations.some(
-      (e) => e.question_id === lastAns.question_id
+    const evaluatedIds = new Set(
+      state.turnEvaluations.map((e) => e.question_id)
     );
-    if (alreadyEvaluated) return;
+    if (
+      !shouldStartEvaluate(
+        lastAns.question_id,
+        evaluatedIds,
+        inflightEvalIds.current
+      )
+    ) {
+      return;
+    }
     const q = state.questions.find((x) => x.id === lastAns.question_id);
     if (!q) return;
+    inflightEvalIds.current.add(lastAns.question_id);
     fetch("/api/m5/evaluate-turn", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -570,8 +693,91 @@ function Module5LiveContent() {
       })
       .catch((err) =>
         console.warn("[m5/live] evaluate-turn failed (silent)", err)
-      );
+      )
+      .finally(() => {
+        inflightEvalIds.current.delete(lastAns.question_id);
+      });
   }, [state.answers, state.questions, state.turnEvaluations]);
+
+  // m5 v5 动态追问：thinking 态 → 判断是否追问 → 调 follow-up → RESOLVE_FOLLOWUP
+  // thinking 期间依赖稳定 → 本 effect 只跑一次；暂停时 status 变 → cleanup abort，
+  // 恢复回 thinking → 自动重试（不加 ref 锁，避免"恢复后卡 thinking"）。
+  // RESOLVE 的迟到/暂停/结束响应由 reducer 的 isStaleResolve 幂等守卫兜底（B1）。
+  useEffect(() => {
+    if (state.status !== "thinking" || !config) return;
+    const parent = state.questions[state.currentIdx];
+    if (!parent) return;
+    const ans = state.answers.find((x) => x.question_id === parent.id);
+    if (!ans) return;
+
+    const budget =
+      config.follow_up_budget ?? computeFollowUpBudget(config.num_questions);
+    const wantFollowUp = shouldRequestFollowUp({
+      followUpsUsed: state.followUpsUsed,
+      budget,
+      parentIsFollowUp: parent.source === "follow_up",
+      gateInput: {
+        transcript: ans.transcript,
+        filler_count: ans.filler_word_count,
+        skipped: !!ans.skipped,
+      },
+    });
+
+    if (!wantFollowUp) {
+      dispatch({ type: "RESOLVE_FOLLOWUP", forId: parent.id, followUp: null });
+      return;
+    }
+
+    const ctrl = new AbortController();
+    // 语音热路径：10-12s abort（B3）；超时即按"进下一题"处理
+    const timer = window.setTimeout(() => ctrl.abort(), 12000);
+    (async () => {
+      let followUp: InterviewQuestion | null = null;
+      try {
+        const res = await fetch("/api/m5/follow-up", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            main_question: parent,
+            answer_transcript: ans.transcript,
+            filler_count: ans.filler_word_count ?? 0,
+            methodology_id: state.methodologyId || undefined,
+            persona: config.persona,
+            follow_ups_used: state.followUpsUsed,
+            follow_up_budget: budget,
+            asked_texts: state.questions.map((qq) => qq.text),
+            session_id: state.sessionId,
+          }),
+          signal: ctrl.signal,
+        });
+        if (res.ok) {
+          const j = (await res.json()) as {
+            follow_up?: InterviewQuestion | null;
+          };
+          followUp = j.follow_up ?? null;
+        }
+      } catch {
+        followUp = null; // abort/超时/网络错 → 不追问，进下一题
+      } finally {
+        window.clearTimeout(timer);
+        // 迟到/暂停/结束场景由 reducer isStaleResolve 守卫为 no-op（B1）
+        dispatch({ type: "RESOLVE_FOLLOWUP", forId: parent.id, followUp });
+      }
+    })();
+    return () => {
+      window.clearTimeout(timer);
+      ctrl.abort();
+    };
+  }, [
+    state.status,
+    state.currentIdx,
+    state.questions,
+    state.answers,
+    state.followUpsUsed,
+    state.methodologyId,
+    state.sessionId,
+    config,
+  ]);
 
   // 切到下一题时清空文字草稿
   useEffect(() => {
@@ -579,12 +785,16 @@ function Module5LiveContent() {
     setTextDraft("");
   }, [state.currentIdx]);
 
-  // 切到文字模式时,自动把左侧 panel 切到 transcript tab 让 textarea 可见
+  // 切到文字模式时,自动把左侧 panel 切到 transcript tab 让 textarea 可见。
+  // 修复:只在 inputMode "变成" text 的那一刻切一次,不再锁死 —— 否则用户在文字模式下
+  // 永远点不开"答题思路"(一点就被弹回 transcript)。
+  const prevInputModeRef = useRef<InputMode>(inputMode);
   useEffect(() => {
-    if (inputMode === "text" && state.panelTab !== "transcript") {
+    if (inputMode === "text" && prevInputModeRef.current !== "text") {
       dispatch({ type: "PANEL_TAB", tab: "transcript" });
     }
-  }, [inputMode, state.panelTab]);
+    prevInputModeRef.current = inputMode;
+  }, [inputMode]);
 
   /** 文字模式:点提交 → 把 textDraft 合并到 transcript → 走 USER_ANSWER_DONE */
   const handleTextSubmit = useCallback(() => {
@@ -626,9 +836,71 @@ function Module5LiveContent() {
     return () => window.clearInterval(t);
   }, [state.status, state.currentIdx, state.silenceShownForIdx]);
 
+  // v5-R1：增量持久化 — 进行中每次进度变化就写（不再只在 finished 写），刷新可恢复
+  useEffect(() => {
+    if (!config) return;
+    const active =
+      state.status === "asking" ||
+      state.status === "listening" ||
+      state.status === "thinking";
+    if (!active || state.questions.length === 0) return;
+    const data = serializeLiveState({
+      sessionId: state.sessionId,
+      currentIdx: state.currentIdx,
+      followUpsUsed: state.followUpsUsed,
+      questions: state.questions,
+      answers: state.answers,
+      turnEvaluations: state.turnEvaluations,
+      methodologyId: state.methodologyId,
+    });
+    try {
+      window.localStorage.setItem(
+        M5_STORAGE_KEYS.LIVE_PROGRESS,
+        // convId 一并存：会话隔离，恢复时要求 started_at + convId 都匹配
+        JSON.stringify({ startedAt: config.started_at, convId: convId ?? null, data })
+      );
+    } catch (e) {
+      console.warn("[m5/live] incremental save failed", e);
+    }
+    // 登录用户：增量写 DB（移出原 finished 门，刷新/换设备可续）
+    if (user && convId && state.answers.length > 0) {
+      createClient()
+        .from("m5_interviews")
+        .update({
+          turns_json: {
+            questions: state.questions,
+            answers: state.answers,
+            turn_evaluations: state.turnEvaluations,
+          },
+        })
+        .eq("conversation_id", convId)
+        .then(({ error }) => {
+          if (error) console.warn("[m5/live] DB incremental save failed:", error);
+        });
+    }
+  }, [
+    state.status,
+    state.answers,
+    state.questions,
+    state.currentIdx,
+    state.followUpsUsed,
+    state.turnEvaluations,
+    state.sessionId,
+    state.methodologyId,
+    config,
+    user,
+    convId,
+  ]);
+
   // session 完成 → 写 localStorage + 录制下载 + 跳 debrief
   useEffect(() => {
     if (state.status !== "finished" || !config) return;
+    // v5-R1：完成 → 清掉进行中进度（避免下次进来误提示"继续上次"）
+    try {
+      window.localStorage.removeItem(M5_STORAGE_KEYS.LIVE_PROGRESS);
+    } catch {
+      /* ignore */
+    }
     // 停录制 + 产 download URL
     if (recorderRef.current && recorderRef.current.state !== "inactive") {
       recorderRef.current.onstop = () => {
@@ -660,7 +932,10 @@ function Module5LiveContent() {
       const exist = existRaw
         ? (JSON.parse(existRaw) as InterviewSession[])
         : [];
-      const next = [...exist, newSession].slice(-SESSIONS_MAX);
+      // 按 id upsert：finished effect 会因 turnEvaluations 迟到更新而重跑，
+      // 直接 push 会把同一场存两次（挤掉真正的上一场）。先剔除同 id 再追加。
+      const deduped = exist.filter((s) => s.id !== newSession.id);
+      const next = [...deduped, newSession].slice(-SESSIONS_MAX);
       window.localStorage.setItem(
         M5_STORAGE_KEYS.SESSIONS,
         JSON.stringify(next)
@@ -687,8 +962,9 @@ function Module5LiveContent() {
   }, [state.status, state.sessionId, state.questions, state.answers, state.turnEvaluations, config, user, convId]);
 
   // "💡 查看回答思路" - 复用 /api/chat
+  // v5：结合"这道题 + 学生真实简历"给针对性提示（不给完整答案），不再套 STAR 四件套模板
   const handleTipsOpen = useCallback(async () => {
-    if (!currentQuestion) return;
+    if (!currentQuestion || !config) return;
     dispatch({ type: "TIPS_OPEN" });
     try {
       const res = await fetch("/api/chat", {
@@ -699,11 +975,24 @@ function Module5LiveContent() {
             {
               role: "system",
               content:
-                "你给学生答面试题做提示。给 3-5 条简短提示(每条 ≤ 25 字),从 STAR / 数字 / own 决策 / 反思 4 个维度,用 → 开头。不直接给答案。",
+                "你是面试教练,正在一场模拟面试中给学生【当前这道题】的回答思路提示。规则:" +
+                "①结合学生【简历里的真实经历】给可操作方向(该调用哪段经历/哪个角度/要不要给数字/怎么开头收尾/控时多久);" +
+                "②3-4 条,每条 ≤ 30 字,用 → 开头;" +
+                "③只给方向,绝不给完整答案(这是实战,不能替他答);" +
+                "④不套通用模板——自我介绍题别硬套 STAR,技术题就提示该讲清哪个点;" +
+                "⑤anti-fabrication:不替学生编简历里没有的数字/经历,简历里有的可点名让他重点讲;" +
+                "⑥不输出公司名(大厂抽象成「某大厂」)。",
             },
             {
               role: "user",
-              content: `面试题:${currentQuestion.text}\n考察点:${currentQuestion.intent}\n请给我答题提示(→开头,中文,3-5 条)。`,
+              content:
+                `【这道题】${currentQuestion.text}\n` +
+                `【考察】${currentQuestion.whatItTests || currentQuestion.intent}\n` +
+                (currentQuestion.digHint
+                  ? `【可深挖方向】${currentQuestion.digHint}\n`
+                  : "") +
+                `\n【学生简历(摘要)】\n${config.resume_text.slice(0, 2000)}\n` +
+                `\n给 3-4 条针对这道题、结合他简历真实经历的回答思路(→开头,中文,不给完整答案)。`,
             },
           ],
         }),
@@ -726,7 +1015,7 @@ function Module5LiveContent() {
       const msg = err instanceof Error ? err.message : "提示加载失败";
       dispatch({ type: "TIPS_LOAD", content: `❌ ${msg}` });
     }
-  }, [currentQuestion]);
+  }, [currentQuestion, config]);
 
   const goDebrief = useCallback(() => {
     router.push(`/m5/debrief${convQs}`);
@@ -751,6 +1040,58 @@ function Module5LiveContent() {
     const s = (elapsedSec % 60).toString().padStart(2, "0");
     return `${m}:${s}`;
   }, [elapsedSec]);
+
+  // v5-R1：检测到本场未完成进度 → 让用户选"继续上次 / 重新开始"（在 loading 屏之前）
+  if (resumeCandidate && config && state.status === "loading") {
+    const answered = resumeCandidate.answers.length;
+    const total = resumeCandidate.questions.length;
+    return (
+      <main className="h-screen bg-warm-bg flex items-center justify-center px-6">
+        <div className="max-w-[440px] w-full bg-card border-2 border-border rounded-2xl p-8 text-center">
+          <div className="text-4xl mb-3">⏸️</div>
+          <h1 className="text-xl font-bold text-ink mb-2">
+            发现一场没答完的面试
+          </h1>
+          <p className="text-sm text-ink-soft mb-6 leading-relaxed">
+            你上次答到第 {Math.min(resumeCandidate.currentIdx + 1, total)} /{" "}
+            {total} 题（已记录 {answered} 个回答）。要接着上次继续，还是重新开始？
+            <br />
+            <span className="text-xs text-ink-muted">
+              （语音无法续在半句，会从当前这题重新念给你听）
+            </span>
+          </p>
+          <div className="flex gap-3 justify-center">
+            <button
+              type="button"
+              onClick={() => {
+                dispatch({ type: "REHYDRATE", snapshot: resumeCandidate });
+                setResumeCandidate(null);
+              }}
+              className="rounded-full bg-esther-blue text-white px-6 py-2.5 text-sm font-medium hover:bg-esther-blue-dark transition-colors"
+            >
+              继续上次 →
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                try {
+                  window.localStorage.removeItem(
+                    M5_STORAGE_KEYS.LIVE_PROGRESS
+                  );
+                } catch {
+                  /* ignore */
+                }
+                setResumeCandidate(null);
+              }}
+              className="rounded-full bg-warm-bg-deep text-ink px-6 py-2.5 text-sm font-medium hover:bg-warm-bg-deep/70 transition-colors"
+            >
+              重新开始
+            </button>
+          </div>
+        </div>
+      </main>
+    );
+  }
 
   if (state.status === "loading" || !config) {
     return (
@@ -985,7 +1326,7 @@ function Module5LiveContent() {
                       </p>
                     ) : (
                       <p className="text-[11px] text-ink-soft">
-                        点开看 STAR / 数字 / own 决策 / 反思 4 维提醒
+                        点开看针对这道题、结合你简历的回答思路
                       </p>
                     )}
                     <p className="text-[10px] text-ink-muted mt-2 font-display italic">
@@ -1156,7 +1497,18 @@ function Module5LiveContent() {
                   : `听你回答中... (${asr.mode ?? "init"})`}
               </>
             )}
-            {state.status === "thinking" && "思考中…"}
+            {state.status === "thinking" && (
+              <>
+                <span className="flex gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-esther-yellow animate-pulse" />
+                  <span
+                    className="w-1.5 h-1.5 rounded-full bg-esther-yellow animate-pulse"
+                    style={{ animationDelay: "0.2s" }}
+                  />
+                </span>
+                面试官思考中…
+              </>
+            )}
             {state.status === "paused" && "已暂停"}
           </div>
 
