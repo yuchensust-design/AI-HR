@@ -103,6 +103,8 @@ function buildSystemPrompt(): string {
 【输出长度控制】总返回 JSON ≤ 8000 字符;每个 weekly_plan 的 tasks ≤ 5 条;deliverables ≤ 6 条;metrics_dictionary ≤ 5 条。`;
 }
 
+export const maxDuration = 60; // 线上防 Vercel 默认 10s 静默超时
+
 export async function POST(req: NextRequest) {
   let body: RequestBody;
   try {

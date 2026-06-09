@@ -98,6 +98,8 @@ ${resumeBlock}
 返回 JSON。`;
 }
 
+export const maxDuration = 60; // 线上防 Vercel 默认 10s 静默超时
+
 export async function POST(request: NextRequest) {
   try {
     const body = (await request.json()) as RequestBody;

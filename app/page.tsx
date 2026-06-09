@@ -515,19 +515,19 @@ export default function Home() {
                 </p>
                 <ul className="space-y-2 text-sm text-ink-soft">
                   <li>
-                    <a href="#" className="hover:text-esther-blue">
-                      GitHub Repo(开发中)
-                    </a>
+                    <span className="text-ink-muted cursor-default">
+                      GitHub Repo · 即将开放
+                    </span>
                   </li>
                   <li>
-                    <a href="#" className="hover:text-esther-blue">
-                      演示视频(Day 11 上线)
-                    </a>
+                    <span className="text-ink-muted cursor-default">
+                      演示视频 · 即将上线
+                    </span>
                   </li>
                   <li>
-                    <a href="#" className="hover:text-esther-blue">
-                      1000 字方案文档
-                    </a>
+                    <span className="text-ink-muted cursor-default">
+                      1000 字方案文档 · 即将上线
+                    </span>
                   </li>
                   <li>
                     <Link href="/diary" className="hover:text-esther-blue">

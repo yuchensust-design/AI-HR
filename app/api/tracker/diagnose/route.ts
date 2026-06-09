@@ -261,6 +261,8 @@ function labelForBottleneck(b: Diagnosis["likelyBottleneck"]): string {
   }
 }
 
+export const maxDuration = 60; // 线上防 Vercel 默认 10s 静默超时
+
 export async function POST(req: Request) {
   try {
     const body = await req.json().catch(() => ({}));

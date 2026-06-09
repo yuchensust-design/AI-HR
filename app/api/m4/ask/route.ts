@@ -45,6 +45,8 @@ function buildSystemPrompt(): string {
 纯文本,3-6 段,每段 1-3 句。开头不用"好的""我来回答你"这种废话开场,直接进入回答。`;
 }
 
+export const maxDuration = 60; // 线上防 Vercel 默认 10s 静默超时
+
 export async function POST(req: NextRequest) {
   let body: RequestBody;
   try {

@@ -16,6 +16,8 @@ import { chat, type ChatMessage } from "@/lib/llm";
  *
  * v1 客户端调用统一通过这个 proxy(API key 留后端,前端不持)
  */
+export const maxDuration = 60; // 线上防 Vercel 默认 10s 静默超时(不二聊天每页都挂)
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
