@@ -52,7 +52,8 @@
 - **不二聊天**:每页右下入口,实测发消息 ~8s 出共情回复(reflection+开放问题),无 bug。死链已显示"即将开放/上线"(轮0生效)。
 - **登录历史多会话回归**:点侧栏面试历史 → /m5?c= 正确路由到 debrief(hasAnswers),不报错。改简历会话切换正常(之前竞态修复在 main 仍稳)。
 - **Finding #5【一般·已修已验】** 登录用户 m5 出题的 resume_text 出现"自我评价:[object Object]"——self_eval 在某些解析版本是 {text}[] 被 String() 成 [object Object]。改 bulletText 兼容。commit `self_eval`.
-- **Finding #6【严重·记录不硬改】** 答了部分题就提前结束(实测答 1 题 + 1 追问未答 → 结束)→ 登录用户复盘显示"📭 本次未完成任何回答,无评估内容",丢了已答内容。根因:debrief route 的 N/A 短路是 **LLM 判定**(prompt 规则#9"N 题全部未答→evaluable:false"),1 答 + 5 空时 LLM 过度短路成"全未答"。证据链:localStorage interview_sessions 有完整答案(transcript 172字),但复盘 LLM 判 evaluable:false。**属 prompt 调优(高风险),留给白天**;建议:客户端在 ≥1 真实作答时强制 evaluable=true,或只把"已答题"喂给复盘 LLM。
+- **Finding #6【严重·已修已验】** 答部分题就提前结束 → 复盘"📭 本次未完成任何回答,无评估内容",丢已答内容。评委常答几题就提前看复盘 → 直接踩中,像坏了。根因:N/A 短路由 LLM 判(prompt 规则#9),1答+空 时 LLM 过度短路。修:① debrief route evaluable 改**确定性 answeredCount>0**,不让 LLM 推翻;② prompt 告知已答数+"≥1必须评估,N/A 仅全0时用"。**直接 API 验证:1答/5题 → evaluable=true + 4维真实评分**。commit `复盘 evaluable 确定性`.
+- **测试数据污染(非产品bug)**:加 Finding#4 guard 之前我跑过的乱码简历(name="?")已落库,成了"账号最新",导致 m5 资历卡片显示"还没有简历"(useLatestResume 取最新已解析行=那条垃圾,<20字回退本地、本地也被污染)。production 有 guard 后乱码不入库,不会发生。后续迭代要测面试就直接粘简历。
 - 另:复盘"实际用时 28 分钟"用墙钟非实际答题时长,偏大(轻微)。
 
 **待续(迭代4):** 改前/改后命中率;Word 导出;刷新中途恢复;m1/m2/m4 辅助模块快扫;**完整跑一场面试(全答)确认复盘正常**(区分 Finding#6 是否仅限部分完成)。
