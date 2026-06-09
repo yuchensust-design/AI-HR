@@ -2551,22 +2551,28 @@ function InterviewPrepTab({
                 <div className="space-y-3 pl-1">
                   {cat.questions.map((q, qi) => (
                     <div key={qi} className="border border-border rounded-lg p-4 bg-card">
-                      <p className="text-sm font-medium text-ink mb-2">Q{qi + 1}. {q.q}</p>
+                      <p className="text-sm font-semibold text-ink mb-2.5">Q{qi + 1}. {q.q}</p>
                       {q.examines && (
-                        <p className="text-xs text-ink-muted mb-2 flex gap-1">
-                          <span className="flex-shrink-0">🔍 考察方向:</span>
-                          <span>{q.examines}</span>
-                        </p>
+                        <div className="mb-3">
+                          <span className="inline-flex items-center gap-1 rounded-full bg-warm-bg-deep/40 px-2 py-0.5 text-[11px] text-ink-muted">
+                            🔍 考察方向 · {q.examines}
+                          </span>
+                        </div>
                       )}
-                      <div className="bg-warm-bg-deep/30 rounded p-3 mb-2">
-                        <p className="text-xs text-ink-muted mb-1">参考答案</p>
-                        <p className="text-sm text-ink-soft leading-relaxed whitespace-pre-wrap">{q.reference_answer}</p>
+                      {/* 参考答案 = 主体正文(蓝色左边线标识,可背诵) */}
+                      <div className="border-l-2 border-esther-blue/40 pl-3">
+                        <p className="text-[11px] font-semibold text-esther-blue mb-1">参考答案</p>
+                        <p className="text-sm text-ink leading-relaxed whitespace-pre-wrap">{q.reference_answer}</p>
                       </div>
+                      {/* 答题技巧 = 独立高亮提示框,和正文明显区分 */}
                       {q.tip && (
-                        <p className="text-xs text-ink-muted leading-relaxed flex gap-1">
-                          <span className="flex-shrink-0">💡 答题技巧:</span>
-                          <span>{q.tip}</span>
-                        </p>
+                        <div className="mt-3 flex gap-2 rounded-lg border border-esther-yellow/50 bg-esther-yellow/15 px-3 py-2">
+                          <span className="flex-shrink-0 text-sm leading-5">💡</span>
+                          <div>
+                            <p className="text-[11px] font-semibold text-ink mb-0.5">答题技巧</p>
+                            <p className="text-xs text-ink-soft leading-relaxed">{q.tip}</p>
+                          </div>
+                        </div>
                       )}
                     </div>
                   ))}
