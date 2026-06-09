@@ -308,7 +308,10 @@ async function callDebriefLLM(
     {
       model,
       temperature: 0.4,
-      max_tokens: model === "reasoner" ? 4000 : 3000,
+      // v5：动态追问后题数可显著增多(本测 5→8)，复盘输出(每题 transcript_summary
+      // + 4 维 evidence + highlights)随之变长。3000 易截断→JSON 解析失败→整页 502。
+      // 提到 6000/8000(deepseek 上限 8192)给足余量。
+      max_tokens: model === "reasoner" ? 8000 : 6000,
       jsonMode: true,
     }
   );

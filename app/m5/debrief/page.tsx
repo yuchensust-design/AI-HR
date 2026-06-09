@@ -427,6 +427,11 @@ function Module5DebriefContent() {
     debrief.evaluable !== false && debrief.scores.length > 0;
   const answeredCount = debrief.answeredCount;
   const totalCount = debrief.totalCount ?? session.questions.length;
+  // v5：动态追问会让实际题数 > 配置题数。计数要反映实际，避免"5 题"却列 8 条的矛盾。
+  const followUpCount = session.questions.filter(
+    (q) => q.source === "follow_up",
+  ).length;
+  const actualQuestionCount = session.questions.length;
   const partialAnswered =
     isEvaluable &&
     typeof answeredCount === "number" &&
@@ -457,8 +462,9 @@ function Module5DebriefContent() {
               这一场,你做得怎么样
             </h1>
             <p className="text-ink-soft text-sm">
-              {typeLabel} · {personaLabel} · {session.config.num_questions}{" "}
-              题{elapsedMin ? ` · 实际用时 ${elapsedMin} 分钟` : ""}
+              {typeLabel} · {personaLabel} · {session.config.num_questions} 题
+              {followUpCount > 0 ? ` +${followUpCount} 追问` : ""}
+              {elapsedMin ? ` · 实际用时 ${elapsedMin} 分钟` : ""}
               {startedAt ? ` · ${startedAt}` : ""}
             </p>
             <p className="text-xs text-ink-muted mt-4 leading-relaxed bg-warm-bg-deep/40 border border-border rounded-md px-3 py-2">
@@ -758,7 +764,7 @@ function Module5DebriefContent() {
           <section className="border-b border-border bg-warm-bg-deep/30">
             <div className="max-w-[1100px] mx-auto px-6 py-10">
               <h2 className="text-xl md:text-2xl font-bold text-ink mb-2">
-                {session.config.num_questions} 题完整摘要
+                {actualQuestionCount} 题完整摘要
               </h2>
               <p className="text-sm text-ink-soft mb-6">
                 每题展示问题 + 你答的核心点 + 该题得分(N/A = 跳过或未答,不参与维度统计)
