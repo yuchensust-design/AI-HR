@@ -93,32 +93,65 @@ ${buildTranscript(session)}
 
 按 rubric 对 ${dims.length} 个能力维度打分，返 JSON。`;
 
+    const messages = [
+      { role: "system" as const, content: systemPrompt },
+      { role: "user" as const, content: userPrompt },
+    ];
+    const tryParse = (s: string): Record<string, unknown> | null => {
+      try {
+        return JSON.parse(s) as Record<string, unknown>;
+      } catch {
+        return null;
+      }
+    };
+
+    // R1 偶发返回非法/截断 JSON（实测见过 857ms 快速失败）→ 回退 V3.1 重试一次。
+    // V3.1 JSON 更稳更快；都失败才放弃（优雅降级，雷达不显示，4 维不受影响）。
     const t0 = Date.now();
-    const raw = await chat(
-      [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userPrompt },
-      ],
-      { model: "reasoner", temperature: 0.4, max_tokens: 1500, jsonMode: true },
-    );
+    let raw = "";
+    let usedModel: "reasoner" | "chat" = "reasoner";
+    let parsed: Record<string, unknown> | null = null;
+    try {
+      raw = await chat(messages, {
+        model: "reasoner",
+        temperature: 0.4,
+        max_tokens: 2500, // 8+ 题 transcript + N 维 evidence，1500 易截断
+        jsonMode: true,
+      });
+      parsed = tryParse(raw);
+    } catch {
+      parsed = null;
+    }
+    if (!parsed) {
+      usedModel = "chat";
+      try {
+        raw = await chat(messages, {
+          model: "chat",
+          temperature: 0.4,
+          max_tokens: 2500,
+          jsonMode: true,
+        });
+        parsed = tryParse(raw);
+      } catch {
+        parsed = null;
+      }
+    }
     const llmMs = Date.now() - t0;
+    const okParsed = !!parsed;
     after(() =>
       recordTrace({
         session_id: session.id,
         route: "capability",
         methodology_id: methodology.id,
-        model: "reasoner",
+        model: usedModel,
         input_snapshot: userPrompt,
         output_snapshot: raw,
         latency_ms: llmMs,
-        ok: true,
+        ok: okParsed,
       }),
     );
 
-    let parsed: Record<string, unknown>;
-    try {
-      parsed = JSON.parse(raw);
-    } catch {
+    if (!parsed) {
       return NextResponse.json(EMPTY(methodologyId));
     }
 
