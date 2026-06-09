@@ -942,8 +942,9 @@ function Module5LiveContent() {
   }, [state.status, state.sessionId, state.questions, state.answers, state.turnEvaluations, config, user, convId]);
 
   // "💡 查看回答思路" - 复用 /api/chat
+  // v5：结合"这道题 + 学生真实简历"给针对性提示（不给完整答案），不再套 STAR 四件套模板
   const handleTipsOpen = useCallback(async () => {
-    if (!currentQuestion) return;
+    if (!currentQuestion || !config) return;
     dispatch({ type: "TIPS_OPEN" });
     try {
       const res = await fetch("/api/chat", {
@@ -954,11 +955,24 @@ function Module5LiveContent() {
             {
               role: "system",
               content:
-                "你给学生答面试题做提示。给 3-5 条简短提示(每条 ≤ 25 字),从 STAR / 数字 / own 决策 / 反思 4 个维度,用 → 开头。不直接给答案。",
+                "你是面试教练,正在一场模拟面试中给学生【当前这道题】的回答思路提示。规则:" +
+                "①结合学生【简历里的真实经历】给可操作方向(该调用哪段经历/哪个角度/要不要给数字/怎么开头收尾/控时多久);" +
+                "②3-4 条,每条 ≤ 30 字,用 → 开头;" +
+                "③只给方向,绝不给完整答案(这是实战,不能替他答);" +
+                "④不套通用模板——自我介绍题别硬套 STAR,技术题就提示该讲清哪个点;" +
+                "⑤anti-fabrication:不替学生编简历里没有的数字/经历,简历里有的可点名让他重点讲;" +
+                "⑥不输出公司名(大厂抽象成「某大厂」)。",
             },
             {
               role: "user",
-              content: `面试题:${currentQuestion.text}\n考察点:${currentQuestion.intent}\n请给我答题提示(→开头,中文,3-5 条)。`,
+              content:
+                `【这道题】${currentQuestion.text}\n` +
+                `【考察】${currentQuestion.whatItTests || currentQuestion.intent}\n` +
+                (currentQuestion.digHint
+                  ? `【可深挖方向】${currentQuestion.digHint}\n`
+                  : "") +
+                `\n【学生简历(摘要)】\n${config.resume_text.slice(0, 2000)}\n` +
+                `\n给 3-4 条针对这道题、结合他简历真实经历的回答思路(→开头,中文,不给完整答案)。`,
             },
           ],
         }),
@@ -981,7 +995,7 @@ function Module5LiveContent() {
       const msg = err instanceof Error ? err.message : "提示加载失败";
       dispatch({ type: "TIPS_LOAD", content: `❌ ${msg}` });
     }
-  }, [currentQuestion]);
+  }, [currentQuestion, config]);
 
   const goDebrief = useCallback(() => {
     router.push(`/m5/debrief${convQs}`);
@@ -1292,7 +1306,7 @@ function Module5LiveContent() {
                       </p>
                     ) : (
                       <p className="text-[11px] text-ink-soft">
-                        点开看 STAR / 数字 / own 决策 / 反思 4 维提醒
+                        点开看针对这道题、结合你简历的回答思路
                       </p>
                     )}
                     <p className="text-[10px] text-ink-muted mt-2 font-display italic">

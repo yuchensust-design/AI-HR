@@ -362,7 +362,7 @@ function Module5ConfigContent() {
               先告诉我点信息,然后开始
             </h1>
             <p className="text-ink-soft text-sm">
-              填齐下面,我用你的简历 + JD 出题,面试结束后给你 4 维评分复盘
+              填齐下面,我按岗位用你的简历 + JD 出题。面试中会就你的回答追问深挖,结束后给你双层评分复盘
             </p>
           </div>
         </section>
@@ -374,11 +374,11 @@ function Module5ConfigContent() {
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs text-ink-soft">
               <div className="flex items-start gap-2">
                 <span className="text-esther-blue text-sm">①</span>
-                <span><strong className="text-ink">4 维评分</strong> · 逻辑性 / 具体性 / 应答清晰度 / 口水话频次,每维 1-5 分 + 引用你的原话</span>
+                <span><strong className="text-ink">面试官会追问</strong> · 答得含糊 / 缺数字会被当场追问深挖,像真面试一样接话</span>
               </div>
               <div className="flex items-start gap-2">
                 <span className="text-esther-blue text-sm">②</span>
-                <span><strong className="text-ink">逐题摘要</strong> · 你答的核心点 + 该题得分 + 改进示范</span>
+                <span><strong className="text-ink">双层评分</strong> · 表达 4 维(逻辑 / 具体 / 清晰 / 口水话) + 岗位能力维度,引用你的原话</span>
               </div>
               <div className="flex items-start gap-2">
                 <span className="text-esther-blue text-sm">③</span>
