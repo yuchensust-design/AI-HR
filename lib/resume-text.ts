@@ -79,7 +79,11 @@ export function formatParsedResumeToText(parsed: unknown): string {
     .filter(Boolean);
   if (allSkills.length) lines.push(`\n技能:${allSkills.join(", ")}`);
 
-  const selfEval = Array.isArray(pr.self_eval) ? (pr.self_eval as unknown[]).map(s).filter(Boolean) : [];
+  // self_eval 可能是 string[] 或 {text}[](不同解析版本)——用 bulletText 兼容,
+  // 否则对象项会被 String() 成 "[object Object]" 喂进出题/简历正文。
+  const selfEval = Array.isArray(pr.self_eval)
+    ? (pr.self_eval as Bullet[]).map(bulletText).filter(Boolean)
+    : [];
   if (selfEval.length) lines.push(`\n自我评价:${selfEval.join(" ")}`);
 
   return lines.join("\n").trim();
