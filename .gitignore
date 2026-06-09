@@ -47,3 +47,4 @@ next-env.d.ts
 # screenshots / images dropped by user for review
 *.png
 !public/**/*.png
+pw/
