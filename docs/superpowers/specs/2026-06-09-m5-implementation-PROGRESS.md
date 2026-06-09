@@ -41,8 +41,11 @@
 
 ## 三、需要你做的事（按优先级）
 
-### 🔴 1. live/page.tsx 语音接线（S7 唯一未集成项，需语音手测）
-纯函数核已就绪并单测；把它接进 `app/m5/live/page.tsx`（1338 行 reducer）。**配方**：
+### ✅ 1. live/page.tsx 动态追问接线 —— 已完成（commit S7b），**仍需真麦克风手测一场**
+已把 live-machine 纯函数接进 reducer：USER_ANSWER_DONE→thinking 挂起、RESOLVE_FOLLOWUP(B1 守卫+插入/推进)、follow-up effect(12s abort/暂停重试)、evaluate-turn G2 在途去重、methodology_id 透传、"面试官思考中…"提示。**决策**：未改 TTS/ASR 的 index 去重（C3 降级为非必须，只向后插入不会错乱，降低改坏语音风险）。build/lint/test/dev 200 全过。
+**手测重点**：答完→"面试官思考中…"→追问紧接母题被念出 / 或进下一题；追问与回答相关；暂停时追问返回不乱跳；插入追问后总题数增长正常。
+
+—— 以下为原配方（已实施，留作参考）：
 
 1. **import**：`lib/m5/live-machine`（enterThinking/resolveFollowUp/isStaleResolve/advanceToNext/shouldStartEvaluate/serialize+deserializeLiveState/hasResumableProgress）+ `lib/m5/follow-up`（shouldRequestFollowUp/computeFollowUpBudget）。
 2. **reducer 加 state**：`followUpsUsed`（已在 live-machine 的 AdvanceState 体现）。
