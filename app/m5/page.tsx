@@ -235,22 +235,32 @@ function Module5ConfigContent() {
           lastUpdated?: string;
         };
         if (parsed?.markdown) {
-          const firstLine = parsed.markdown.split("\n")[0]?.slice(0, 40) ?? "";
-          setSavedResumeText(parsed.markdown);
-          setSavedResumeSummary(
-            firstLine
-              ? `已有简历(${firstLine.replace(/^#+\s*/, "")}…)`
-              : "已有简历"
-          );
-          setResumeSource("saved");
+          const md = parsed.markdown;
+          const firstLine = md.split("\n")[0]?.slice(0, 40) ?? "";
+          setSavedResumeText(md);
+          // 只有内容够长(>20)才自动选中,否则卡片置灰给原因 —— 避免"卡片显示✓但开始键灰着"的矛盾
+          if (md.trim().length > 20) {
+            setSavedResumeSummary(
+              firstLine
+                ? `已有简历(${firstLine.replace(/^#+\s*/, "")}…)`
+                : "已有简历"
+            );
+            setResumeSource("saved");
+          } else {
+            setSavedResumeSummary("已有简历内容过短 — 请上传或粘贴");
+          }
           return;
         }
       }
       const parsedRaw = window.localStorage.getItem("parsed_resume");
       if (parsedRaw) {
         setSavedResumeText(parsedRaw);
-        setSavedResumeSummary("已有简历(parsed_resume)");
-        setResumeSource("saved");
+        if (parsedRaw.trim().length > 20) {
+          setSavedResumeSummary("已有简历(parsed_resume)");
+          setResumeSource("saved");
+        } else {
+          setSavedResumeSummary("已有简历内容过短 — 请上传或粘贴");
+        }
       }
     } catch {
       // localStorage 异常 → 走粘贴流程
@@ -264,6 +274,9 @@ function Module5ConfigContent() {
       : resumeSource === "paste" || resumeSource === "upload"
         ? pastedResume.trim()
         : "";
+
+  // 已有简历是否可用(够长才算)—— 驱动「用我已有简历」卡片可不可选,避免选中态和校验态打架
+  const savedResumeUsable = savedResumeText.trim().length > 20;
 
   async function handleFilePick(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -412,7 +425,7 @@ function Module5ConfigContent() {
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <button
                   type="button"
-                  disabled={!savedResumeSummary}
+                  disabled={!savedResumeSummary || !savedResumeUsable}
                   onClick={() => setResumeSource("saved")}
                   className={`p-4 rounded-xl border-2 text-left transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
                     resumeSource === "saved"
@@ -424,7 +437,7 @@ function Module5ConfigContent() {
                     {resumeSource === "saved" ? "✓ " : ""}用我已有简历
                   </p>
                   <p className="text-[11px] text-ink-soft truncate">
-                    {savedResumeSummary ?? "(localStorage 里还没有简历)"}
+                    {savedResumeSummary ?? "(还没有简历 — 请上传或粘贴)"}
                   </p>
                 </button>
                 <button
