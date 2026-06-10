@@ -25,11 +25,14 @@ async function visit(page, rec, label) {
     const newPE = rec.pageErrors.slice(peBefore);
     const newCE = rec.consoleErrors.slice(ceBefore).filter((e) => !e.includes("Failed to fetch"));
     // strip the nav chrome to gauge real body content
-    const bodyLen = txt.replace(/Offer 捕手.*?(注册|爱想的柠檬)/, "").trim().length;
+    const stripped = txt.replace(/Offer 捕手.*?(注册|爱想的柠檬)/, "").trim();
+    const bodyLen = stripped.length;
+    // a real white-screen is near-empty; short-but-present empty-state CTAs are fine
+    const hasEmptyStateCue = /还没|没有|先去|先做|去上传|去做|重新开始|请先|登录|加载/.test(stripped);
     rows.push({
       link: l,
       finalUrl: page.url().replace(BASE, ""),
-      blank: bodyLen < 30,
+      blank: bodyLen < 12 && !hasEmptyStateCue,
       bodyLen,
       pageErr: newPE,
       consoleErr: newCE.map((e) => e.split("\n")[0]),
