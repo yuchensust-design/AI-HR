@@ -184,7 +184,9 @@ export function generateMockJobs(
       education: tpl.education,
       tags: tpl.tags,
       jdText: tpl.jdSummary,
-      jdUrl: `https://example.com/job/${id}`,
+      // 演示数据无真实链接 — 留空,JobCard 会把"去原页面"禁用为"演示数据"标识,
+      // 避免点开 example.com 撞 404(评委误判为死链 bug)。
+      jdUrl: "",
       publishedAt: now,
       scrapedAt: now,
     };

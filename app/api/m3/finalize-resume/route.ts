@@ -64,6 +64,8 @@ function bulletText(b: Bullet): string {
   return typeof b === "string" ? b : b.text ?? "";
 }
 
+export const maxDuration = 60; // 线上防 Vercel 默认 10s 静默超时(整篇简历定稿调 LLM,长简历会超 10s)
+
 type JdCtx = {
   jd_summary?: string;
   role_name?: string;

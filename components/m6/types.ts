@@ -40,6 +40,9 @@ export interface SearchResponse {
   total: number;
   hasNext: boolean;
   cached: boolean;
+  /** 爬虫不可达时走本地 mock 兜底 → true。前端据此显示「演示数据」banner */
+  isMock?: boolean;
+  mockReason?: string;
 }
 
 export interface MatchResumeResponse {

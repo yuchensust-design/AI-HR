@@ -9,8 +9,14 @@
  */
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import { guardApiRequest } from "@/lib/api-guard";
 
 export async function proxy(request: NextRequest) {
+  // /api 写请求:同源校验 + 限流(挡 curl 刷 token / 跨站盗用),不阻断站内游客
+  if (request.nextUrl.pathname.startsWith("/api")) {
+    return guardApiRequest(request) ?? NextResponse.next({ request });
+  }
+
   let response = NextResponse.next({ request });
 
   const supabase = createServerClient(
@@ -43,11 +49,15 @@ export async function proxy(request: NextRequest) {
 export const config = {
   matcher: [
     /*
-     * 匹配所有路径,排除:
+     * 页面路径(走 Supabase session refresh),排除:
      * - _next/static / _next/image(Next.js 内建)
      * - favicon / 图片资源
-     * - /api(API route 自己处理 auth)
+     * - /api(走下面的 api 同源 guard,不做 session refresh)
      */
     "/((?!_next/static|_next/image|favicon.ico|api|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+    /*
+     * /api 路径(走同源 guard + 限流)
+     */
+    "/api/:path*",
   ],
 };

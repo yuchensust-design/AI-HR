@@ -57,6 +57,8 @@ export function JobCard({
   busy = false,
 }: JobCardProps) {
   const platform = PLATFORM_LABEL[job.platform] ?? PLATFORM_LABEL["51job"]!;
+  // 演示数据(mock 兜底)没有真实外链 → jdUrl 为空。此时不渲染会撞 404 的外链。
+  const hasUrl = Boolean(job.jdUrl);
 
   return (
     <article className="bg-card border-2 border-border rounded-2xl p-5 hover:border-esther-blue/50 hover:shadow-md transition-all">
@@ -64,30 +66,44 @@ export function JobCard({
       <div className="flex items-start justify-between gap-4 mb-3">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1 flex-wrap">
-            {/* 标题可点击 → 在新窗口打开原网页 */}
-            <a
-              href={job.jdUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-base font-semibold text-ink hover:text-esther-blue hover:underline truncate"
-              title={`在 ${platform.site} 打开:${job.title}`}
-            >
-              {job.title}
-            </a>
-            {/* 平台 badge 也可点击,带 ↗ 提示是外链 */}
-            <a
-              href={job.jdUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              title={`数据来源:${platform.site}`}
-              className="flex-shrink-0"
-            >
-              <Badge
-                className={`${platform.color} border text-[10px] hover:opacity-80 transition-opacity`}
+            {/* 标题:有真实链接才可点击;演示数据渲染为纯文本 */}
+            {hasUrl ? (
+              <a
+                href={job.jdUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-base font-semibold text-ink hover:text-esther-blue hover:underline truncate"
+                title={`在 ${platform.site} 打开:${job.title}`}
               >
-                {platform.label} ↗
+                {job.title}
+              </a>
+            ) : (
+              <span className="text-base font-semibold text-ink truncate" title={job.title}>
+                {job.title}
+              </span>
+            )}
+            {/* 平台 badge:有链接才可点击 */}
+            {hasUrl ? (
+              <a
+                href={job.jdUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                title={`数据来源:${platform.site}`}
+                className="flex-shrink-0"
+              >
+                <Badge
+                  className={`${platform.color} border text-[10px] hover:opacity-80 transition-opacity`}
+                >
+                  {platform.label} ↗
+                </Badge>
+              </a>
+            ) : (
+              <Badge
+                className={`${platform.color} border text-[10px] flex-shrink-0`}
+              >
+                演示数据
               </Badge>
-            </a>
+            )}
           </div>
           <p className="text-sm text-ink-soft truncate">{job.company}</p>
         </div>
@@ -170,16 +186,18 @@ export function JobCard({
             看 JD
           </button>
         )}
-        {/* 明显的"去原页面"——新标签页直开平台真实招聘页 */}
-        <Link
-          href={job.jdUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-xs px-3 py-1.5 rounded-md border border-esther-blue/40 text-esther-blue bg-esther-blue/5 hover:bg-esther-blue/10 transition-colors font-medium"
-          title={`在 ${platform.site} 打开原始招聘页`}
-        >
-          去原页面 ↗
-        </Link>
+        {/* 明显的"去原页面"——新标签页直开平台真实招聘页;演示数据无外链则不渲染 */}
+        {hasUrl && (
+          <Link
+            href={job.jdUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-xs px-3 py-1.5 rounded-md border border-esther-blue/40 text-esther-blue bg-esther-blue/5 hover:bg-esther-blue/10 transition-colors font-medium"
+            title={`在 ${platform.site} 打开原始招聘页`}
+          >
+            去原页面 ↗
+          </Link>
+        )}
         {onOptimizeResume && (
           <button
             onClick={() => onOptimizeResume(job)}

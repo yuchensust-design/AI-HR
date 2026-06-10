@@ -13,6 +13,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { synthesizeSpeech } from "@/lib/volc-tts";
 import type { PersonaKey } from "@/lib/interview-types";
 
+export const maxDuration = 60; // 线上防 Vercel 默认 10s 静默超时(长题面合成会超 10s 静默失败→误降级纯文字)
+
 const VALID_PERSONAS: readonly PersonaKey[] = [
   "gentle",
   "strict",

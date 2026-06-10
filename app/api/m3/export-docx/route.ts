@@ -11,6 +11,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { buildDocx } from "@/lib/docx-build";
 
+export const maxDuration = 60; // 保险:整篇排版生成,避免线上默认 10s 超时
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
@@ -21,14 +23,20 @@ export async function POST(request: NextRequest) {
 
     const buffer = await buildDocx(markdown);
 
-    const filename = `resume_${Date.now()}.docx`;
+    // 文件名可能含中文(用户名/岗位名),按 RFC5987 编码避免部分浏览器乱码/下载失败
+    const rawName =
+      typeof body.targetRole === "string" && body.targetRole.trim()
+        ? `简历_${body.targetRole.trim()}`
+        : "简历";
+    const safeAscii = `resume_${Date.now()}.docx`; // 老浏览器回退用纯 ASCII
+    const utf8Name = encodeURIComponent(`${rawName}.docx`);
 
     return new NextResponse(buffer as unknown as BodyInit, {
       status: 200,
       headers: {
         "Content-Type":
           "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        "Content-Disposition": `attachment; filename="${filename}"`,
+        "Content-Disposition": `attachment; filename="${safeAscii}"; filename*=UTF-8''${utf8Name}`,
         "Content-Length": String(buffer.length),
       },
     });

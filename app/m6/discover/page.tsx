@@ -113,6 +113,8 @@ function DiscoverPageInner() {
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [searchDone, setSearchDone] = useState(false);
+  // 爬虫不可达 → 走本地 mock 兜底,据此显示「演示数据」banner(不让评委误把示例当真岗)
+  const [searchIsMock, setSearchIsMock] = useState(false);
 
   const [matchLoading, setMatchLoading] = useState(false);
   const [matchError, setMatchError] = useState<string | null>(null);
@@ -225,6 +227,7 @@ function DiscoverPageInner() {
       setSearchJobs(data.jobs ?? []);
       setSearchPage(1);
       setReachedEnd(!data.hasNext);
+      setSearchIsMock(Boolean(data.isMock));
     } catch (err) {
       setSearchError(err instanceof Error ? err.message : "网络错误");
     } finally {
@@ -572,6 +575,17 @@ function DiscoverPageInner() {
               staleNotice={staleNotice}
               onUploadResume={handleInlineResume}
             />
+          )}
+
+          {/* 爬虫不可达 → 演示数据 banner(评委透明:这不是真在招岗位) */}
+          {activeTab === "search" && searchIsMock && searchJobs.length > 0 && (
+            <div className="mt-6 flex items-start gap-2 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+              <span aria-hidden>⚠️</span>
+              <span>
+                实时爬虫暂时不可达,下方为 <strong>演示示例数据</strong>(非真实在招岗位,链接不可点击)。
+                匹配评分、推荐解释等功能逻辑与真数据完全一致 — 待爬虫恢复后即自动切回真岗位。
+              </span>
+            </div>
           )}
 
           {/* 结果列表 */}

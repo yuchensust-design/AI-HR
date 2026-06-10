@@ -6,7 +6,8 @@
  * 游客:不落 DB(页面走 localStorage 单轨,按会话 scope)
  * 登录:按 ?c={conversationId} 读写 m2_intakes 表 → 每个会话独立数据(多会话隔离)
  *
- * DB:m2_intakes.intake_json = { intake, bullets, fills }
+ * DB:m2_intakes.intake_json = { intake, bullets, fills, messages }
+ *   (messages 2026-06-10 加:此前刷新后对话历史丢失,只剩 intake/bullets)
  */
 
 import { useCallback, useEffect, useState } from "react";
@@ -14,7 +15,12 @@ import { useSearchParams } from "next/navigation";
 import { useUser } from "@/lib/auth/useUser";
 import { createClient } from "@/lib/supabase/client";
 
-export type M2Payload = { intake?: unknown; bullets?: unknown; fills?: unknown };
+export type M2Payload = {
+  intake?: unknown;
+  bullets?: unknown;
+  fills?: unknown;
+  messages?: unknown;
+};
 
 export function useM2DBSync() {
   const convId = useSearchParams().get("c");
@@ -53,12 +59,17 @@ export function useM2DBSync() {
 
   /** 写回当前会话(fire-and-forget) */
   const syncToDb = useCallback(
-    async (intake: unknown, bullets: unknown, fills: unknown): Promise<void> => {
+    async (
+      intake: unknown,
+      bullets: unknown,
+      fills: unknown,
+      messages?: unknown,
+    ): Promise<void> => {
       if (!userId || !convId) return;
       try {
         await createClient()
           .from("m2_intakes")
-          .update({ intake_json: { intake, bullets, fills } })
+          .update({ intake_json: { intake, bullets, fills, messages } })
           .eq("conversation_id", convId);
       } catch (err) {
         console.warn("[useM2DBSync] sync failed:", err);

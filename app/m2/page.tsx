@@ -303,7 +303,10 @@ function Module2Page({ scope }: { scope: string }) {
   const { syncToDb, loadFromDB, isReady: dbReady, isGuest } = useM2DBSync();
   const router = useRouter();
 
-  const [messages, setMessages] = useState<ChatMsg[]>([]);
+  // messages 持久化(2026-06-10):此前是纯内存 useState,刷新后对话历史全丢,
+  // 只剩 intake/bullets。改 useLocalState 按会话 scope 存 → 游客刷新即恢复;
+  // 登录用户额外随 syncToDb 落 DB(见下),跨设备也能恢复。
+  const [messages, setMessages] = useLocalState<ChatMsg[]>(`m2_messages:${scope}`, []);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [phase, setPhase] = useState<Phase>("spread");
@@ -333,6 +336,10 @@ function Module2Page({ scope }: { scope: string }) {
       if (data.intake) setIntake(data.intake as IntakeArtifact);
       if (Array.isArray(data.bullets) && data.bullets.length > 0) setBullets(data.bullets as CandidateBullet[]);
       if (data.fills && typeof data.fills === "object") setFills(data.fills as Record<string, string[]>);
+      // 恢复对话历史(跨设备):DB 有 messages 且本地为空时才覆盖,避免盖掉本地更新的对话
+      if (Array.isArray(data.messages) && data.messages.length > 0) {
+        setMessages((prev) => (prev.length > 1 ? prev : (data.messages as ChatMsg[])));
+      }
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dbReady, isGuest]);
@@ -354,8 +361,9 @@ function Module2Page({ scope }: { scope: string }) {
     const needEnum = !ambitious && categories.length === 0 && intake.stories.length === 0 && intake.roles.length === 0;
     setEnumerating(needEnum);
     setPendingCats(categories);
-    setMessages([{ from: "ai", text: openerText(profile.persona_tag) }]);
-  }, [profile.persona_tag, ambitious, categories, intake.stories.length, intake.roles.length]);
+    // 已有持久化的对话历史(刷新/恢复)→ 不要用开场白覆盖
+    setMessages((prev) => (prev.length > 0 ? prev : [{ from: "ai", text: openerText(profile.persona_tag) }]));
+  }, [profile.persona_tag, ambitious, categories, intake.stories.length, intake.roles.length, setMessages]);
 
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
@@ -411,18 +419,21 @@ function Module2Page({ scope }: { scope: string }) {
           nextBullets = mergeBullets(bullets, data.delta_bullets as CandidateBullet[]);
           setBullets(nextBullets);
         }
-        void syncToDb(nextIntake, nextBullets, fills);
-
         if (data.phase) setPhase(data.phase as Phase);
         setSuggestWrap(Boolean(data.suggest_wrap));
         if (data.done) setDone(true);
 
         const say = (data.say ?? "").trim();
+        const aiMsgs: ChatMsg[] = [];
         if (say || data.ask) {
-          setMessages((prev) => [...prev, { from: "ai", text: say || "(继续)", ask: data.ask ?? null }]);
+          aiMsgs.push({ from: "ai", text: say || "(继续)", ask: data.ask ?? null });
         } else if (data.done) {
-          setMessages((prev) => [...prev, { from: "ai", text: data.reason ?? "挖得差不多了 — 可以去整理简历啦。" }]);
+          aiMsgs.push({ from: "ai", text: data.reason ?? "挖得差不多了 — 可以去整理简历啦。" });
         }
+        // 含本轮 AI 回复的完整对话一起落库 → 刷新/跨设备都能恢复对话历史
+        const finalMessages = [...newMessages, ...aiMsgs];
+        if (aiMsgs.length > 0) setMessages(finalMessages);
+        void syncToDb(nextIntake, nextBullets, fills, finalMessages);
       } catch (err) {
         setError(err instanceof Error ? err.message : "网络或服务异常,稍后再试");
       } finally {
