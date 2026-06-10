@@ -81,6 +81,7 @@ export const STORAGE_KEYS = {
   DISCOVER_RECOMMENDED_JOBS: "discover_recommended_jobs", // 推荐 tab 结果
   DISCOVER_TAB: "discover_tab", // 'search' | 'recommend'
   DISCOVER_MATCH_META: "discover_match_meta", // { keywords, city, reasoning, stats }
+  DISCOVER_RECOMMEND_SIG: "discover_recommend_sig", // 生成推荐时所依据简历的内容签名 — 简历变了即失效缓存
   /**
    * M6 → M3/M5 的"待消费" raw JD 输入(M3 解析后存 JD_CONTEXT;M5 直接填 JD 字段后清除)
    * Schema: { jdText?, roleName, company, salary?, city?, jdUrl, from_m6: true, sourceJobId, platform }

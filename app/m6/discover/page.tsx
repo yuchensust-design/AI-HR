@@ -34,6 +34,16 @@ interface ParsedResume {
   [k: string]: unknown;
 }
 
+// 简历内容签名(djb2)——只要底层简历内容变了,签名就变,用来给推荐缓存加 key。
+// 换/重传简历后旧推荐不能再被当作当前结果静默展示(见下方失效逻辑)。
+function resumeSignature(r: unknown): string {
+  if (!r) return "";
+  const s = JSON.stringify(r);
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0;
+  return (h >>> 0).toString(36);
+}
+
 function DiscoverPageInner() {
   const router = useRouter();
   const sp = useSearchParams();
@@ -62,6 +72,13 @@ function DiscoverPageInner() {
   // 统一读简历:登录读账号最近简历(DB),游客读 localStorage(见 useLatestResume)
   const latestResume = useLatestResume();
   const parsedResume = latestResume.parsedResume as unknown as ParsedResume | null;
+  // 当前简历内容签名 + 上次推荐所依据的签名;不一致 = 推荐缓存已过期
+  const currentSig = resumeSignature(parsedResume);
+  const [recommendSig, setRecommendSig] = useLocalState<string>(
+    STORAGE_KEYS.DISCOVER_RECOMMEND_SIG,
+    ""
+  );
+  const [staleNotice, setStaleNotice] = useState(false);
 
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
@@ -85,6 +102,28 @@ function DiscoverPageInner() {
 
   // 自动触发搜索:URL 带 role 参数时
   const autoSearchTriggered = useRouterAutoSearch(sp, setFilters);
+
+  // 推荐缓存失效:底层简历内容变了(换/重传简历)→ 旧推荐不能再被当作当前结果静默展示。
+  // 用简历签名给缓存加 key,签名变了就清空 + 提示重新推荐。
+  /* eslint-disable react-hooks/set-state-in-effect */
+  useEffect(() => {
+    if (latestResume.loading) return; // 简历还在确定中,别误判
+    if (!currentSig) return; // 没简历 → 保持现状
+    if (recommendedJobs.length === 0) return; // 没有缓存推荐 → 无需处理
+    if (!recommendSig) return; // 旧数据无签名 → 无法判定,不动既有数据
+    if (recommendSig === currentSig) return; // 签名一致 → 缓存仍对得上当前简历
+    // 签名不一致 → 简历已变,清空过期推荐,提示用户重新推荐
+    setRecommendedJobs([]);
+    setMatchMeta({});
+    setAgentSteps({});
+    setRecommendSig("");
+    setStaleNotice(true);
+    // 依赖里带上 recommendSig / 缓存条数:useLocalState 异步 hydrate,
+    // 这些值可能晚于 currentSig 落定,不入依赖会漏掉失效判定。
+    // setter 把它们清空后命中上面的早退守卫,不会死循环。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentSig, latestResume.loading, recommendSig, recommendedJobs.length]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   // ============ 搜索 ============
   const runSearch = useCallback(async () => {
@@ -131,6 +170,7 @@ function DiscoverPageInner() {
     }
     setMatchLoading(true);
     setMatchError(null);
+    setStaleNotice(false);
     setRecommendedJobs([]);
 
     // 模拟分阶段进度更新(实际后端一次性返回,前端用 timer 演示流水线)
@@ -206,13 +246,15 @@ function DiscoverPageInner() {
         reasoning: data.reasoning,
         stats: data.stats,
       });
+      // 记录本次推荐所依据的简历签名,作为缓存有效性的判据
+      setRecommendSig(currentSig);
     } catch (err) {
       timers.forEach(clearTimeout);
       setMatchError(err instanceof Error ? err.message : "网络错误");
     } finally {
       setMatchLoading(false);
     }
-  }, [parsedResume, setRecommendedJobs, setMatchMeta]);
+  }, [parsedResume, setRecommendedJobs, setMatchMeta, currentSig, setRecommendSig]);
 
   // ============ 卡片三按钮 handler ============
   // /m6 写"待消费 JD" raw 数据;M3/M5 入口读后预填自有流程
@@ -357,6 +399,7 @@ function DiscoverPageInner() {
               error={matchError}
               steps={agentSteps}
               meta={matchMeta}
+              staleNotice={staleNotice}
             />
           )}
 
@@ -512,6 +555,7 @@ function RecommendTab({
   error,
   steps,
   meta,
+  staleNotice,
 }: {
   parsedResume: ParsedResume | null;
   resumeLoading: boolean;
@@ -526,6 +570,7 @@ function RecommendTab({
     reasoning?: string;
     stats?: MatchResumeResponse["stats"];
   };
+  staleNotice: boolean;
 }) {
   const hasResume = !!parsedResume;
   const hasResults = meta.keywords && meta.keywords.length > 0;
@@ -577,6 +622,13 @@ function RecommendTab({
           </div>
         )}
       </div>
+
+      {/* 简历已变 → 旧推荐已失效的提示 */}
+      {staleNotice && !loading && (
+        <div className="p-3 rounded-lg bg-esther-yellow/15 border border-esther-yellow/50 text-sm text-ink">
+          📝 检测到你的简历有更新,之前的推荐结果已基于旧简历,已为你清空。点上方「用我的简历推荐岗位」重新生成。
+        </div>
+      )}
 
       {/* AgentProgress */}
       {(loading || Object.keys(steps).length > 0) && <AgentProgress steps={steps} />}
