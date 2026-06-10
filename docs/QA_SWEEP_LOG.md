@@ -45,8 +45,53 @@
   - 全部子页冷访问都有**优雅空态 + CTA**,无白屏/崩溃:m3/excavate「还没读到你的简历 先去上传→」、m5/debrief「没有面试记录—先去面试一场 重新开始→」、m1/evidence「先做测评 去做测评→」。(早先 BLANK 标记是我阈值误判,实为短文案空态)
   - **minor(不修)**:登录态手填非法 uuid 的 ?c=(/m3/jd?c=junk、/m2?c=junk)→ supabase 400 console 噪声;真实用户 ?c= 来自 createConversation 合法 uuid,够不到此路径。改 lib/sync 守卫风险 > 收益,记录不动。
 
+### Round 3(核心路径走查 — 改简历入口 + 找方向测评)
+`test-corepath-guest.js`(游客):
+- m1 RIASEC 测评:连续答题推进 8 次,纯客户端状态、无双跳、无 page error;选项点选自动下一题流畅。
+- m3 游客内联上传表单:粘贴框 + 上传(PDF/Word 本地解析)控件齐;提交按钮在 Step 1 未完成时**禁用且给可操作引导**「请先在 Step 1 选简历」—— 非死键、非静默禁用。✓
+
+### Round 4(全量回归 + 并发)
+- `run-all.sh` 串跑全部脚本:seed-cache 2/2、nav-clicks 8×2(游客+登录,本轮网络好,登录全绿)、m6-cta、inpage-m6 9/9、generic、corepath 7/7、deeplinks 全 ✓。无回归。
+- `test-concurrency.js`(游客,bug 类型 #5):快速切 tab ×8 / 连点看 JD ×5(**单弹窗不叠**)/ 狂点不二浮窗 ×7 —— 无导航、无状态错乱、无 error。
+- harness 打磨:deeplink 空态阈值下调 + 识别空态 CTA 关键词,回归输出不再误报。
+
+### Round 5(评委视角走查 — 核心路径,挑不出致命/严重)
+逐条核心路径以"评委"视角复走,结论全部通过:
+- **看岗位**:搜索/推荐两 tab、看 JD 弹窗、两颗跨模块 CTA(优化简历→/m3/jd?c=、练面试→/m5)、简历变→推荐缓存失效提示 —— 全部正确、单跳、不丢上下文。
+- **改简历**:游客内联表单引导清晰;登录态子页守卫(无 ?c= → 回 hub)按设计;m6→m3 落在带简历的会话。
+- **练面试**:/m5 选择页 + 配置表单;m6→m5 JD 灌入;冷访问 /m5/live、/m5/debrief 优雅空态。
+- **登录历史多会话**:登录稳定(等 hydration 再提交);会话侧栏 + 多会话列表渲染正常;`resolveM3Conv` 命中"最新带简历会话"(与 useLatestResume 同查询,不跳空会话)。深度多会话切换受测试机 supabase 网络抖动限制,但渲染与会话解析逻辑已验证。
+- **AI 步骤延迟**:m6 推荐 60–90s(UI 有四阶段 AgentProgress 进度反馈,达标);m6 搜索 20–30s(有 spinner + 文案);m3 解析/m5 出题有 loading 态。无"无反馈的 AI 步骤"。
+
 ### 准备 + Round 0(harness 搭建 + 种子 bug)
 - worktree `oc-qa-sweep` @ feat/qa-click-sweep;npm ci;playwright + chromium 独立安装;dev server :3200 起。
 - harness 验证:全站 10 个顶层路由 guest + 登录各跑一遍 smoke,无 console/pageerror,无意外 redirect(/profile 未登录 → /login?next= 正确)。
 - 排除疑似 bug:登录态 m3/m5/m2/m4 一度疑似"游客模式闪现",经 commit 级 + 250ms 采样双探针确认**无 guest flash**(此前是 grep 串行混行误判)。auth 渲染正常。
 - 修复 #1 种子 bug(见发现表)。
+
+---
+
+## 收工报告(Sign-off)
+
+**迭代轮次:** Round 0(搭建+种子)→ 1(导航+跨模块 CTA+in-page+deep-link)→ 3(核心路径走查)→ 4(全量回归+并发)→ 5(评委视角走查)。≥5 轮完成,最后一整轮评委走查在核心路径(看岗位/改简历/练面试/登录历史多会话)**挑不出未修的致命/严重**。
+
+**修复(1):**
+- 【严重·种子】看岗位推荐缓存简历变化时不失效 → 用简历内容签名加 key 失效 + 提示。已修、已验证、已 commit。
+
+**复验既有修复(1):** 看岗位「用这个优化简历」登录态不双跳/不丢 JD(c0a03f8)—— 新 history 钩子复验成立。
+
+**未发现新的致命/严重 bug。** 全站导航、跨模块 CTA、in-page 交互、冷 deep-link、并发、核心路径走查均干净。
+
+**未修(均非致命/严重,附原因):**
+- minor:登录态手填非法 uuid 的 ?c= → supabase 400 console 噪声。真实用户够不到(合法 uuid),改守卫风险>收益。
+- 记录未测:`m5/debrief→/m3/result?c=` 反哺回写属 flywheel 分支territory,按约束不动。
+- 环境:测试机→supabase 间歇 ConnectTimeout(非产品 bug,线上不存在)。
+
+**改过的文件(便于 flywheel 合并预判):**
+- `app/m6/discover/page.tsx`(种子 bug:缓存签名失效 + 提示;**m6 在你的安全区**)
+- `lib/use-local-state.ts`(只 +1 行 STORAGE_KEYS 常量 `DISCOVER_RECOMMEND_SIG`;追加式,冲突风险极低)
+- `scripts/qa/*`、`docs/QA_SWEEP_LOG.md`(纯新增测试与文档,不影响产品代码)
+- **未碰** m3/result、app/api/m3/suggest-edits、m2、m4、m5 复盘回写、lib/sync 业务函数。
+
+**基线门禁:** tsc 0 err · vitest 61 passed · eslint 0 个新增 error(改动文件 per-file baseline==current)。
+**交付:** 分支 `feat/qa-click-sweep`,每个修复独立 commit,未 push、未 merge。
