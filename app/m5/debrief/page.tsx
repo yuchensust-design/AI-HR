@@ -17,6 +17,11 @@ import {
 import { STORAGE_KEYS } from "@/lib/use-local-state";
 import { useUser } from "@/lib/auth/useUser";
 import { createClient } from "@/lib/supabase/client";
+import {
+  type HiddenExperience,
+  appendHiddenToLocal,
+  backfillHiddenToLatestResume,
+} from "@/lib/sync/hidden-experience";
 
 /**
  * 把 M5 复盘 highlight 映射成 HiddenExperience(M3 素材池统一格式)。
@@ -26,13 +31,7 @@ import { createClient } from "@/lib/supabase/client";
 function highlightToHiddenExperience(
   h: DebriefHighlight,
   sessionId: string,
-): {
-  question_id: string;
-  topic_name: string;
-  raw_user_material: string;
-  star_breakdown: null;
-  candidate_bullets: { text: string; anti_fab_note: string | null }[];
-} {
+): HiddenExperience {
   const date = new Date().toISOString().slice(0, 10);
   return {
     question_id: `m5-debrief-${sessionId}-${h.excerpt.slice(0, 16).replace(/\s+/g, "-")}`,
@@ -320,81 +319,30 @@ function Module5DebriefContent() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debrief, session]);
 
-  /**
-   * 把 highlight 追加到 HIDDEN_EXPERIENCES(M3 素材池统一通道)。
-   * 同时写 from_debrief_highlight 单条作为"最近一条提示"供 M3 显式展示用。
-   * 防重:用 question_id 去重,同一 highlight 重复采纳不会插入两次。
-   */
-  function appendHiddenExperiences(highlights: DebriefHighlight[]) {
-    if (!session) return false;
-    try {
-      const raw = window.localStorage.getItem(STORAGE_KEYS.HIDDEN_EXPERIENCES);
-      const existing = (() => {
-        try {
-          const arr = raw ? JSON.parse(raw) : [];
-          return Array.isArray(arr) ? arr : [];
-        } catch {
-          return [];
-        }
-      })();
-      const existingIds = new Set(
-        existing.map((x: { question_id?: string }) => x.question_id).filter(Boolean),
-      );
-      const toAdd = highlights
-        .map((h) => highlightToHiddenExperience(h, session.id))
-        .filter((he) => !existingIds.has(he.question_id));
-      if (toAdd.length === 0) return true;
-      const next = [...existing, ...toAdd];
-      window.localStorage.setItem(STORAGE_KEYS.HIDDEN_EXPERIENCES, JSON.stringify(next));
-      return true;
-    } catch (e) {
-      console.error("[m5/debrief] hidden_experiences append failed", e);
-      return false;
-    }
+  /** 本场 highlight → 统一素材格式(question_id 去重靠 highlightToHiddenExperience 的稳定 id)。 */
+  function highlightsToHidden(highlights: DebriefHighlight[]): HiddenExperience[] {
+    if (!session) return [];
+    return highlights.map((h) => highlightToHiddenExperience(h, session.id));
   }
 
   /**
-   * 登录用户:把亮点写进**面试所用那份简历**(m3_resumes 最近一份)的 hidden_experience_json(DB)。
-   * 返回目标 conversation_id;没有 m3 简历(罕见,如面试时直接粘的简历)→ 返回 null 走兜底。
-   * 按 question_id 去重,重复采纳不插两次。
+   * 把亮点追加到 HIDDEN_EXPERIENCES(改简历素材池统一通道,游客 localStorage)。
+   * 去重 + 写入走公共总线 appendHiddenToLocal(按 question_id 防重)。
+   */
+  function appendHiddenExperiences(highlights: DebriefHighlight[]) {
+    if (!session) return false;
+    return appendHiddenToLocal(highlightsToHidden(highlights));
+  }
+
+  /**
+   * 登录用户:把亮点去重写进**面试所用那份简历**(最新一份)的 hidden_experience_json(DB)。
+   * 返回目标 conversation_id;没有 m3 简历(罕见)→ null 走兜底。走公共总线 backfillHiddenToLatestResume。
    */
   async function backfillToDbResume(
     highlights: DebriefHighlight[],
   ): Promise<string | null> {
     if (!user || !session) return null;
-    try {
-      const supabase = createClient();
-      const { data: row } = await supabase
-        .from("m3_resumes")
-        .select("conversation_id, hidden_experience_json")
-        .not("parsed_resume_json", "is", null)
-        .order("updated_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      if (!row?.conversation_id) return null;
-      const existing = Array.isArray(row.hidden_experience_json)
-        ? (row.hidden_experience_json as Array<{ question_id?: string }>)
-        : [];
-      const existingIds = new Set(
-        existing.map((x) => x?.question_id).filter(Boolean),
-      );
-      const toAdd = highlights
-        .map((h) => highlightToHiddenExperience(h, session.id))
-        .filter((he) => !existingIds.has(he.question_id));
-      const next = [...existing, ...toAdd];
-      const { error } = await supabase
-        .from("m3_resumes")
-        .update({ hidden_experience_json: next })
-        .eq("conversation_id", row.conversation_id);
-      if (error) {
-        console.error("[m5/debrief] DB hidden_experience append failed", error);
-        return null;
-      }
-      return row.conversation_id as string;
-    } catch (e) {
-      console.error("[m5/debrief] backfillToDbResume failed", e);
-      return null;
-    }
+    return backfillHiddenToLatestResume(createClient(), highlightsToHidden(highlights));
   }
 
   /**
