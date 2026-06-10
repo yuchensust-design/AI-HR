@@ -88,3 +88,46 @@ export type M4ProjectDraft = Omit<
   | "task_progress"
   | "committable"
 >;
+
+/**
+ * 补项目 → 改简历素材池转换器(飞轮:补项目→改简历)。
+ * 只在 committable===true 时被调用(已完成 + 有实际成果 notes,反编造)。
+ * question_id 用 m4-${id} 前缀,跨来源(面试 m5- / 挖经历 m2-)稳定去重。
+ * 纯函数 → 可单测;不脑补数字,bullet 以用户 notes 实际成果为准。
+ */
+export function projectToHiddenExperience(
+  p: M4Project,
+): import("@/lib/sync/hidden-experience").HiddenExperience {
+  const date = (p.done_at ?? p.generated_at ?? "").slice(0, 10);
+  const notes = (p.notes ?? "").trim();
+  const deliverables = (p.deliverables ?? []).filter(Boolean).join("、");
+  const skills = (p.skills_required ?? []).filter(Boolean).join(", ");
+  const bulletText = [
+    p.title,
+    notes ? `成果:${notes}` : "",
+    deliverables ? `产出:${deliverables}` : "",
+  ]
+    .filter(Boolean)
+    .join(";");
+  return {
+    question_id: `m4-${p.id}`,
+    topic_name: `补项目 · ${(p.title ?? "").slice(0, 30)}${date ? ` · ${date}` : ""}`,
+    raw_user_material: [
+      `项目:${p.title}`,
+      p.why ? `补的 gap:${p.why}` : "",
+      notes ? `我的实际成果(notes):${notes}` : "",
+      deliverables ? `产出物:${deliverables}` : "",
+      skills ? `用到技能:${skills}` : "",
+    ]
+      .filter(Boolean)
+      .join("\n"),
+    star_breakdown: null,
+    candidate_bullets: [
+      {
+        text: bulletText,
+        anti_fab_note:
+          "来自补项目,用户已填实际成果 notes;数字/产出以 notes 为准,不得脑补未发生的结果",
+      },
+    ],
+  };
+}

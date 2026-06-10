@@ -2,14 +2,21 @@
 
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Card } from "@/components/ui/card";
 import { Nav } from "@/components/Nav";
 import { BuerFloatingButton } from "@/components/BuerFloatingButton";
 import ConversationSwitcher from "@/components/conversations/ConversationSwitcher";
 import { STORAGE_KEYS, useLocalState } from "@/lib/use-local-state";
 import { useLatestResume } from "@/lib/sync/useLatestResume";
+import { useUser } from "@/lib/auth/useUser";
+import { createClient } from "@/lib/supabase/client";
+import {
+  appendHiddenToLocal,
+  backfillHiddenToLatestResume,
+} from "@/lib/sync/hidden-experience";
 import { useM4Projects } from "@/lib/useM4Projects";
+import { projectToHiddenExperience } from "@/lib/m4-types";
 import type {
   M4Project,
   M4ProjectDraft,
@@ -154,7 +161,31 @@ export default function Module4Page() {
 
 function Module4Content() {
   const sp = useSearchParams();
+  const router = useRouter();
+  const { user } = useUser();
   const fromM1 = sp.get("from") === "m1";
+
+  /**
+   * 飞轮:补项目 → 改简历。把已完成(committable)项目去重写进素材池总线,
+   * 登录直达那份简历的 result 页(高亮待确认);游客走本地素材池兜底。
+   */
+  const handleAdoptToResume = useCallback(
+    async (project: M4Project) => {
+      if (!project.committable) return;
+      const he = projectToHiddenExperience(project);
+      if (user) {
+        const convId = await backfillHiddenToLatestResume(createClient(), [he]);
+        if (convId) {
+          router.push(`/m3/result?c=${convId}&backfill=1`);
+          return;
+        }
+      }
+      // 兜底(游客 / 登录但还没有带简历的会话):写本地素材池 → 入口页先建/选简历
+      appendHiddenToLocal([he]);
+      router.push("/m3?from=m4");
+    },
+    [user, router],
+  );
 
   const [jdContext] = useLocalState<JdContext | null>(
     STORAGE_KEYS.JD_CONTEXT,
@@ -432,6 +463,7 @@ function Module4Content() {
                       handleNotesChange(activeProject.id, n)
                     }
                     onDelete={() => handleDelete(activeProject.id)}
+                    onAdopt={() => handleAdoptToResume(activeProject)}
                   />
                 ) : (
                   <p className="text-sm text-ink-soft text-center py-10">
@@ -600,12 +632,14 @@ function ProjectDetail({
   onToggleTask,
   onNotesChange,
   onDelete,
+  onAdopt,
 }: {
   project: M4Project;
   onAdvance: () => void;
   onToggleTask: (taskId: string) => void;
   onNotesChange: (notes: string) => void;
   onDelete: () => void;
+  onAdopt: () => void;
 }) {
   const [askQuestion, setAskQuestion] = useState("");
   const [askLoading, setAskLoading] = useState(false);
@@ -703,12 +737,13 @@ function ProjectDetail({
             </button>
           )}
           {project.status === "DONE" && project.committable && (
-            <Link
-              href="/m3"
-              className="inline-flex items-center gap-1 text-sm font-medium text-esther-blue hover:underline"
+            <button
+              type="button"
+              onClick={onAdopt}
+              className="inline-flex items-center gap-1 rounded-full bg-esther-blue text-white px-4 py-2 text-sm font-medium hover:bg-esther-blue-dark transition-colors"
             >
-              ✓ 已可送进 M3 简历池 →
-            </Link>
+              ✓ 送进简历优化 →
+            </button>
           )}
           {project.status === "DONE" && !project.committable && (
             <span className="text-xs text-ink-muted">
