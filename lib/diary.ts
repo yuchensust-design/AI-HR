@@ -143,6 +143,20 @@ export function getDiaryEntries(): DiaryEntry[] {
   return read().sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
+/**
+ * 把 DB 拉回的日记并进 localStorage(跨设备 / 清缓存后的恢复)。
+ * 按 id 去重(本地已有的保留本地版,避免覆盖未同步的本地编辑),写回后返回倒序全量。
+ */
+export function mergeEntriesFromDB(dbEntries: DiaryEntry[]): DiaryEntry[] {
+  const local = read();
+  const byId = new Map<string, DiaryEntry>();
+  for (const e of dbEntries) byId.set(e.id, e);
+  for (const e of local) byId.set(e.id, e); // 本地优先
+  const merged = [...byId.values()];
+  write(merged);
+  return merged.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
 /** 新建并写入,返回完整 entry — sessionId 自动注入(v2 登录留口子)*/
 export function addEntry(
   partial: Omit<DiaryEntry, "id" | "createdAt">

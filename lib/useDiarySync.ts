@@ -17,11 +17,13 @@ import {
   addEntry as localAdd,
   deleteEntry as localDelete,
   clearAllEntries as localClear,
+  mergeEntriesFromDB,
   type DiaryEntry,
+  type DiaryEntrySource,
 } from "@/lib/diary";
 
 export function useDiarySync() {
-  const { user } = useUser();
+  const { user, loading: userLoading } = useUser();
 
   const addEntry = useCallback(
     async (partial: Omit<DiaryEntry, "id" | "createdAt">): Promise<DiaryEntry> => {
@@ -89,5 +91,39 @@ export function useDiarySync() {
     }
   }, [user]);
 
-  return { addEntry, deleteEntry, clearAllEntries };
+  /**
+   * 从 DB 拉回全部日记并并进 localStorage(跨设备 / 清缓存恢复)。
+   * 游客 → null(无 DB);登录 → 合并后的全量(已写回本地)。
+   * 没有这个,登录用户在新设备只会看到空的本地日记(云端读不回)。
+   */
+  const loadFromDB = useCallback(async (): Promise<DiaryEntry[] | null> => {
+    if (!user) return null;
+    try {
+      const { data } = await createClient()
+        .from("diary_entries")
+        .select(
+          "id, content, title, source, raw_dialog_json, metadata_json, summary_meta_json, highlights_json, image_url, created_at",
+        )
+        .eq("user_id", user.id);
+      if (!data || data.length === 0) return null;
+      const entries: DiaryEntry[] = data.map((r) => ({
+        id: r.id as string,
+        createdAt: (r.created_at as string) ?? new Date().toISOString(),
+        content: (r.content as string) ?? "",
+        title: (r.title as string | null) ?? undefined,
+        source: ((r.source as string | null) ?? "diary-page") as DiaryEntrySource,
+        imageBase64: (r.image_url as string | null) ?? null,
+        rawDialog: (r.raw_dialog_json as string[] | null) ?? undefined,
+        metadata: (r.metadata_json as DiaryEntry["metadata"]) ?? undefined,
+        summary_meta: (r.summary_meta_json as DiaryEntry["summary_meta"]) ?? undefined,
+        highlights: (r.highlights_json as string[] | null) ?? undefined,
+      }));
+      return mergeEntriesFromDB(entries);
+    } catch (err) {
+      console.warn("[useDiarySync] loadFromDB failed:", err);
+      return null;
+    }
+  }, [user]);
+
+  return { addEntry, deleteEntry, clearAllEntries, loadFromDB, userLoading };
 }

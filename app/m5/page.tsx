@@ -20,6 +20,7 @@ import {
 } from "@/lib/interview-types";
 import { PERSONA_SPECS } from "@/lib/interviewer-personas";
 import { STORAGE_KEYS } from "@/lib/use-local-state";
+import { resumeTextFrom } from "@/lib/resume-text";
 import {
   parseResumeFile,
   ResumeParseError,
@@ -155,6 +156,7 @@ function Module5ConfigContent() {
 
   const latestResume = useLatestResume();
   const autoPickedResumeRef = useRef(false);
+  const m3ResumeAppliedRef = useRef(false); // fromm3 已覆盖简历 → latest 别盖回
   const [resumeSource, setResumeSource] = useState<ResumeSource | null>(null);
   const [savedResumeText, setSavedResumeText] = useState<string>("");
   const [savedResumeSummary, setSavedResumeSummary] = useState<string | null>(
@@ -176,11 +178,76 @@ function Module5ConfigContent() {
   const [recordSession, setRecordSession] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
-  // 跨模块 JD 继承,优先级:M6_PENDING_JD > JD_CONTEXT > SAMPLE_JD
+  // M3→M5:按 ?fromm3=<m3会话id> 读「你在改简历里看的那份」简历+JD,作最高优先
+  // (修跨模块串简历:登录多会话时不再默认套账号最新那份)。探针 m3Loaded 让它先于 latest 决定。
+  const fromM3 = sp.get("fromm3");
+  const [m3Loaded, setM3Loaded] = useState<"pending" | "done">(
+    fromM3 ? "pending" : "done",
+  );
+  useEffect(() => {
+    /* eslint-disable react-hooks/set-state-in-effect */
+    if (!fromM3) return;
+    if (userLoading) return;
+    if (!user) {
+      setM3Loaded("done"); // 游客:m3 会话不在 DB,退回本地最新简历(本就单份,正确)
+      return;
+    }
+    let cancelled = false;
+    createClient()
+      .from("m3_resumes")
+      .select("parsed_resume_json, final_resume_md, jd_context_json")
+      .eq("conversation_id", fromM3)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (cancelled) return;
+        if (data) {
+          const txt = resumeTextFrom(
+            (data.final_resume_md ?? null) as string | null,
+            (data.parsed_resume_json ?? null) as never,
+          );
+          const name = (
+            data.parsed_resume_json as { basic?: { name?: string } } | null
+          )?.basic?.name?.trim();
+          const jc = (data.jd_context_json ?? {}) as { raw_jd_text?: string };
+          // 用户明确从这条改简历会话跳来 → 无论简历长短都【不许】回退到账号最新那份
+          // (否则 JD 来自该会话、简历却被悄悄串成账号最新 —— 类① 静默串简历)。
+          m3ResumeAppliedRef.current = true;
+          if (txt.trim().length > 20) {
+            setSavedResumeText(txt);
+            setSavedResumeSummary(
+              name ? `已有简历(${name} · 来自简历优化)` : "已有简历(来自简历优化)",
+            );
+            setResumeSource("saved");
+            autoPickedResumeRef.current = true;
+          } else {
+            // 该会话还没简历内容:提示上传,而不是悄悄套账号最新
+            setSavedResumeSummary(
+              "这份简历优化会话还没简历内容 — 请在下方上传 / 粘贴一份",
+            );
+          }
+          if (jc.raw_jd_text && jc.raw_jd_text.trim().length > 20) {
+            setJdText(jc.raw_jd_text);
+            setJdSource("m3");
+          }
+        }
+        setM3Loaded("done");
+      },
+      () => {
+        // 真·传输层 reject(断网/abort)→ 别卡在 pending 门控,优雅退回
+        if (!cancelled) setM3Loaded("done");
+      });
+    return () => {
+      cancelled = true;
+    };
+    /* eslint-enable react-hooks/set-state-in-effect */
+  }, [fromM3, user, userLoading]);
+
+  // 跨模块 JD 继承,优先级:fromm3(上面单独处理)> M6_PENDING_JD > JD_CONTEXT > SAMPLE_JD
   // M6_PENDING_JD:用户从 M6 岗位发现跳过来,带最新岗位信息(消费后清除)
   // JD_CONTEXT:用户在 M3 简历优化中刚刚拆解过的目标岗位(不消费,保留供后续模块复用)
   useEffect(() => {
     /* eslint-disable react-hooks/set-state-in-effect */
+    if (fromM3) return; // fromm3 跳转 → JD 由上面的 effect 决定,别被全局 JD 盖掉
     // 1. 先尝试 M6_PENDING_JD
     try {
       const raw = window.localStorage.getItem(STORAGE_KEYS.M6_PENDING_JD);
@@ -232,6 +299,8 @@ function Module5ConfigContent() {
   useEffect(() => {
     /* eslint-disable react-hooks/set-state-in-effect */
     if (latestResume.loading) return; // 等 auth/DB 确定,避免误判"没简历"
+    if (m3Loaded === "pending") return; // 等 fromm3 先决定,别先用账号最新那份
+    if (m3ResumeAppliedRef.current) return; // 已被 fromm3 覆盖,别盖回
     setSavedResumeText(latestResume.resumeText);
     if (latestResume.hasResume) {
       const name = latestResume.parsedResume?.basic?.name?.trim();
@@ -246,7 +315,7 @@ function Module5ConfigContent() {
       setSavedResumeSummary("还没有简历 — 请上传或粘贴");
     }
     /* eslint-enable react-hooks/set-state-in-effect */
-  }, [latestResume]);
+  }, [latestResume, m3Loaded]);
 
   const resumeText =
     resumeSource === "saved"

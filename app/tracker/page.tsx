@@ -49,7 +49,8 @@ export default function TrackerPage() {
     TRACKER_STORAGE_KEYS.DIAGNOSIS_CACHE,
     null,
   );
-  const { upsertApplication, deleteApplication, loadFromDB } = useTrackerDBSync();
+  const { upsertApplication, deleteApplication, loadFromDB, userLoading } =
+    useTrackerDBSync();
 
   const [editing, setEditing] = useState<Application | null>(null);
   const [showForm, setShowForm] = useState(false);
@@ -63,12 +64,16 @@ export default function TrackerPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const PAGE_SIZE = 10;
 
+  // 必须等 auth 落定再 loadFromDB:首帧 user 未 resolve → loadFromDB 返回 null,
+  // 若 deps=[] 则永不重试,登录用户在新设备/清缓存后云端记录读不回(空表)。
+  // 改为 userLoading 门控 + 随 loadFromDB(随 user 变)重跑,对齐 useM2/M3DBSync。
   useEffect(() => {
+    if (userLoading) return;
     loadFromDB().then((dbApps) => {
       if (dbApps && dbApps.length > 0) setApplications(dbApps);
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [userLoading, loadFromDB]);
 
   const displayApplications = viewingSample ? SAMPLE_APPLICATIONS : applications;
   const metrics = useMemo(() => computeMetrics(displayApplications), [displayApplications]);

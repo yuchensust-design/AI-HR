@@ -17,10 +17,10 @@ import {
 import { STORAGE_KEYS } from "@/lib/use-local-state";
 import { useUser } from "@/lib/auth/useUser";
 import { createClient } from "@/lib/supabase/client";
+import { createConversation } from "@/lib/conversations";
 import {
   type HiddenExperience,
   appendHiddenToLocal,
-  backfillHiddenToLatestResume,
 } from "@/lib/sync/hidden-experience";
 
 /**
@@ -109,6 +109,7 @@ function Module5DebriefContent() {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [adopted, setAdopted] = useState<Set<string>>(new Set());
+  const [adopting, setAdopting] = useState(false);
   /** 复制 bullet 反馈 — key = excerpt */
   const [copied, setCopied] = useState<string | null>(null);
   /** m5 v5 G1：能力维度（独立 capability 路由懒加载，fallback-safe） */
@@ -235,16 +236,18 @@ function Module5DebriefContent() {
       let presentIds = new Set<string>();
       try {
         if (user) {
-          const { data: row } = await createClient()
+          // 采纳每次新建一条 m3 会话,亮点可能落在【任意一条】会话里 —— 不能只看最新那条
+          // (否则做完后再练一场会把已采纳的误显示成"可采纳")。扫该用户全部会话,靠
+          // question_id(含 session.id)精确命中;RLS 自动只返回本人行。
+          const { data: rows } = await createClient()
             .from("m3_resumes")
             .select("hidden_experience_json")
-            .not("parsed_resume_json", "is", null)
-            .order("updated_at", { ascending: false })
-            .limit(1)
-            .maybeSingle();
-          const arr = Array.isArray(row?.hidden_experience_json)
-            ? (row!.hidden_experience_json as Array<{ question_id?: string }>)
-            : [];
+            .not("hidden_experience_json", "is", null);
+          const arr = (rows ?? []).flatMap((r) =>
+            Array.isArray(r.hidden_experience_json)
+              ? (r.hidden_experience_json as Array<{ question_id?: string }>)
+              : [],
+          );
           presentIds = new Set(arr.map((x) => x?.question_id).filter(Boolean) as string[]);
         } else {
           const raw = window.localStorage.getItem(STORAGE_KEYS.HIDDEN_EXPERIENCES);
@@ -325,37 +328,36 @@ function Module5DebriefContent() {
     return highlights.map((h) => highlightToHiddenExperience(h, session.id));
   }
 
-  /**
-   * 把亮点追加到 HIDDEN_EXPERIENCES(改简历素材池统一通道,游客 localStorage)。
-   * 去重 + 写入走公共总线 appendHiddenToLocal(按 question_id 防重)。
-   */
-  function appendHiddenExperiences(highlights: DebriefHighlight[]) {
-    if (!session) return false;
-    return appendHiddenToLocal(highlightsToHidden(highlights));
+  /** 解析本场面试用的简历文本 → 结构化(M3 需要 parsed_resume_json) */
+  async function parseInterviewResume(): Promise<unknown | null> {
+    const text = (session?.config.resume_text ?? "").trim();
+    if (text.length < 20) return null;
+    try {
+      const res = await fetch("/api/m3/parse-resume", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ resumeText: text }),
+      });
+      if (!res.ok) return null;
+      return await res.json();
+    } catch {
+      return null;
+    }
   }
 
   /**
-   * 登录用户:把亮点去重写进**面试所用那份简历**(最新一份)的 hidden_experience_json(DB)。
-   * 返回目标 conversation_id;没有 m3 简历(罕见)→ null 走兜底。走公共总线 backfillHiddenToLatestResume。
-   */
-  async function backfillToDbResume(
-    highlights: DebriefHighlight[],
-  ): Promise<string | null> {
-    if (!user || !session) return null;
-    return backfillHiddenToLatestResume(createClient(), highlightsToHidden(highlights));
-  }
-
-  /**
-   * 采纳 → 直达对应简历。
-   * 登录 + 有 m3 简历:写 DB → 跳 /m3/result?c=&backfill=1(落地自动高亮这条待确认建议)。
-   * 否则(游客 / 登录但无 m3 简历):写 localStorage 素材池 → 跳 /m3?from=debrief(先去建/选简历)。
+   * 采纳 → 把素材带去改简历。
+   * 关键:必须用**本场面试实际用的简历 + JD**(config.resume_text / jd_text),而不是套用账号最新那份
+   * (否则面试用粘贴的 B 简历、亮点却挂到账号 A 简历上 —— 与 M4 旧 bug 同源)。
+   *   - 登录:解析面试简历 → 新开一条 m3 会话,种入简历 + JD + 素材 → 落 setup 让用户确认
+   *   - 游客:面试简历/JD 写进 localStorage 总线,素材入本地池 → 落 setup
    */
   async function adoptHighlights(
     highlights: DebriefHighlight[],
     head: DebriefHighlight,
   ) {
-    if (!session || highlights.length === 0) return;
-    // 1. from_debrief_highlight:落地页"这句来自面试 Qx"上下文标签 + 触发 source=interview
+    if (!session || highlights.length === 0 || adopting) return;
+    // 落地页"这句来自面试 Qx"上下文标签
     try {
       const payload: FromDebriefHighlight = {
         source_session_id: session.id,
@@ -370,25 +372,68 @@ function Module5DebriefContent() {
         JSON.stringify(payload),
       );
     } catch {
-      /* localStorage 不可用也不阻断 DB 路径 */
+      /* 不阻断 */
     }
-    // 2. 标记已采纳
     setAdopted((s) => {
       const next = new Set(s);
       highlights.forEach((h) => next.add(h.excerpt));
       return next;
     });
-    // 3. 登录优先写 DB 并直达对应简历
-    if (user) {
-      const convId = await backfillToDbResume(highlights);
-      if (convId) {
-        router.push(`/m3/result?c=${convId}&backfill=1`);
-        return;
+
+    setAdopting(true);
+    try {
+      const he = highlightsToHidden(highlights);
+      const jdText = (session.config.jd_text ?? "").trim();
+      const parsed = await parseInterviewResume();
+      appendHiddenToLocal(he); // 本地池兜底(游客必需,登录也留一份)
+
+      if (user && parsed) {
+        try {
+          const supabase = createClient();
+          const convId = await createConversation(
+            "m3",
+            `面试回流 · ${(head.question ?? "").slice(0, 12) || "亮点"}`,
+            supabase,
+          );
+          if (convId) {
+            await supabase
+              .from("m3_resumes")
+              .update({
+                parsed_resume_json: parsed,
+                jd_context_json: jdText ? { raw_jd_text: jdText } : null,
+                hidden_experience_json: he,
+              })
+              .eq("conversation_id", convId);
+            router.push(`/m3?c=${convId}&from=debrief&setup=1`);
+            return;
+          }
+        } catch (err) {
+          console.error("[m5 adopt] seed m3 conversation failed", err);
+          /* 落游客兜底 */
+        }
       }
+
+      // 游客 / 登录解析失败:把面试简历+JD 写进本地总线,M3 setup 读它
+      try {
+        if (parsed) {
+          window.localStorage.setItem(
+            STORAGE_KEYS.PARSED_RESUME,
+            JSON.stringify(parsed),
+          );
+        }
+        if (jdText) {
+          window.localStorage.setItem(
+            STORAGE_KEYS.JD_CONTEXT,
+            JSON.stringify({ raw_jd_text: jdText }),
+          );
+        }
+      } catch {
+        /* ignore */
+      }
+      router.push("/m3?from=debrief&setup=1");
+    } finally {
+      setAdopting(false);
     }
-    // 兜底(游客 / 登录但无 m3 简历):写本地素材池 → 入口页先建/选简历
-    appendHiddenExperiences(highlights);
-    router.push("/m3?from=debrief");
   }
 
   function handleAdopt(h: DebriefHighlight) {
@@ -715,9 +760,12 @@ function Module5DebriefContent() {
                     <button
                       type="button"
                       onClick={handleAdoptAll}
-                      className="inline-flex items-center justify-center rounded-full bg-esther-blue text-white px-5 py-2.5 text-sm font-medium hover:bg-esther-blue-dark transition-colors shadow-sm"
+                      disabled={adopting}
+                      className="inline-flex items-center justify-center rounded-full bg-esther-blue text-white px-5 py-2.5 text-sm font-medium hover:bg-esther-blue-dark transition-colors shadow-sm disabled:bg-ink-muted disabled:cursor-not-allowed"
                     >
-                      ✓ 一键全部采纳({pendingCount}条) → 跳简历优化
+                      {adopting
+                        ? "正在带去简历优化…"
+                        : `✓ 一键全部采纳(${pendingCount}条) → 跳简历优化`}
                     </button>
                   );
                 })()}
@@ -770,12 +818,14 @@ function Module5DebriefContent() {
                         <button
                           type="button"
                           onClick={() => handleAdopt(h)}
-                          disabled={isAdopted}
+                          disabled={isAdopted || adopting}
                           className="inline-flex items-center justify-center rounded-full bg-esther-blue text-white px-5 py-2 text-sm font-medium hover:bg-esther-blue-dark transition-colors disabled:bg-ink-muted disabled:cursor-not-allowed"
                         >
                           {isAdopted
                             ? "✓ 已采纳 → 跳简历优化"
-                            : "✓ 采纳 → 跳简历优化"}
+                            : adopting
+                              ? "正在带去简历优化…"
+                              : "✓ 采纳 → 跳简历优化"}
                         </button>
                         <button
                           type="button"

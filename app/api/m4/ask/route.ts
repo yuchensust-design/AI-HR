@@ -66,17 +66,26 @@ export async function POST(req: NextRequest) {
 
   const userNotes = (body.userNotes ?? "").trim();
 
-  // 把项目上下文压缩成精简 brief,避免 prompt 过长
-  const projectBrief = `【项目标题】${project.title}
+  // 把卡片上下文压缩成精简 brief(项目卡 / 学习卡两种形态),避免 prompt 过长
+  const projectBrief =
+    project.kind === "learning"
+      ? `【学习补强标题】${project.title}
+【为什么做】${project.why}
+【当前状态】${project.status}
+【要补的 gap】${project.covers_gaps.join("; ") || "未指定"}
+【要搞懂的概念】${project.concepts.join("; ") || "未指定"}
+【轻量产出】${project.micro_deliverable || "未指定"}
+【诚实落点】${project.honest_use || "未指定"}`
+      : `【项目标题】${project.title}
 【为什么做】${project.why}
 【目标岗位】${project.target_role ?? "未指定"}
-【期限】${project.weeks} 周
+【期限】${project.weeks} ${project.plan_unit === "week" ? "周(按周拆)" : "周(按天拆)"}
 【当前状态】${project.status}
 【要补的 gap】${project.source_gaps.map((g) => g.jd_requirement).join("; ") || "未指定"}
 【产出物清单】${project.deliverables.join("; ") || "未指定"}
 【需追踪指标】${project.metrics_dictionary
-    .map((m) => `${m.name}(${m.definition})`)
-    .join("; ") || "未指定"}
+          .map((m) => `${m.name}(${m.definition})`)
+          .join("; ") || "未指定"}
 【需要的技能】${project.skills_required.join(", ") || "未指定"}`;
 
   const userPrompt = `${projectBrief}
