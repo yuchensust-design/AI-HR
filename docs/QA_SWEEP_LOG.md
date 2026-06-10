@@ -26,6 +26,25 @@
 
 ## 每轮记录
 
+### Round 1(导航 + 跨模块 CTA 双跳猎杀)
+**跨模块 CTA(bug 类型 #1)全部点验,登录 + 游客:**
+- `scripts/qa/test-nav-clicks.js`:8 个顶部 Nav 链接,guest + 登录各点一遍(home 隔离 + 按 href 取链),**全部单次 push、落地正确、无双跳、无 console error、无 guest flash**。
+- `scripts/qa/test-m6-cta.js`:
+  - 看岗位「用这个优化简历」(登录)→ 单次 `push:/m3/jd?c=<会话>`,JD 落地预填 + `M6_PENDING_JD` 消费,**无双跳/无回弹/无丢 JD**(复验上次修复 c0a03f8,成立)。
+  - 看岗位「用这个练面试」(登录)→ 单次 `push:/m5`,JD 灌入 textarea(JD 正文),`M6_PENDING_JD` 消费。/m5 是选择页,无需 ?c=,无双跳。
+- 静态 + 点击双确认:双跳风险只存在于"登录态进 m3/m5 子页却没带 ?c="。全站唯一外部入口是看岗位(已修)。其余跨模块出口(m2→/m3、m2→/m4、m4→/m3、m1/result→/m4?from=m1)**都指向 hub 选择页**(plain href / push 到 hub),结构上不触发 ?c= 双跳。
+- **flywheel 领地不动**:`app/m5/debrief/page.tsx:437 router.push('/m3/result?c=<convId>&backfill=1')`(练面试→复盘→反哺简历回写 m3/result)由另一分支在改,本轮只记录不测不改。
+
+**环境噪声(非产品 bug):** 测试机到 supabase.co(104.18.38.10:443)间歇 `ConnectTimeoutError`(dev log 实锤)。表现为登录偶尔要重试、看岗位「优化简历」CTA 偶尔静默 no-op(它的 `resolveM3Conv` 要查 DB;练面试 CTA 不查 DB 故不受影响)。线上 Vercel+Supabase 不存在此问题。harness 已加重试 + 长等待兜底。**结论:CTA 逻辑正确,flaky 全因网络。**
+
+**Round 1 in-page + deep-link(都 ✓ clean):**
+- `test-inpage-m6.js`(游客):tab 切换(推荐↔搜索,无导航)、看 JD 弹窗开/×关/点背景关、不二浮窗开关 + 输入框存在 + 不触发导航 —— 9/9 PASS,无 console/page error。
+- `test-inpage-generic.js`(游客):tracker/diary/m4/m2/m1 安全按钮(tab/展开/切换,排除删除/提交/AI)逐个点 —— 无意外导航、无 console/page error。
+- `test-deeplinks.js`(游客 + 登录,17 条冷链接直达,无前置状态):
+  - 登录态 m3 子页(/m3/upload|jd|excavate|result)无 ?c= → 单次 redirect 回 /m3 hub(useM3DBSync 守卫按设计生效,非双跳)。
+  - 全部子页冷访问都有**优雅空态 + CTA**,无白屏/崩溃:m3/excavate「还没读到你的简历 先去上传→」、m5/debrief「没有面试记录—先去面试一场 重新开始→」、m1/evidence「先做测评 去做测评→」。(早先 BLANK 标记是我阈值误判,实为短文案空态)
+  - **minor(不修)**:登录态手填非法 uuid 的 ?c=(/m3/jd?c=junk、/m2?c=junk)→ supabase 400 console 噪声;真实用户 ?c= 来自 createConversation 合法 uuid,够不到此路径。改 lib/sync 守卫风险 > 收益,记录不动。
+
 ### 准备 + Round 0(harness 搭建 + 种子 bug)
 - worktree `oc-qa-sweep` @ feat/qa-click-sweep;npm ci;playwright + chromium 独立安装;dev server :3200 起。
 - harness 验证:全站 10 个顶层路由 guest + 登录各跑一遍 smoke,无 console/pageerror,无意外 redirect(/profile 未登录 → /login?next= 正确)。
