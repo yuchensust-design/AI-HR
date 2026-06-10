@@ -235,9 +235,13 @@ function applyCritic(jobs: Job[], scores: ScorerResult[]): Job[] {
     .sort((a, b) => (b.matchScore ?? 0) - (a.matchScore ?? 0))
     .slice(0, 5);
 
-  return [...passing, ...fallback].sort(
-    (a, b) => (b.matchScore ?? 0) - (a.matchScore ?? 0)
-  );
+  return [...passing, ...fallback].sort((a, b) => {
+    // 51job(链接只能落搜索页、JD 详情抓不到)排到最后,让评委先看 liepin/zhilian 的优质岗位
+    const a51 = a.platform === "51job" ? 1 : 0;
+    const b51 = b.platform === "51job" ? 1 : 0;
+    if (a51 !== b51) return a51 - b51;
+    return (b.matchScore ?? 0) - (a.matchScore ?? 0);
+  });
 }
 
 // ============ Agent 4: Formatter ============

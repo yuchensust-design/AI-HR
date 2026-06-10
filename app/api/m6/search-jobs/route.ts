@@ -183,6 +183,16 @@ export async function POST(request: NextRequest) {
         data.anti_noise_filtered = 0;
         data.noiseFallback = true;
       }
+
+      // 51job(链接只能落搜索页、JD 详情抓不到)排到最后 → 评委先看 liepin/zhilian 优质岗位
+      data.jobs = (data.jobs as Array<{ platform?: string }>)
+        .map((j, i) => ({ j, i }))
+        .sort((a, b) => {
+          const a51 = a.j.platform === "51job" ? 1 : 0;
+          const b51 = b.j.platform === "51job" ? 1 : 0;
+          return a51 !== b51 ? a51 - b51 : a.i - b.i; // 稳定排序,组内保持原序
+        })
+        .map(({ j }) => j);
     }
 
     return NextResponse.json(data);
