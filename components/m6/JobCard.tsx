@@ -10,6 +10,8 @@ interface JobCardProps {
   onPracticeInterview?: (job: Job) => void;
   onViewDetail?: (job: Job) => void;
   showMatch?: boolean;
+  /** 正在为这张卡抓取完整 JD(handoff 前)→ 两个跳转按钮显示"抓取中"并禁用 */
+  busy?: boolean;
 }
 
 const PLATFORM_LABEL: Record<string, { label: string; color: string; site: string }> = {
@@ -52,6 +54,7 @@ export function JobCard({
   onPracticeInterview,
   onViewDetail,
   showMatch = false,
+  busy = false,
 }: JobCardProps) {
   const platform = PLATFORM_LABEL[job.platform] ?? PLATFORM_LABEL["51job"]!;
 
@@ -167,31 +170,37 @@ export function JobCard({
             看 JD
           </button>
         )}
+        {/* 明显的"去原页面"——新标签页直开平台真实招聘页 */}
+        <Link
+          href={job.jdUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-xs px-3 py-1.5 rounded-md border border-esther-blue/40 text-esther-blue bg-esther-blue/5 hover:bg-esther-blue/10 transition-colors font-medium"
+          title={`在 ${platform.site} 打开原始招聘页`}
+        >
+          去原页面 ↗
+        </Link>
         {onOptimizeResume && (
           <button
             onClick={() => onOptimizeResume(job)}
-            className="text-xs px-3 py-1.5 rounded-md bg-esther-blue text-white hover:bg-esther-blue-dark transition-colors font-medium"
+            disabled={busy}
+            className="text-xs px-3 py-1.5 rounded-md bg-esther-blue text-white hover:bg-esther-blue-dark transition-colors font-medium disabled:opacity-60"
           >
-            用这个优化简历 →
+            {busy ? "抓取完整 JD…" : "用这个优化简历 →"}
           </button>
         )}
         {onPracticeInterview && (
           <button
             onClick={() => onPracticeInterview(job)}
-            className="text-xs px-3 py-1.5 rounded-md bg-esther-yellow text-ink hover:bg-esther-yellow/80 transition-colors font-medium"
+            disabled={busy}
+            className="text-xs px-3 py-1.5 rounded-md bg-esther-yellow text-ink hover:bg-esther-yellow/80 transition-colors font-medium disabled:opacity-60"
           >
-            用这个练面试 →
+            {busy ? "抓取完整 JD…" : "用这个练面试 →"}
           </button>
         )}
-        <Link
-          href={job.jdUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-xs px-3 py-1.5 rounded-md text-ink-muted hover:text-esther-blue hover:bg-warm-bg transition-colors ml-auto"
-          title={`在 ${platform.site} 打开`}
-        >
-          {platform.site} ↗
-        </Link>
+        <span className="ml-auto text-[11px] text-ink-muted self-center">
+          {platform.site}
+        </span>
       </div>
     </article>
   );

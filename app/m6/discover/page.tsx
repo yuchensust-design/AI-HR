@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Nav } from "@/components/Nav";
 import { BuerFloatingButton } from "@/components/BuerFloatingButton";
@@ -74,6 +74,58 @@ function DiscoverPageInner() {
 
   const [detailModal, setDetailModal] = useState<{ job: Job; jdText: string } | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+
+  // 看JD / handoff / 后台预抓 共用的 JD 全文缓存(job.id → 全文;""=抓过但没拿到)
+  const jdCacheRef = useRef<Map<string, string>>(new Map());
+  const jdInflightRef = useRef<Map<string, Promise<string>>>(new Map());
+  // handoff 时正为哪张卡抓全文 → 卡上按钮显示"抓取完整 JD…"
+  const [handoffJobId, setHandoffJobId] = useState<string | null>(null);
+
+  // 抓某岗位 JD 全文:列表自带就用;否则查缓存 / 复用在途请求;否则现抓 /detail。
+  // 抓不到(如 51job 详情反爬)缓存空串 → 上层兜底 role 模式,不卡用户。
+  const fetchDetail = useCallback(async (job: Job): Promise<string> => {
+    if (job.jdText && job.jdText.length > 30) return job.jdText;
+    const cached = jdCacheRef.current.get(job.id);
+    if (cached !== undefined) return cached;
+    const inflight = jdInflightRef.current.get(job.id);
+    if (inflight) return inflight;
+    const p = (async () => {
+      let txt = "";
+      try {
+        const res = await fetch("/api/m6/job-detail", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ jobId: job.id, platform: job.platform }),
+        });
+        if (res.ok) txt = ((await res.json()).jdText as string) ?? "";
+      } catch {
+        /* 抓不到 → 空串兜底 */
+      }
+      jdCacheRef.current.set(job.id, txt);
+      jdInflightRef.current.delete(job.id);
+      return txt;
+    })();
+    jdInflightRef.current.set(job.id, p);
+    return p;
+  }, []);
+
+  // 后台低并发预抓当前 tab 岗位的 JD 全文 → 点看JD/handoff 时多半已就绪、不用等。
+  useEffect(() => {
+    const jobs = activeTab === "recommend" ? recommendedJobs : searchJobs;
+    const queue = jobs.filter((j) => !jdCacheRef.current.has(j.id));
+    if (queue.length === 0) return;
+    let cancelled = false;
+    const work = async () => {
+      while (!cancelled && queue.length) {
+        const job = queue.shift();
+        if (job) await fetchDetail(job);
+      }
+    };
+    void Promise.all([work(), work()]); // 并发 2,温和不打爆爬虫
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTab, recommendedJobs, searchJobs, fetchDetail]);
 
   // URL → 初始 tab 同步(避免 useLocalState 跟 URL 冲突)
   useEffect(() => {
@@ -216,9 +268,11 @@ function DiscoverPageInner() {
 
   // ============ 卡片三按钮 handler ============
   // /m6 写"待消费 JD" raw 数据;M3/M5 入口读后预填自有流程
-  const writePendingJd = useCallback((job: Job) => {
+  const writePendingJd = useCallback((job: Job, jdTextFull?: string) => {
+    const jdText =
+      jdTextFull && jdTextFull.trim().length > 0 ? jdTextFull : job.jdText ?? "";
     const pending = {
-      jdText: job.jdText ?? "",
+      jdText,
       roleName: job.title,
       company: job.company,
       salary: job.salary ?? "",
@@ -255,45 +309,50 @@ function DiscoverPageInner() {
 
   const handleOptimizeResume = useCallback(
     async (job: Job) => {
-      writePendingJd(job);
-      if (!user) {
-        router.push("/m3/jd");
-        return;
+      setHandoffJobId(job.id);
+      try {
+        const jd = await fetchDetail(job); // 先拿真全文(抓不到=空,改简历兜底 role 模式)
+        writePendingJd(job, jd);
+        if (!user) {
+          router.push("/m3/jd");
+          return;
+        }
+        const convId = await resolveM3Conv();
+        router.push(convId ? `/m3/jd?c=${convId}` : "/m3");
+      } finally {
+        setHandoffJobId(null);
       }
-      const convId = await resolveM3Conv();
-      router.push(convId ? `/m3/jd?c=${convId}` : "/m3");
     },
-    [router, writePendingJd, user, resolveM3Conv]
+    [router, writePendingJd, user, resolveM3Conv, fetchDetail]
   );
 
   const handlePracticeInterview = useCallback(
-    (job: Job) => {
-      writePendingJd(job);
-      router.push("/m5");
+    async (job: Job) => {
+      setHandoffJobId(job.id);
+      try {
+        const jd = await fetchDetail(job);
+        writePendingJd(job, jd);
+        router.push("/m5");
+      } finally {
+        setHandoffJobId(null);
+      }
     },
-    [router, writePendingJd]
+    [router, writePendingJd, fetchDetail]
   );
 
-  const handleViewDetail = useCallback(async (job: Job) => {
-    setDetailModal({ job, jdText: job.jdText ?? "" });
-    if (job.jdText) return;
-    setDetailLoading(true);
-    try {
-      const res = await fetch("/api/m6/job-detail", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ jobId: job.id, platform: job.platform }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setDetailModal({ job, jdText: data.jdText ?? "" });
+  const handleViewDetail = useCallback(
+    async (job: Job) => {
+      setDetailModal({ job, jdText: job.jdText ?? "" });
+      setDetailLoading(true);
+      try {
+        const jd = await fetchDetail(job);
+        setDetailModal({ job, jdText: jd });
+      } finally {
+        setDetailLoading(false);
       }
-    } catch {
-      /* ignore — 兜底显示"打开原网页"按钮 */
-    } finally {
-      setDetailLoading(false);
-    }
-  }, []);
+    },
+    [fetchDetail]
+  );
 
   // ============ render ============
 
@@ -374,6 +433,7 @@ function DiscoverPageInner() {
                     key={job.id}
                     job={job}
                     showMatch={showMatch}
+                    busy={handoffJobId === job.id}
                     onOptimizeResume={handleOptimizeResume}
                     onPracticeInterview={handlePracticeInterview}
                     onViewDetail={handleViewDetail}
