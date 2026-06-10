@@ -4,7 +4,7 @@
  */
 "use client";
 import { Suspense, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 
@@ -17,7 +17,6 @@ export default function LoginPage() {
 }
 
 function LoginForm() {
-  const router = useRouter();
   const sp = useSearchParams();
   const next = sp.get("next") || "/";
 
@@ -40,8 +39,9 @@ function LoginForm() {
       setError(err.message === "Invalid login credentials" ? "邮箱或密码不对" : err.message);
       return;
     }
-    router.push(next);
-    router.refresh();
+    // 硬跳转(而非 router.push + router.refresh):后者两调用竞态会取消导航,
+    // 导致登录成功却停在登录页;硬跳转还能让服务端立即读到新 session cookie。
+    window.location.assign(next);
   }
 
   return (

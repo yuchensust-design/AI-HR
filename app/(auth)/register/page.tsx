@@ -8,13 +8,11 @@
  */
 "use client";
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { generateDisplayName } from "@/lib/auth/display-name";
 
 export default function RegisterPage() {
-  const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [displayName, setDisplayName] = useState(() => generateDisplayName());
@@ -57,8 +55,8 @@ export default function RegisterPage() {
     }
 
     setLoading(false);
-    router.push("/");
-    router.refresh();
+    // 硬跳转(而非 router.push + router.refresh):后者竞态会取消导航,导致注册成功却停在注册页
+    window.location.assign("/");
   }
 
   if (needConfirm) {
