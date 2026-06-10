@@ -616,6 +616,8 @@ function RecommendTab({
 }) {
   const hasResume = !!parsedResume;
   const hasResults = meta.keywords && meta.keywords.length > 0;
+  // 有简历时也允许换/重传一份(默认收起,点开才显示上传器)
+  const [showSwap, setShowSwap] = useState(false);
 
   return (
     <div className="space-y-4">
@@ -644,6 +646,22 @@ function RecommendTab({
             <p className="text-xs text-ink-muted mt-2">
               全流程约 60-90 秒,AI 抓取 + 评分 + 推荐,请稍候。
             </p>
+            <button
+              onClick={() => setShowSwap((v) => !v)}
+              className="text-xs text-esther-blue hover:underline mt-3 inline-block"
+            >
+              {showSwap ? "收起" : "不是这份?换一份 / 重新上传简历 →"}
+            </button>
+            {showSwap && (
+              <div className="mt-3">
+                <ResumeUploadInline
+                  onParsed={async (p) => {
+                    await onUploadResume(p);
+                    setShowSwap(false);
+                  }}
+                />
+              </div>
+            )}
           </>
         ) : (
           <div className="py-1">
