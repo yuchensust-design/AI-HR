@@ -359,9 +359,12 @@ function Module3Content() {
         company?: string;
         from_m6?: boolean;
       };
-    if (pending.from_m6 && pending.jdText && pending.jdText.length > 50) {
-        setJdText(pending.jdText);
-        if (pending.roleName) setJdRoleName(pending.roleName);
+    const hasJdText = !!pending.jdText && pending.jdText.length > 50;
+      // 从看岗位跳来 → 表单精确反映当前点的这个岗位:岗位名/JD 全文都权威覆盖,
+      // 抓不到 JD 全文时只带岗位名(清掉残留 JD,避免"新岗位名 + 旧 JD"混搭)。
+      if (pending.from_m6 && (hasJdText || pending.roleName)) {
+        setJdText(hasJdText ? pending.jdText! : "");
+        setJdRoleName(pending.roleName ?? "");
         window.localStorage.removeItem(STORAGE_KEYS.M6_PENDING_JD);
       }
     } catch {

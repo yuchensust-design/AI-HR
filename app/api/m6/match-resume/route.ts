@@ -261,13 +261,10 @@ function applyCritic(jobs: Job[], scores: ScorerResult[]): Job[] {
     .sort((a, b) => (b.matchScore ?? 0) - (a.matchScore ?? 0))
     .slice(0, 5);
 
-  return [...passing, ...fallback].sort((a, b) => {
-    // 51job(链接只能落搜索页、JD 详情抓不到)排到最后,让评委先看 liepin/zhilian 的优质岗位
-    const a51 = a.platform === "51job" ? 1 : 0;
-    const b51 = b.platform === "51job" ? 1 : 0;
-    if (a51 !== b51) return a51 - b51;
-    return (b.matchScore ?? 0) - (a.matchScore ?? 0);
-  });
+  // 51job 已在上游整体过滤,这里只按匹配分排序
+  return [...passing, ...fallback].sort(
+    (a, b) => (b.matchScore ?? 0) - (a.matchScore ?? 0),
+  );
 }
 
 // ============ Agent 4: Formatter ============
@@ -336,10 +333,13 @@ export async function POST(request: NextRequest) {
     const crawlerResults = await Promise.all(
       split.keywords.map((kw) => fetchCrawler(kw, split.city, 10))
     );
-    const allJobs = crawlerResults.flatMap((r) => r.jobs);
+    // 方案 D:不显示 51job(列表卡能拿,但 jdUrl 落搜索页、JD 详情抓不到)
+    const allJobs = crawlerResults
+      .flatMap((r) => r.jobs)
+      .filter((j) => j.platform !== "51job");
     const blockedPlatforms = Array.from(
       new Set(crawlerResults.flatMap((r) => r.blockedPlatforms))
-    );
+    ).filter((p) => p !== "51job");
     const deduped = dedupeJobs(allJobs);
 
     if (deduped.length === 0) {

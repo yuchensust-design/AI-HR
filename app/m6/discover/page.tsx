@@ -76,6 +76,11 @@ function DiscoverPageInner() {
     city: sp.get("city") ?? "上海",
   });
   const [searchJobs, setSearchJobs] = useLocalState<Job[]>(STORAGE_KEYS.DISCOVER_SEARCH_JOBS, []);
+  const [searchPage, setSearchPage] = useLocalState<number>(STORAGE_KEYS.DISCOVER_SEARCH_PAGE, 1);
+  // 「是否已翻到末页」用内存态、不持久化:每次进页面默认 false → 只要搜索 tab 有结果就显示
+  // 加载更多;只有点了之后 API 明确说没有下一页才置 true 隐藏。不依赖会被存旧的持久化值。
+  const [reachedEnd, setReachedEnd] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [recommendedJobs, setRecommendedJobs] = useLocalState<Job[]>(
     STORAGE_KEYS.DISCOVER_RECOMMENDED_JOBS,
     []
@@ -214,16 +219,76 @@ function DiscoverPageInner() {
       if (!res.ok) {
         setSearchError(data.error ?? `请求失败 ${res.status}`);
         setSearchJobs([]);
+        setReachedEnd(true);
         return;
       }
       setSearchJobs(data.jobs ?? []);
+      setSearchPage(1);
+      setReachedEnd(!data.hasNext);
     } catch (err) {
       setSearchError(err instanceof Error ? err.message : "网络错误");
     } finally {
       setSearchLoading(false);
       setSearchDone(true);
     }
-  }, [filters.role, filters.city, setSearchJobs]);
+  }, [filters.role, filters.city, setSearchJobs, setSearchPage]);
+
+  // 加载更多 — 爬下一页,去重后追加(不替换现有列表)
+  const loadMore = useCallback(async () => {
+    if (loadingMore || searchLoading || reachedEnd) return;
+    if (!filters.role.trim()) return;
+    const nextPage = searchPage + 1;
+    setLoadingMore(true);
+    setSearchError(null);
+    try {
+      const res = await fetch("/api/m6/search-jobs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          role: filters.role.trim(),
+          city: filters.city === "全国" ? undefined : filters.city || undefined,
+          page: nextPage,
+          limit: 20,
+        }),
+      });
+      const data: SearchResponse & { error?: string } = await res.json();
+      if (!res.ok) {
+        setSearchError(data.error ?? `请求失败 ${res.status}`);
+        return;
+      }
+      const incoming = data.jobs ?? [];
+      // 跨页去重:id 或 title::company 命中已有的就丢掉(API 单页内已去重,这里防跨页重复)
+      setSearchJobs((prev) => {
+        const seenId = new Set(prev.map((j) => j.id));
+        const seenKey = new Set(
+          prev.map((j) => `${(j.title || "").toLowerCase()}::${(j.company || "").toLowerCase()}`),
+        );
+        const fresh = incoming.filter((j) => {
+          const key = `${(j.title || "").toLowerCase()}::${(j.company || "").toLowerCase()}`;
+          if (seenId.has(j.id) || seenKey.has(key)) return false;
+          seenId.add(j.id);
+          seenKey.add(key);
+          return true;
+        });
+        return [...prev, ...fresh];
+      });
+      setSearchPage(nextPage);
+      setReachedEnd(!data.hasNext);
+    } catch (err) {
+      setSearchError(err instanceof Error ? err.message : "网络错误");
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [
+    loadingMore,
+    searchLoading,
+    reachedEnd,
+    searchPage,
+    filters.role,
+    filters.city,
+    setSearchJobs,
+    setSearchPage,
+  ]);
 
   // URL 触发自动搜索
   useEffect(() => {
@@ -347,44 +412,41 @@ function DiscoverPageInner() {
     window.localStorage.setItem(STORAGE_KEYS.M6_PENDING_JD, JSON.stringify(pending));
   }, []);
 
-  // 登录用户必须带 ?c=<会话id> 进 m3 子页,否则 useM3DBSync 会把没 conv 的访问
-  // 弹回 /m3 选择页(出现"跳一下又跳一下"且丢 JD)。优先复用最近一份简历会话
-  // (它带着简历,正是看岗位用的那份),没有才新建。游客无会话概念,直接进。
-  const resolveM3Conv = useCallback(async (): Promise<string | null> => {
-    if (!user) return null;
-    // 取"看岗位刚用的那份简历"所在的会话:最新一行有简历的 m3_resumes
-    // (与 useLatestResume 同一条查询 → 落在同一行,不会跳到空会话)
-    const supabase = createClient();
-    const { data } = await supabase
-      .from("m3_resumes")
-      .select("conversation_id")
-      .not("parsed_resume_json", "is", null)
-      .order("updated_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    const id = (data as { conversation_id?: string } | null)?.conversation_id;
-    if (id) return id;
-    // 一份带简历的会话都没有 → 新建(用户会在 m3 里上传简历)
-    return createConversation("m3", "改简历 1");
-  }, [user]);
-
+  // 「用这个优化简历」→ 直接进 /m3 改简历主表单页(图2),不再经过 /m3/jd 中间页。
+  // 每次都新建一份简历会话(不复用历史会话,避免混在一起);岗位 JD 用 pending 预填,
+  // 看岗位时已知的简历(parsedResume)如有则 seed 进新会话。都没有也照常进页面。
   const handleOptimizeResume = useCallback(
     async (job: Job) => {
       setHandoffJobId(job.id);
       try {
-        const jd = await fetchDetail(job); // 先拿真全文(抓不到=空,改简历兜底 role 模式)
+        const jd = await fetchDetail(job); // 先拿真全文(抓不到=空,改简历用岗位名兜底)
         writePendingJd(job, jd);
         if (!user) {
-          router.push("/m3/jd");
+          // 游客:单轨 localStorage,简历沿用本地、JD 由刚写的 pending 预填
+          router.push("/m3?new=1&setup=1");
           return;
         }
-        const convId = await resolveM3Conv();
-        router.push(convId ? `/m3/jd?c=${convId}` : "/m3");
+        // 登录:每次新建一份会话,不和历史简历会话混在一起
+        const title = `改简历 · ${job.title}`.slice(0, 40);
+        const convId = await createConversation("m3", title);
+        if (!convId) {
+          router.push("/m3?new=1&setup=1");
+          return;
+        }
+        // 简历只在「用我的简历推荐」路径带过去 — 那条路径用户确实用简历匹配过岗位。
+        // 关键词搜索没提供简历 → 新会话留空,用户在 m3 Step 1 自行上传。
+        if (activeTab === "recommend" && parsedResume?.basic?.name) {
+          await createClient()
+            .from("m3_resumes")
+            .update({ parsed_resume_json: parsedResume })
+            .eq("conversation_id", convId);
+        }
+        router.push(`/m3?c=${convId}&new=1&setup=1`);
       } finally {
         setHandoffJobId(null);
       }
     },
-    [router, writePendingJd, user, resolveM3Conv, fetchDetail]
+    [router, writePendingJd, user, parsedResume, activeTab, fetchDetail]
   );
 
   const handlePracticeInterview = useCallback(
@@ -515,11 +577,12 @@ function DiscoverPageInner() {
           {/* 结果列表 */}
           {jobsForActiveTab.length > 0 && (
             <section className="mt-8">
-              <h2 className="text-lg font-semibold text-ink mb-4">
-                {showMatch
-                  ? `为你推荐 ${jobsForActiveTab.length} 个岗位`
-                  : `共 ${jobsForActiveTab.length} 个真实在招岗位`}
-              </h2>
+              {/* 推荐 tab 保留标题;关键词搜索 tab 不显示"共 X 个"统计标题 */}
+              {showMatch && (
+                <h2 className="text-lg font-semibold text-ink mb-4">
+                  为你推荐 {jobsForActiveTab.length} 个岗位
+                </h2>
+              )}
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                 {jobsForActiveTab.map((job) => (
                   <JobCard
@@ -533,6 +596,19 @@ function DiscoverPageInner() {
                   />
                 ))}
               </div>
+
+              {/* 加载更多 — 仅搜索 tab、未翻到末页时显示 */}
+              {activeTab === "search" && !reachedEnd && (
+                <div className="mt-6 flex justify-center">
+                  <button
+                    onClick={loadMore}
+                    disabled={loadingMore}
+                    className="inline-flex items-center gap-2 px-6 py-2.5 rounded-full border border-esther-blue/40 text-esther-blue bg-esther-blue/5 hover:bg-esther-blue/10 transition-colors text-sm font-medium disabled:opacity-60"
+                  >
+                    {loadingMore ? "正在抓取更多岗位…(约 20-30s)" : "加载更多岗位 ↓"}
+                  </button>
+                </div>
+              )}
             </section>
           )}
 
