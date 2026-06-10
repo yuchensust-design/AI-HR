@@ -157,53 +157,79 @@ async function runScorerBatch(
   if (jobs.length === 0) return [];
   const sys = await loadPrompt("m6-scorer.md");
 
-  // 按 10 个一批
+  // 每个 job 的结构化输出(7 维 breakdown + 各 3 条 prose)实测 ~600-900 token。
+  // 批量过大 + max_tokens 过小会让 JSON 中途截断 → 整批 JSON.parse 失败 → 这批岗位
+  // 被静默丢弃(类③ bug)。故:批大小 5、max_tokens 7000(5×~900 留足余量)。
+  const SCORER_BATCH = 5;
   const batches: Job[][] = [];
-  for (let i = 0; i < jobs.length; i += 10) {
-    batches.push(jobs.slice(i, i + 10));
+  for (let i = 0; i < jobs.length; i += SCORER_BATCH) {
+    batches.push(jobs.slice(i, i + SCORER_BATCH));
   }
 
   const allResults: ScorerResult[] = [];
 
+  /** 评一批 → 成功返回 ScorerResult[],失败(截断/超时/坏 JSON)返回 null */
+  async function scoreBatch(
+    batch: Job[],
+    maxTokens: number,
+  ): Promise<ScorerResult[] | null> {
+    const userJson = JSON.stringify({
+      resume: parsedResume,
+      jobs: batch.map((j) => ({
+        id: j.id,
+        title: j.title,
+        company: j.company,
+        salary: j.salary,
+        city: j.city,
+        experience: j.experience,
+        education: j.education,
+        tags: j.tags ?? [],
+        jdText: j.jdText,
+      })),
+    });
+    try {
+      const raw = await chat(
+        [
+          { role: "system", content: sys },
+          { role: "user", content: userJson },
+        ],
+        { model: "chat", temperature: 0.3, max_tokens: maxTokens, jsonMode: true }
+      );
+      const parsed = JSON.parse(raw);
+      const scores = Array.isArray(parsed.scores) ? parsed.scores : [];
+      return scores.map((s: Record<string, unknown>) => ({
+        jobId: String(s.jobId ?? ""),
+        score: Math.max(0, Math.min(100, Number(s.score ?? 0))),
+        breakdown: s.breakdown as ScorerResult["breakdown"],
+        highlights: Array.isArray(s.highlights) ? s.highlights.map(String).slice(0, 3) : [],
+        gaps: Array.isArray(s.gaps) ? s.gaps.map(String).slice(0, 3) : [],
+      }));
+    } catch (err) {
+      console.warn("Scorer batch failed:", err);
+      return null;
+    }
+  }
+
+  /** 仍拿不到分的 job:给可见降级分(而非静默消失),gap 文案明示未详细分析 */
+  const degraded = (j: Job): ScorerResult => ({
+    jobId: j.id,
+    score: 50,
+    highlights: [],
+    gaps: ["⚠️ 该岗位评分超时,未能详细分析,仅供参考"],
+  });
+
   await Promise.all(
     batches.map(async (batch) => {
-      const userJson = JSON.stringify({
-        resume: parsedResume,
-        jobs: batch.map((j) => ({
-          id: j.id,
-          title: j.title,
-          company: j.company,
-          salary: j.salary,
-          city: j.city,
-          experience: j.experience,
-          education: j.education,
-          tags: j.tags ?? [],
-          jdText: j.jdText,
-        })),
-      });
-
-      try {
-        const raw = await chat(
-          [
-            { role: "system", content: sys },
-            { role: "user", content: userJson },
-          ],
-          { model: "chat", temperature: 0.3, max_tokens: 3000, jsonMode: true }
-        );
-        const parsed = JSON.parse(raw);
-        const scores = Array.isArray(parsed.scores) ? parsed.scores : [];
-        for (const s of scores) {
-          allResults.push({
-            jobId: String(s.jobId ?? ""),
-            score: Math.max(0, Math.min(100, Number(s.score ?? 0))),
-            breakdown: s.breakdown,
-            highlights: Array.isArray(s.highlights) ? s.highlights.map(String).slice(0, 3) : [],
-            gaps: Array.isArray(s.gaps) ? s.gaps.map(String).slice(0, 3) : [],
-          });
-        }
-      } catch (err) {
-        console.warn("Scorer batch failed:", err);
+      let res = await scoreBatch(batch, 7000);
+      if (res === null) {
+        // 整批失败 → 拆成单条重试(单条 JSON 小、几乎不会截断);仍失败的给降级分,不丢
+        const singles = await Promise.all(batch.map((j) => scoreBatch([j], 2000)));
+        res = singles.flatMap((r, i) => r ?? [degraded(batch[i])]);
       }
+      // 批内 LLM 漏评的 job 也补降级分,保证每个 job 都有结果
+      const got = new Set(res.map((r) => r.jobId));
+      for (const j of batch) if (!got.has(j.id)) res.push(degraded(j));
+      allResults.push(...res);
     })
   );
 

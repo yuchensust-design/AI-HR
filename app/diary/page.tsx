@@ -130,7 +130,8 @@ function groupByDate(entries: DiaryEntry[]): Array<{ date: string; items: DiaryE
 }
 
 export default function DiaryPage() {
-  const { addEntry, deleteEntry, clearAllEntries } = useDiarySync();
+  const { addEntry, deleteEntry, clearAllEntries, loadFromDB, userLoading } =
+    useDiarySync();
   const [entries, setEntries] = useState<DiaryEntry[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [showConsent, setShowConsent] = useState(false);
@@ -244,6 +245,16 @@ export default function DiaryPage() {
     setLoaded(true);
     if (!hasDiaryConsent()) setShowConsent(true);
   }, []);
+
+  // 登录用户:从 DB 回灌日记并进本地(跨设备 / 清缓存恢复)。等 auth 落定再拉,
+  // 随 loadFromDB(随 user 变)重跑。没有这步,新设备只会看到空的本地日记。
+  useEffect(() => {
+    if (userLoading) return;
+    loadFromDB().then((merged) => {
+      if (merged && merged.length > 0) setEntries(merged);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userLoading, loadFromDB]);
 
   const refresh = () => setEntries(getDiaryEntries());
 

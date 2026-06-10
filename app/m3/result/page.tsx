@@ -2552,7 +2552,7 @@ function InterviewPrepTab({
             </p>
           </div>
           <Link
-            href={`/m5${convQs}`}
+            href={`/m5${convQs.replace("?c=", "?fromm3=")}`}
             className="flex-shrink-0 inline-flex items-center justify-center rounded-full bg-esther-blue text-white px-5 py-2 text-sm font-medium hover:bg-esther-blue-dark transition-colors"
           >
             去模拟面试 →
@@ -2835,7 +2835,7 @@ function KeywordGapRow({
       {resp === "no" && (
         <p className="text-sm text-ink-soft mt-2">
           这是真缺口 —— 不替你硬写。建议去
-          <Link href={`/m4${convQs}`} className="text-esther-blue hover:underline mx-1">
+          <Link href={`/m4${convQs.replace("?c=", "?fromm3=")}`} className="text-esther-blue hover:underline mx-1">
             「补项目」
           </Link>
           做一段能体现「{kw}」的经历,再回来补进简历。

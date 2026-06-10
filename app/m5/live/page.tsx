@@ -365,6 +365,15 @@ function Module5LiveContent() {
           }
           // eslint-disable-next-line react-hooks/set-state-in-effect
           setConfig(cfg);
+        },
+        () => {
+          // 真·传输层 reject(断网/abort/CORS):.then 不触发、外层 try 也捕不到异步
+          // rejection → 否则永久停在"正在出题…"loading 屏无反馈。这里显式报错给出路。
+          if (!cancelled)
+            dispatch({
+              type: "ERROR",
+              msg: "读取面试配置失败 — 请检查网络后回 /m5 重试",
+            });
         });
       return () => {
         cancelled = true;

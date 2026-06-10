@@ -539,6 +539,26 @@ function Module3Content() {
               </div>
             </section>
 
+            {/* 从其他模块回流:带着该模块用的简历 + 目标岗位 + 素材落地,确认后开始优化 */}
+            {(sp.get("from") === "m4" || sp.get("from") === "debrief") &&
+              !needPickConv && (
+                <section className="border-b border-border bg-esther-blue/5">
+                  <div className="max-w-[900px] mx-auto px-6 py-4">
+                    <p className="text-sm text-ink leading-relaxed">
+                      <span className="font-semibold text-esther-blue">
+                        {sp.get("from") === "debrief"
+                          ? "✓ 已从模拟面试带过来"
+                          : "✓ 已从补项目带过来"}
+                      </span>
+                      {sp.get("from") === "debrief"
+                        ? " 你这场面试用的简历 + 目标岗位,以及刚采纳的面试亮点都已带上。"
+                        : " 你在补项目里用的简历 + 目标岗位,以及刚标记完成的那条补强素材都已带上。"}
+                      {" 下面确认无误后点「开始优化」,AI 会把它揉进简历。"}
+                    </p>
+                  </div>
+                </section>
+              )}
+
             {/* 主内容 */}
             {needPickConv ? (
               <div className="max-w-[900px] mx-auto px-6 py-10 md:py-14">

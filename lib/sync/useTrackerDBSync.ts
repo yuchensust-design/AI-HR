@@ -18,7 +18,7 @@ import { useUser } from "@/lib/auth/useUser";
 import type { Application } from "@/lib/tracker-types";
 
 export function useTrackerDBSync() {
-  const { user } = useUser();
+  const { user, loading: userLoading } = useUser();
 
   const upsertApplication = useCallback(
     async (app: Application): Promise<void> => {
@@ -73,5 +73,5 @@ export function useTrackerDBSync() {
     }
   }, [user]);
 
-  return { upsertApplication, deleteApplication, loadFromDB };
+  return { upsertApplication, deleteApplication, loadFromDB, userLoading };
 }
