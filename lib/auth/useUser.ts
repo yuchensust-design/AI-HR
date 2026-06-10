@@ -37,11 +37,13 @@ export function useUser() {
     const supabase = createClient();
 
     async function fetchProfile(userId: string) {
+      // maybeSingle:profile 行不存在时返回 null 而非 406 报错
+      // (.single() 在 0 行时抛 406 — 注册时 profile insert 若失败,用户会每页刷红错)
       const { data } = await supabase
         .from("profiles")
         .select("*")
         .eq("user_id", userId)
-        .single();
+        .maybeSingle();
       setProfile((data as Profile) ?? null);
     }
 

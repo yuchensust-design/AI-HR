@@ -45,11 +45,15 @@ export default function RegisterPage() {
       return;
     }
 
-    // session 已存在 → 立即 insert profiles row(RLS 允许 own insert)
+    // session 已存在 → 立即 upsert profiles row(RLS 允许 own insert)
+    // upsert(幂等):避免重试/冲突时漏建 profile,否则该用户后续每页都会 406
     if (data.user) {
       await supabase
         .from("profiles")
-        .insert({ user_id: data.user.id, display_name: displayName });
+        .upsert(
+          { user_id: data.user.id, display_name: displayName },
+          { onConflict: "user_id" },
+        );
     }
 
     setLoading(false);
