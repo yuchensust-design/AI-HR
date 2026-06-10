@@ -146,10 +146,13 @@ function DiscoverPageInner() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ jobId: job.id, platform: job.platform }),
+          // 20s 超时:抓详情若卡住,不让 handoff 按钮无限"抓取完整 JD…",
+          // 超时即放弃 → 用岗位名兜底继续(下游已支持空 JD)
+          signal: AbortSignal.timeout(20_000),
         });
         if (res.ok) txt = ((await res.json()).jdText as string) ?? "";
       } catch {
-        /* 抓不到 → 空串兜底 */
+        /* 抓不到 / 超时 → 空串兜底,改简历用岗位名 */
       }
       jdCacheRef.current.set(job.id, txt);
       jdInflightRef.current.delete(job.id);
