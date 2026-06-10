@@ -17,6 +17,12 @@ import { useUser } from "@/lib/auth/useUser";
 import { listConversations, createConversation } from "@/lib/conversations";
 import ConversationSwitcher from "@/components/conversations/ConversationSwitcher";
 import { useM2DBSync } from "@/lib/sync/useM2DBSync";
+import { createClient } from "@/lib/supabase/client";
+import {
+  appendHiddenToLocal,
+  backfillHiddenToLatestResume,
+} from "@/lib/sync/hidden-experience";
+import { bulletToHiddenExperience } from "@/lib/m2-bullet";
 import { EXPERIENCE_CATEGORIES } from "@/lib/prompts/excavate-options";
 
 type Phase = "spread" | "illuminate" | "wrap";
@@ -295,6 +301,7 @@ function Module2Page({ scope }: { scope: string }) {
   const [bullets, setBullets] = useLocalState<CandidateBullet[]>(`${STORAGE_KEYS.M2_BULLETS}:${scope}`, []);
   const [categories, setCategories] = useLocalState<string[]>(`${STORAGE_KEYS.M2_CATEGORIES}:${scope}`, []);
   const { syncToDb, loadFromDB, isReady: dbReady, isGuest } = useM2DBSync();
+  const router = useRouter();
 
   const [messages, setMessages] = useState<ChatMsg[]>([]);
   const [input, setInput] = useState("");
@@ -530,6 +537,38 @@ function Module2Page({ scope }: { scope: string }) {
     }
   };
 
+  // 飞轮:挖经历 → 改简历。把可用 bullet(滤掉 thin 草稿、拼好【请补充】数字)去重写进
+  // 素材池总线 → 登录直达那份简历 result 页;游客走本地素材池兜底。
+  const usableBulletCount = bullets.filter(
+    (b) => (b.sufficiency ?? "draftable") !== "thin",
+  ).length;
+  const [sendingToResume, setSendingToResume] = useState(false);
+  const handleSendToResume = useCallback(async () => {
+    const hidden = bullets
+      .filter((b) => (b.sufficiency ?? "draftable") !== "thin")
+      .map((b) =>
+        bulletToHiddenExperience({
+          ...b,
+          text: assembleBullet(b.text, fills[b.id ?? b.text] ?? []),
+        }),
+      );
+    if (hidden.length === 0) return;
+    setSendingToResume(true);
+    try {
+      if (!isGuest) {
+        const convId = await backfillHiddenToLatestResume(createClient(), hidden);
+        if (convId) {
+          router.push(`/m3/result?c=${convId}&backfill=1`);
+          return;
+        }
+      }
+      appendHiddenToLocal(hidden);
+      router.push("/m3?from=m2");
+    } finally {
+      setSendingToResume(false);
+    }
+  }, [bullets, fills, isGuest, router]);
+
   const hasAnySummary = intake.roles.length > 0 || intake.stories.length > 0 || bullets.length > 0;
   // 素材台按来源类型分组(plan:按用户选的类型分)
   const bulletGroups = (() => {
@@ -700,6 +739,15 @@ function Module2Page({ scope }: { scope: string }) {
                     已挖 <b className="text-ink">{intake.roles.length}</b> 段经历 ·{" "}
                     <b className="text-ink">{bullets.length}</b> 条候选 bullet
                   </p>
+                  {usableBulletCount > 0 && (
+                    <button
+                      onClick={handleSendToResume}
+                      disabled={sendingToResume}
+                      className="mt-3 w-full inline-flex items-center justify-center gap-1 rounded-full bg-esther-blue text-white px-4 py-2 text-xs font-medium hover:bg-esther-blue-dark transition-colors disabled:opacity-60"
+                    >
+                      {sendingToResume ? "导入中…" : `送进改简历(${usableBulletCount} 条)→`}
+                    </button>
+                  )}
                   <button onClick={reset} className="mt-3 text-[11px] text-ink-soft hover:text-esther-red transition-colors underline">
                     清空重来
                   </button>
