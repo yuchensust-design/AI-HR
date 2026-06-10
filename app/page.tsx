@@ -3,7 +3,6 @@ import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Nav } from "@/components/Nav";
 import { EntryChoiceCards } from "@/components/EntryChoiceCards";
-import { MainFlowDiagram } from "@/components/MainFlowDiagram";
 import { SixCapabilities } from "@/components/SixCapabilities";
 import { StepsSection } from "@/components/StepsSection";
 import { BuerFloatingButton } from "@/components/BuerFloatingButton";
@@ -177,7 +176,7 @@ export default function Home() {
                   href="/m1"
                   className="inline-flex items-center justify-center rounded-full bg-esther-blue text-white px-7 py-3.5 text-base font-medium hover:bg-esther-blue-dark transition-colors shadow-md"
                 >
-                  开始我的求职闭环 →
+                  现在就开始 →
                 </Link>
               </div>
             </div>
@@ -202,11 +201,6 @@ export default function Home() {
             </div>
           </div>
         </section>
-
-        {/* ============================================================
-            主线图 — §8.28 Wave 6: 一张图看完闭环
-            ============================================================ */}
-        <MainFlowDiagram />
 
         {/* ============================================================
             M6 Job Match Hero — 智能岗位匹配入口(首屏高位)

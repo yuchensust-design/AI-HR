@@ -52,7 +52,7 @@ export function JobMatchHero() {
             🎯 看真实岗位 + AI 推荐最匹配的机会
           </h2>
           <p className="text-ink-soft text-sm max-w-2xl mx-auto">
-            从 BOSS、51job 实时抓取在招岗位,4 阶段 AI Agent 流水线为你打分、解释、推荐
+            从前程无忧、猎聘、智联招聘实时抓取在招岗位,AI 帮你按简历打分、推荐、解释为什么适合
           </p>
         </div>
 
@@ -106,18 +106,10 @@ export function JobMatchHero() {
               onClick={() => router.push("/m6/discover?mode=match-resume")}
               className="w-full px-6 py-3 rounded-lg bg-esther-yellow text-ink font-semibold hover:bg-esther-yellow/80 transition-colors text-sm border-2 border-esther-yellow/60"
             >
-              ✨ 四阶段 AI 流水线推荐岗位 →
+              ✨ 用我的简历智能匹配岗位 →
             </button>
-            <p className="text-[11px] text-ink-muted mt-2 text-center">
-              需要先在「简历优化」上传简历(或直接进推荐页上传)
-            </p>
           </div>
         </div>
-
-        {/* 信任行 */}
-        <p className="text-center text-xs text-ink-muted mt-5">
-          🔒 数据存浏览器本地 · 不上传账号 · 不代投递 · 仅供发现真实岗位与匹配建议
-        </p>
       </div>
     </section>
   );
