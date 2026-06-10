@@ -6,6 +6,7 @@ import { Nav } from "@/components/Nav";
 import { BuerFloatingButton } from "@/components/BuerFloatingButton";
 import { JobCard } from "@/components/m6/JobCard";
 import { AgentProgress } from "@/components/m6/AgentProgress";
+import { ResumeUploadInline } from "@/components/m6/ResumeUploadInline";
 import { useLocalState, STORAGE_KEYS } from "@/lib/use-local-state";
 import { useLatestResume } from "@/lib/sync/useLatestResume";
 import { useUser } from "@/lib/auth/useUser";
@@ -71,7 +72,15 @@ function DiscoverPageInner() {
   }>(STORAGE_KEYS.DISCOVER_MATCH_META, {});
   // 统一读简历:登录读账号最近简历(DB),游客读 localStorage(见 useLatestResume)
   const latestResume = useLatestResume();
-  const parsedResume = latestResume.parsedResume as unknown as ParsedResume | null;
+  // 就地上传解析出的简历:本会话即时生效(同时持久化,见 handleInlineResume),
+  // 让"无简历"用户不必跳去 m3 也能直接上传后推荐。
+  const [uploadedResume, setUploadedResume] = useState<unknown>(null);
+  const parsedResume = (uploadedResume ?? latestResume.parsedResume) as unknown as ParsedResume | null;
+  const resumeSource: "db" | "local" | "none" = uploadedResume
+    ? user
+      ? "db"
+      : "local"
+    : latestResume.source;
   // 当前简历内容签名 + 上次推荐所依据的签名;不一致 = 推荐缓存已过期
   const currentSig = resumeSignature(parsedResume);
   const [recommendSig, setRecommendSig] = useLocalState<string>(
@@ -337,6 +346,36 @@ function DiscoverPageInner() {
     }
   }, []);
 
+  // 就地上传简历解析成功 → 持久化 + 即时生效。
+  // 游客:落 localStorage(useLatestResume 游客分支会读到);
+  // 登录:新建一份 m3 简历会话并写入 parsed_resume_json(跨模块/跨设备可见,落本地兜底)。
+  const handleInlineResume = useCallback(
+    async (parsed: unknown) => {
+      try {
+        window.localStorage.setItem(STORAGE_KEYS.PARSED_RESUME, JSON.stringify(parsed));
+      } catch {
+        /* localStorage 不可用也不阻断 */
+      }
+      if (user) {
+        try {
+          const convId = await createConversation("m3", "我的简历");
+          if (convId) {
+            const supabase = createClient();
+            await supabase
+              .from("m3_resumes")
+              .update({ parsed_resume_json: parsed })
+              .eq("conversation_id", convId);
+          }
+        } catch {
+          /* DB 落库失败 → 已落本地,推荐流程仍可继续 */
+        }
+      }
+      setUploadedResume(parsed);
+      setStaleNotice(false);
+    },
+    [user]
+  );
+
   // ============ render ============
 
   const jobsForActiveTab = activeTab === "search" ? searchJobs : recommendedJobs;
@@ -393,13 +432,14 @@ function DiscoverPageInner() {
             <RecommendTab
               parsedResume={parsedResume}
               resumeLoading={latestResume.loading}
-              resumeSource={latestResume.source}
+              resumeSource={resumeSource}
               runMatch={runMatchResume}
               loading={matchLoading}
               error={matchError}
               steps={agentSteps}
               meta={matchMeta}
               staleNotice={staleNotice}
+              onUploadResume={handleInlineResume}
             />
           )}
 
@@ -556,6 +596,7 @@ function RecommendTab({
   steps,
   meta,
   staleNotice,
+  onUploadResume,
 }: {
   parsedResume: ParsedResume | null;
   resumeLoading: boolean;
@@ -571,6 +612,7 @@ function RecommendTab({
     stats?: MatchResumeResponse["stats"];
   };
   staleNotice: boolean;
+  onUploadResume: (parsed: unknown) => void | Promise<void>;
 }) {
   const hasResume = !!parsedResume;
   const hasResults = meta.keywords && meta.keywords.length > 0;
@@ -604,16 +646,18 @@ function RecommendTab({
             </p>
           </>
         ) : (
-          <div className="text-center py-3">
+          <div className="py-1">
             <p className="text-sm text-ink mb-3">
-              还没上传简历?先去「简历优化」上传,再回来推荐。
+              上传你的简历,AI 就能按它给岗位打分、推荐、解释为什么适合 👇
             </p>
-            <a
-              href="/m3"
-              className="inline-block px-5 py-2.5 rounded-lg bg-esther-blue text-white text-sm font-medium hover:bg-esther-blue-dark"
-            >
-              去上传简历 →
-            </a>
+            <ResumeUploadInline onParsed={onUploadResume} />
+            <p className="text-xs text-ink-muted mt-3">
+              想完整整理简历?也可以去{" "}
+              <a href="/m3" className="text-esther-blue hover:underline">
+                简历优化
+              </a>{" "}
+              再回来。
+            </p>
           </div>
         )}
         {error && (

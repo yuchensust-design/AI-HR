@@ -10,6 +10,7 @@ SCRIPTS=(
   "test-inpage-m6.js"      # m6 tabs + JD modal + 不二 widget
   "test-inpage-generic.js" # safe button sweep tracker/diary/m4/m2/m1
   "test-corepath-guest.js"  # m1 quiz progression + m3 guest form
+  "test-m6-inline-upload.js" # m6 就地上传简历→解析→推荐就绪
   "test-concurrency.js"   # rapid-click / state-corruption probe
   "test-deeplinks.js"      # cold deep-link visits
 )

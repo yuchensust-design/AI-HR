@@ -26,7 +26,7 @@ const job = {
     await page.locator('button:has-text("用我的简历推荐")').click();
     await page.waitForTimeout(700);
     const recTab = await snapText(page);
-    check("tab→推荐: shows no-resume CTA", recTab.includes("还没上传简历") || recTab.includes("去上传简历") || recTab.includes("读取你的简历"));
+    check("tab→推荐: shows inline resume uploader", recTab.includes("上传你的简历") || recTab.includes("读取你的简历") || recTab.includes("已检测到"));
     await page.locator('button:has-text("关键词搜索")').click();
     await page.waitForTimeout(500);
     check("tab→搜索: card back", (await snapText(page)).includes("模态测试"));
