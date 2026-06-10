@@ -6,6 +6,7 @@ import { Nav } from "@/components/Nav";
 import { BuerFloatingButton } from "@/components/BuerFloatingButton";
 import { JobCard } from "@/components/m6/JobCard";
 import { AgentProgress } from "@/components/m6/AgentProgress";
+import { ResumeUploadInline } from "@/components/m6/ResumeUploadInline";
 import { useLocalState, STORAGE_KEYS } from "@/lib/use-local-state";
 import { useLatestResume } from "@/lib/sync/useLatestResume";
 import { useUser } from "@/lib/auth/useUser";
@@ -32,6 +33,32 @@ const KNOWN_CITIES = new Set([
 interface ParsedResume {
   basic?: { name?: string; [k: string]: unknown };
   [k: string]: unknown;
+}
+
+// 简历内容签名(djb2)——只要底层简历内容变了,签名就变,用来给推荐缓存加 key。
+// 换/重传简历后旧推荐不能再被当作当前结果静默展示(见下方失效逻辑)。
+// key-order-independent 序列化:同一份简历经 DB jsonb 往返后 key 顺序可能变,
+// 普通 JSON.stringify 会得到不同字符串 → 误判"简历变了"。递归排序 key 消除这点。
+function stableStringify(v: unknown): string {
+  if (v === null || typeof v !== "object") return JSON.stringify(v) ?? "null";
+  if (Array.isArray(v)) return "[" + v.map(stableStringify).join(",") + "]";
+  const obj = v as Record<string, unknown>;
+  return (
+    "{" +
+    Object.keys(obj)
+      .sort()
+      .map((k) => JSON.stringify(k) + ":" + stableStringify(obj[k]))
+      .join(",") +
+    "}"
+  );
+}
+
+function resumeSignature(r: unknown): string {
+  if (!r) return "";
+  const s = stableStringify(r);
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0;
+  return (h >>> 0).toString(36);
 }
 
 function DiscoverPageInner() {
@@ -61,7 +88,22 @@ function DiscoverPageInner() {
   }>(STORAGE_KEYS.DISCOVER_MATCH_META, {});
   // 统一读简历:登录读账号最近简历(DB),游客读 localStorage(见 useLatestResume)
   const latestResume = useLatestResume();
-  const parsedResume = latestResume.parsedResume as unknown as ParsedResume | null;
+  // 就地上传解析出的简历:本会话即时生效(同时持久化,见 handleInlineResume),
+  // 让"无简历"用户不必跳去 m3 也能直接上传后推荐。
+  const [uploadedResume, setUploadedResume] = useState<unknown>(null);
+  const parsedResume = (uploadedResume ?? latestResume.parsedResume) as unknown as ParsedResume | null;
+  const resumeSource: "db" | "local" | "none" = uploadedResume
+    ? user
+      ? "db"
+      : "local"
+    : latestResume.source;
+  // 当前简历内容签名 + 上次推荐所依据的签名;不一致 = 推荐缓存已过期
+  const currentSig = resumeSignature(parsedResume);
+  const [recommendSig, setRecommendSig] = useLocalState<string>(
+    STORAGE_KEYS.DISCOVER_RECOMMEND_SIG,
+    ""
+  );
+  const [staleNotice, setStaleNotice] = useState(false);
 
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
@@ -139,6 +181,20 @@ function DiscoverPageInner() {
   // 自动触发搜索:URL 带 role 参数时
   const autoSearchTriggered = useRouterAutoSearch(sp, setFilters);
 
+  // 简历变了(换/重传)→ 不清空旧推荐(用户还想接着看),只在上方挂个非破坏性提示:
+  // 这些推荐基于旧简历,想更新就点「重新推荐」。用户不点 → 旧推荐一直保留。
+  // 用 key-order 无关的签名比对,避免 DB jsonb 往返 reorder 导致的误判。
+  /* eslint-disable react-hooks/set-state-in-effect */
+  useEffect(() => {
+    if (latestResume.loading) return; // 简历还在确定中,别误判
+    if (!currentSig) return; // 没简历 → 保持现状
+    if (recommendedJobs.length === 0) return; // 没有缓存推荐 → 无需提示
+    if (!recommendSig) return; // 旧数据无签名 → 无法判定,不动
+    setStaleNotice(recommendSig !== currentSig); // 不一致才提示,一致则撤掉提示
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentSig, latestResume.loading, recommendSig, recommendedJobs.length]);
+  /* eslint-enable react-hooks/set-state-in-effect */
+
   // ============ 搜索 ============
   const runSearch = useCallback(async () => {
     if (!filters.role.trim()) return;
@@ -185,12 +241,13 @@ function DiscoverPageInner() {
     }
     setMatchLoading(true);
     setMatchError(null);
+    setStaleNotice(false);
     setRecommendedJobs([]);
 
     // 模拟分阶段进度更新(实际后端一次性返回,前端用 timer 演示流水线)
     setAgentSteps({
       splitter: { step: "splitter", status: "running", label: "Agent 1 — Splitter:从简历提取搜索关键词" },
-      scraper: { step: "scraper", status: "pending", label: "Crawler:并行抓取 BOSS + 51job 真实岗位" },
+      scraper: { step: "scraper", status: "pending", label: "Crawler:并行抓取前程无忧 / 猎聘 / 智联真实岗位" },
       scorer: { step: "scorer", status: "pending", label: "Agent 2 — Scorer:4 维度评分(批量)" },
       formatter: { step: "formatter", status: "pending", label: "Agent 4 — Formatter:生成个性化推荐说明" },
     });
@@ -249,7 +306,7 @@ function DiscoverPageInner() {
 
       setAgentSteps({
         splitter: { step: "splitter", status: "done", label: `Agent 1 — Splitter:抽取 ${data.keywords.length} 个关键词`, detail: data.keywords.join(" / ") },
-        scraper: { step: "scraper", status: "done", label: `Crawler:抓到 ${data.stats.scraped} 个原始岗位`, detail: data.stats.blockedPlatforms.length ? `平台兜底生效,${data.stats.blockedPlatforms.join("/")} 暂不可用,已切换备用平台` : "BOSS + 51job 双平台数据齐全" },
+        scraper: { step: "scraper", status: "done", label: `Crawler:抓到 ${data.stats.scraped} 个原始岗位`, detail: data.stats.blockedPlatforms.length ? `平台兜底生效,${data.stats.blockedPlatforms.join("/")} 暂不可用,已切换备用平台` : "前程无忧 / 猎聘 / 智联多平台数据齐全" },
         scorer: { step: "scorer", status: "done", label: `Agent 2 — Scorer:评分 ${data.stats.scored} 个岗位` },
         formatter: { step: "formatter", status: "done", label: `Agent 4 — Formatter:推荐 ${data.stats.recommended} 个(80 分放行 + Fallback 保底)` },
       });
@@ -260,13 +317,15 @@ function DiscoverPageInner() {
         reasoning: data.reasoning,
         stats: data.stats,
       });
+      // 记录本次推荐所依据的简历签名,作为缓存有效性的判据
+      setRecommendSig(currentSig);
     } catch (err) {
       timers.forEach(clearTimeout);
       setMatchError(err instanceof Error ? err.message : "网络错误");
     } finally {
       setMatchLoading(false);
     }
-  }, [parsedResume, setRecommendedJobs, setMatchMeta]);
+  }, [parsedResume, setRecommendedJobs, setMatchMeta, currentSig, setRecommendSig]);
 
   // ============ 卡片三按钮 handler ============
   // /m6 写"待消费 JD" raw 数据;M3/M5 入口读后预填自有流程
@@ -356,6 +415,36 @@ function DiscoverPageInner() {
     [fetchDetail]
   );
 
+  // 就地上传简历解析成功 → 持久化 + 即时生效。
+  // 游客:落 localStorage(useLatestResume 游客分支会读到);
+  // 登录:新建一份 m3 简历会话并写入 parsed_resume_json(跨模块/跨设备可见,落本地兜底)。
+  const handleInlineResume = useCallback(
+    async (parsed: unknown) => {
+      try {
+        window.localStorage.setItem(STORAGE_KEYS.PARSED_RESUME, JSON.stringify(parsed));
+      } catch {
+        /* localStorage 不可用也不阻断 */
+      }
+      if (user) {
+        try {
+          const convId = await createConversation("m3", "我的简历");
+          if (convId) {
+            const supabase = createClient();
+            await supabase
+              .from("m3_resumes")
+              .update({ parsed_resume_json: parsed })
+              .eq("conversation_id", convId);
+          }
+        } catch {
+          /* DB 落库失败 → 已落本地,推荐流程仍可继续 */
+        }
+      }
+      setUploadedResume(parsed);
+      setStaleNotice(false);
+    },
+    [user]
+  );
+
   // ============ render ============
 
   const jobsForActiveTab = activeTab === "search" ? searchJobs : recommendedJobs;
@@ -412,12 +501,14 @@ function DiscoverPageInner() {
             <RecommendTab
               parsedResume={parsedResume}
               resumeLoading={latestResume.loading}
-              resumeSource={latestResume.source}
+              resumeSource={resumeSource}
               runMatch={runMatchResume}
               loading={matchLoading}
               error={matchError}
               steps={agentSteps}
               meta={matchMeta}
+              staleNotice={staleNotice}
+              onUploadResume={handleInlineResume}
             />
           )}
 
@@ -564,7 +655,7 @@ function SearchTab({
       {loading && (
         <p className="text-xs text-ink-soft mt-3 flex items-center gap-2">
           <span className="inline-block w-3 h-3 border-2 border-esther-blue border-t-transparent rounded-full animate-spin" />
-          正在从 BOSS + 51job 抓取真实岗位...(20-30s)
+          正在从前程无忧 / 猎聘 / 智联抓取真实岗位...(20-30s)
         </p>
       )}
       {error && (
@@ -585,6 +676,8 @@ function RecommendTab({
   error,
   steps,
   meta,
+  staleNotice,
+  onUploadResume,
 }: {
   parsedResume: ParsedResume | null;
   resumeLoading: boolean;
@@ -599,9 +692,13 @@ function RecommendTab({
     reasoning?: string;
     stats?: MatchResumeResponse["stats"];
   };
+  staleNotice: boolean;
+  onUploadResume: (parsed: unknown) => void | Promise<void>;
 }) {
   const hasResume = !!parsedResume;
   const hasResults = meta.keywords && meta.keywords.length > 0;
+  // 有简历时也允许换/重传一份(默认收起,点开才显示上传器)
+  const [showSwap, setShowSwap] = useState(false);
 
   return (
     <div className="space-y-4">
@@ -628,20 +725,38 @@ function RecommendTab({
               {loading ? "AI 正在工作..." : "✨ 用我的简历推荐岗位 →"}
             </button>
             <p className="text-xs text-ink-muted mt-2">
-              全流程约 60-90 秒。会调爬虫抓取 + 3 次 LLM 评分 / 改写。
+              全流程约 60-90 秒,AI 抓取 + 评分 + 推荐,请稍候。
             </p>
+            <button
+              onClick={() => setShowSwap((v) => !v)}
+              className="text-xs text-esther-blue hover:underline mt-3 inline-block"
+            >
+              {showSwap ? "收起" : "不是这份?换一份 / 重新上传简历 →"}
+            </button>
+            {showSwap && (
+              <div className="mt-3">
+                <ResumeUploadInline
+                  onParsed={async (p) => {
+                    await onUploadResume(p);
+                    setShowSwap(false);
+                  }}
+                />
+              </div>
+            )}
           </>
         ) : (
-          <div className="text-center py-3">
+          <div className="py-1">
             <p className="text-sm text-ink mb-3">
-              还没上传简历?先去「简历优化」上传,再回来推荐。
+              上传你的简历,AI 就能按它给岗位打分、推荐、解释为什么适合 👇
             </p>
-            <a
-              href="/m3"
-              className="inline-block px-5 py-2.5 rounded-lg bg-esther-blue text-white text-sm font-medium hover:bg-esther-blue-dark"
-            >
-              去上传简历 →
-            </a>
+            <ResumeUploadInline onParsed={onUploadResume} />
+            <p className="text-xs text-ink-muted mt-3">
+              想完整整理简历?也可以去{" "}
+              <a href="/m3" className="text-esther-blue hover:underline">
+                简历优化
+              </a>{" "}
+              再回来。
+            </p>
           </div>
         )}
         {error && (
@@ -650,6 +765,13 @@ function RecommendTab({
           </div>
         )}
       </div>
+
+      {/* 简历已变 → 旧推荐已失效的提示 */}
+      {staleNotice && !loading && (
+        <div className="p-3 rounded-lg bg-esther-yellow/15 border border-esther-yellow/50 text-sm text-ink">
+          📝 你的简历有更新,下面这些推荐还是基于旧简历(先留着给你看)。想用新简历的话,点上方「用我的简历推荐岗位」重新生成。
+        </div>
+      )}
 
       {/* AgentProgress */}
       {(loading || Object.keys(steps).length > 0) && <AgentProgress steps={steps} />}

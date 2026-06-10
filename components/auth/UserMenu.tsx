@@ -72,6 +72,21 @@ export default function UserMenu() {
             <p className="text-xs text-ink-muted truncate">{user.email}</p>
           </div>
           <Link
+            href="/tracker"
+            onClick={() => setOpen(false)}
+            className="block px-3 py-2 text-sm text-ink hover:bg-warm-bg-deep transition"
+          >
+            📊 复盘投递
+          </Link>
+          <Link
+            href="/diary"
+            onClick={() => setOpen(false)}
+            className="block px-3 py-2 text-sm text-ink hover:bg-warm-bg-deep transition"
+          >
+            📔 日记
+          </Link>
+          <div className="my-1 border-t border-black/5" />
+          <Link
             href="/profile"
             onClick={() => setOpen(false)}
             className="block px-3 py-2 text-sm text-ink hover:bg-warm-bg-deep transition"

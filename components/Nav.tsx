@@ -18,10 +18,8 @@ const NAV_ITEMS = [
   { label: "看岗位", href: "/m6/discover" },
   { label: "改简历", href: "/m3" },
   { label: "练面试", href: "/m5" },
-  { label: "复盘投递", href: "/tracker" },
   { label: "挖经历", href: "/m2" },
-  { label: "项目", href: "/m4" },
-  { label: "日记", href: "/diary" },
+  { label: "补项目", href: "/m4" },
 ];
 
 /** 判断当前 path 是否在某个 nav item 的子树下 — eg /m3/result 命中 /m3 */

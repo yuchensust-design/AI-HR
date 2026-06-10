@@ -159,9 +159,6 @@ export default function SettingsPage() {
           >
             登出
           </button>
-          <span className="text-xs text-ink-muted">
-            (删账号 v2 开放,如需立即删除请联系)
-          </span>
         </section>
       </div>
     </main>

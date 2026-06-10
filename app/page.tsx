@@ -3,7 +3,6 @@ import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Nav } from "@/components/Nav";
 import { EntryChoiceCards } from "@/components/EntryChoiceCards";
-import { MainFlowDiagram } from "@/components/MainFlowDiagram";
 import { SixCapabilities } from "@/components/SixCapabilities";
 import { StepsSection } from "@/components/StepsSection";
 import { BuerFloatingButton } from "@/components/BuerFloatingButton";
@@ -166,46 +165,20 @@ export default function Home() {
                 >
                   真正能投、能讲、能过筛的求职竞争力
                 </span>
-                。
               </p>
               <p className="text-sm text-ink-soft leading-relaxed mb-6 max-w-xl">
                 用测评、JD 解析、结构化追问和复盘指标,把求职从感觉判断变成{" "}
-                <span className="text-esther-blue font-medium">可分析、可优化的路径</span>。
+                <span className="text-esther-blue font-medium">可分析、可优化的路径</span>
               </p>
-
-              {/* 数据条 — 3 个能力信号(用户语言版),对应一条评委看得见的能力链 */}
-              <div className="flex flex-wrap items-center gap-2 mb-8">
-                <div className="inline-flex items-center gap-1.5 rounded-full bg-card border border-border px-3 py-1.5">
-                  <span className="text-esther-blue text-sm leading-none">🧭</span>
-                  <span className="text-xs text-ink-soft">职业兴趣测评 + 结合你的真实经历</span>
-                </div>
-                <div className="inline-flex items-center gap-1.5 rounded-full bg-card border border-border px-3 py-1.5">
-                  <span className="text-esther-blue text-sm leading-none">🔎</span>
-                  <span className="text-xs text-ink-soft">JD 拆解 · 简历命中度 · 改完跟原版对比</span>
-                </div>
-                <div className="inline-flex items-center gap-1.5 rounded-full bg-card border border-border px-3 py-1.5">
-                  <span className="text-esther-blue text-sm leading-none">🎤</span>
-                  <span className="text-xs text-ink-soft">3 类面试 × 3 种风格 · 复盘给具体建议</span>
-                </div>
-              </div>
 
               <div className="flex flex-wrap items-center gap-4">
                 <Link
                   href="/m1"
                   className="inline-flex items-center justify-center rounded-full bg-esther-blue text-white px-7 py-3.5 text-base font-medium hover:bg-esther-blue-dark transition-colors shadow-md"
                 >
-                  开始我的求职闭环 →
-                </Link>
-                <Link
-                  href="#modules"
-                  className="inline-flex items-center justify-center rounded-full border-2 border-ink/10 bg-card text-ink px-7 py-3.5 text-base font-medium hover:border-esther-blue transition-colors"
-                >
-                  先看看它怎么帮我 →
+                  现在就开始 →
                 </Link>
               </div>
-              <p className="text-xs text-ink-muted mt-6">
-                🔒 游客模式 · 数据默认存浏览器本地 · 文本仅在分析时发送到模型接口 · 不做账号级持久化
-              </p>
             </div>
 
             <div className="hidden lg:flex justify-center items-center">
@@ -228,11 +201,6 @@ export default function Home() {
             </div>
           </div>
         </section>
-
-        {/* ============================================================
-            主线图 — §8.28 Wave 6: 一张图看完闭环
-            ============================================================ */}
-        <MainFlowDiagram />
 
         {/* ============================================================
             M6 Job Match Hero — 智能岗位匹配入口(首屏高位)
