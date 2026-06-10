@@ -8,6 +8,9 @@ import { JobCard } from "@/components/m6/JobCard";
 import { AgentProgress } from "@/components/m6/AgentProgress";
 import { useLocalState, STORAGE_KEYS } from "@/lib/use-local-state";
 import { useLatestResume } from "@/lib/sync/useLatestResume";
+import { useUser } from "@/lib/auth/useUser";
+import { createConversation } from "@/lib/conversations";
+import { createClient } from "@/lib/supabase/client";
 import type {
   AgentStepState,
   Job,
@@ -34,6 +37,7 @@ interface ParsedResume {
 function DiscoverPageInner() {
   const router = useRouter();
   const sp = useSearchParams();
+  const { user } = useUser();
   const initialMode = sp.get("mode") === "match-resume" ? "recommend" : "search";
 
   const [activeTab, setActiveTab] = useLocalState<"search" | "recommend">(
@@ -228,12 +232,38 @@ function DiscoverPageInner() {
     window.localStorage.setItem(STORAGE_KEYS.M6_PENDING_JD, JSON.stringify(pending));
   }, []);
 
+  // 登录用户必须带 ?c=<会话id> 进 m3 子页,否则 useM3DBSync 会把没 conv 的访问
+  // 弹回 /m3 选择页(出现"跳一下又跳一下"且丢 JD)。优先复用最近一份简历会话
+  // (它带着简历,正是看岗位用的那份),没有才新建。游客无会话概念,直接进。
+  const resolveM3Conv = useCallback(async (): Promise<string | null> => {
+    if (!user) return null;
+    // 取"看岗位刚用的那份简历"所在的会话:最新一行有简历的 m3_resumes
+    // (与 useLatestResume 同一条查询 → 落在同一行,不会跳到空会话)
+    const supabase = createClient();
+    const { data } = await supabase
+      .from("m3_resumes")
+      .select("conversation_id")
+      .not("parsed_resume_json", "is", null)
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    const id = (data as { conversation_id?: string } | null)?.conversation_id;
+    if (id) return id;
+    // 一份带简历的会话都没有 → 新建(用户会在 m3 里上传简历)
+    return createConversation("m3", "改简历 1");
+  }, [user]);
+
   const handleOptimizeResume = useCallback(
-    (job: Job) => {
+    async (job: Job) => {
       writePendingJd(job);
-      router.push("/m3/jd");
+      if (!user) {
+        router.push("/m3/jd");
+        return;
+      }
+      const convId = await resolveM3Conv();
+      router.push(convId ? `/m3/jd?c=${convId}` : "/m3");
     },
-    [router, writePendingJd]
+    [router, writePendingJd, user, resolveM3Conv]
   );
 
   const handlePracticeInterview = useCallback(
