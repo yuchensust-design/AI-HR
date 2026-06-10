@@ -37,9 +37,25 @@ interface ParsedResume {
 
 // 简历内容签名(djb2)——只要底层简历内容变了,签名就变,用来给推荐缓存加 key。
 // 换/重传简历后旧推荐不能再被当作当前结果静默展示(见下方失效逻辑)。
+// key-order-independent 序列化:同一份简历经 DB jsonb 往返后 key 顺序可能变,
+// 普通 JSON.stringify 会得到不同字符串 → 误判"简历变了"。递归排序 key 消除这点。
+function stableStringify(v: unknown): string {
+  if (v === null || typeof v !== "object") return JSON.stringify(v) ?? "null";
+  if (Array.isArray(v)) return "[" + v.map(stableStringify).join(",") + "]";
+  const obj = v as Record<string, unknown>;
+  return (
+    "{" +
+    Object.keys(obj)
+      .sort()
+      .map((k) => JSON.stringify(k) + ":" + stableStringify(obj[k]))
+      .join(",") +
+    "}"
+  );
+}
+
 function resumeSignature(r: unknown): string {
   if (!r) return "";
-  const s = JSON.stringify(r);
+  const s = stableStringify(r);
   let h = 5381;
   for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0;
   return (h >>> 0).toString(36);
@@ -112,24 +128,16 @@ function DiscoverPageInner() {
   // 自动触发搜索:URL 带 role 参数时
   const autoSearchTriggered = useRouterAutoSearch(sp, setFilters);
 
-  // 推荐缓存失效:底层简历内容变了(换/重传简历)→ 旧推荐不能再被当作当前结果静默展示。
-  // 用简历签名给缓存加 key,签名变了就清空 + 提示重新推荐。
+  // 简历变了(换/重传)→ 不清空旧推荐(用户还想接着看),只在上方挂个非破坏性提示:
+  // 这些推荐基于旧简历,想更新就点「重新推荐」。用户不点 → 旧推荐一直保留。
+  // 用 key-order 无关的签名比对,避免 DB jsonb 往返 reorder 导致的误判。
   /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     if (latestResume.loading) return; // 简历还在确定中,别误判
     if (!currentSig) return; // 没简历 → 保持现状
-    if (recommendedJobs.length === 0) return; // 没有缓存推荐 → 无需处理
-    if (!recommendSig) return; // 旧数据无签名 → 无法判定,不动既有数据
-    if (recommendSig === currentSig) return; // 签名一致 → 缓存仍对得上当前简历
-    // 签名不一致 → 简历已变,清空过期推荐,提示用户重新推荐
-    setRecommendedJobs([]);
-    setMatchMeta({});
-    setAgentSteps({});
-    setRecommendSig("");
-    setStaleNotice(true);
-    // 依赖里带上 recommendSig / 缓存条数:useLocalState 异步 hydrate,
-    // 这些值可能晚于 currentSig 落定,不入依赖会漏掉失效判定。
-    // setter 把它们清空后命中上面的早退守卫,不会死循环。
+    if (recommendedJobs.length === 0) return; // 没有缓存推荐 → 无需提示
+    if (!recommendSig) return; // 旧数据无签名 → 无法判定,不动
+    setStaleNotice(recommendSig !== currentSig); // 不一致才提示,一致则撤掉提示
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentSig, latestResume.loading, recommendSig, recommendedJobs.length]);
   /* eslint-enable react-hooks/set-state-in-effect */
@@ -688,7 +696,7 @@ function RecommendTab({
       {/* 简历已变 → 旧推荐已失效的提示 */}
       {staleNotice && !loading && (
         <div className="p-3 rounded-lg bg-esther-yellow/15 border border-esther-yellow/50 text-sm text-ink">
-          📝 检测到你的简历有更新,之前的推荐结果已基于旧简历,已为你清空。点上方「用我的简历推荐岗位」重新生成。
+          📝 你的简历有更新,下面这些推荐还是基于旧简历(先留着给你看)。想用新简历的话,点上方「用我的简历推荐岗位」重新生成。
         </div>
       )}
 
