@@ -9,6 +9,7 @@ SCRIPTS=(
   "test-m6-cta.js"         # m6 → m3 / m6 → m5 cross-module CTAs
   "test-inpage-m6.js"      # m6 tabs + JD modal + 不二 widget
   "test-inpage-generic.js" # safe button sweep tracker/diary/m4/m2/m1
+  "test-corepath-guest.js"  # m1 quiz progression + m3 guest form
   "test-deeplinks.js"      # cold deep-link visits
 )
 for s in "${SCRIPTS[@]}"; do
