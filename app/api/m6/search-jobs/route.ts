@@ -103,11 +103,21 @@ export async function POST(request: NextRequest) {
       const roleKw = role.toLowerCase();
       const wantsIntern = /实习|intern/.test(roleKw);
       const wantsGraduate = /校招|应届|graduate/.test(roleKw);
-      const roleTokens: string[] = roleKw
-        .replace(/[实习生|实习|校招|应届|岗|师|员]/g, " ")
-        .split(/\s+/)
-        .filter((t: string) => t.length >= 1);
+      // 中文搜索词不能按空格分词:对"AI产品经理"要能命中"产品经理"标题。
+      // 取 英文/数字连续段 + 中文连续段及其 2-gram 作为相关性 token。
+      const cleaned = roleKw.replace(/[实习生实习校招应届岗师员()（）]/g, " ");
+      const tokenSet = new Set<string>();
+      for (const m of cleaned.matchAll(/[a-z0-9]+/g)) {
+        if (m[0].length >= 2) tokenSet.add(m[0]);
+      }
+      for (const m of cleaned.matchAll(/[一-龥]+/g)) {
+        const s = m[0];
+        if (s.length >= 2) tokenSet.add(s);
+        for (let i = 0; i + 2 <= s.length; i++) tokenSet.add(s.slice(i, i + 2));
+      }
+      const roleTokens: string[] = [...tokenSet];
 
+      const rawJobs = [...data.jobs];
       const beforeFilter = data.jobs.length;
       data.jobs = data.jobs.filter(
         (j: {
@@ -136,8 +146,9 @@ export async function POST(request: NextRequest) {
             if (!hasGradMarker) return false;
           }
 
-          // 3) 经验过滤:title / experience 含 "3 年以上" / "5 年" / "10 年" → 排除(学生场景)
-          const seniorMatch = /(3-?5|5-?10|3年以上|5年以上|10年|经验丰富|资深|高级|总监|leader|经理)/.test(
+          // 3) 经验过滤:title / experience 含 "3 年以上" / "5 年" / "10 年" 等真·资深信号 → 排除(学生场景)。
+          // 注意:不要把"经理"当资深信号 —— "产品经理/客户经理"常是入门岗,且正是用户搜索词,会误杀全部。
+          const seniorMatch = /(3-?5|5-?10|3年以上|5年以上|10年|经验丰富|资深|总监|director)/.test(
             `${title} ${exp}`,
           );
           if (seniorMatch) return false;
@@ -159,6 +170,19 @@ export async function POST(request: NextRequest) {
 
       data.total = data.jobs.length;
       data.anti_noise_filtered = beforeFilter - data.jobs.length;
+
+      // 安全网:过滤把结果清空了(搜的词太具体 / 命中误杀正则)→ 回退到仅城市过滤的原始
+      // 结果,绝不让"明明有真岗位"却显示 0 个。
+      if (data.jobs.length === 0 && rawJobs.length > 0) {
+        const cityKw = (city ?? "").toLowerCase();
+        data.jobs = rawJobs.filter((j: { city?: string }) => {
+          const jc = (j.city ?? "").toLowerCase();
+          return !cityKw || !jc || jc.includes(cityKw) || cityKw.includes(jc);
+        });
+        data.total = data.jobs.length;
+        data.anti_noise_filtered = 0;
+        data.noiseFallback = true;
+      }
     }
 
     return NextResponse.json(data);

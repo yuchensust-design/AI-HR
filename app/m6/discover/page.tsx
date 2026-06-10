@@ -65,6 +65,7 @@ function DiscoverPageInner() {
 
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
+  const [searchDone, setSearchDone] = useState(false);
 
   const [matchLoading, setMatchLoading] = useState(false);
   const [matchError, setMatchError] = useState<string | null>(null);
@@ -164,6 +165,7 @@ function DiscoverPageInner() {
       setSearchError(err instanceof Error ? err.message : "网络错误");
     } finally {
       setSearchLoading(false);
+      setSearchDone(true);
     }
   }, [filters.role, filters.city, setSearchJobs]);
 
@@ -442,6 +444,17 @@ function DiscoverPageInner() {
               </div>
             </section>
           )}
+
+          {/* 搜了但 0 结果 → 给反馈,别让用户以为"点搜索没反应" */}
+          {activeTab === "search" &&
+            searchDone &&
+            !searchLoading &&
+            !searchError &&
+            searchJobs.length === 0 && (
+              <div className="mt-8 text-center text-ink-soft text-sm py-10 border border-dashed border-border rounded-2xl">
+                没搜到「{filters.role}」的在招岗位 — 换个关键词或城市再试试。
+              </div>
+            )}
         </div>
 
         {/* JD Modal */}
