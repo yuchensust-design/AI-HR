@@ -21,6 +21,7 @@ function attachRecorder(page, name) {
     if (m.type() === "error") rec.consoleErrors.push(m.text());
   });
   page.on("pageerror", (e) => rec.pageErrors.push(e.message || String(e)));
+  // Hard navigations (full document loads)
   page.on("framenavigated", (f) => {
     try {
       if (f === page.mainFrame()) rec.navs.push(f.url());
@@ -28,7 +29,36 @@ function attachRecorder(page, name) {
       /* ignore */
     }
   });
+  // SOFT navigations: Next.js client routing uses history.pushState/replaceState,
+  // which does NOT fire framenavigated. Hook the history API so router.replace
+  // bounces (the double-jump signature) are actually captured. Resets per document.
+  page.addInitScript(() => {
+    if (window.__OCNAV) return;
+    window.__OCNAV = [];
+    const p = history.pushState;
+    const r = history.replaceState;
+    history.pushState = function (s, t, u) {
+      try { window.__OCNAV.push({ k: "push", u: String(u) }); } catch { /* */ }
+      return p.apply(this, arguments);
+    };
+    history.replaceState = function (s, t, u) {
+      try { window.__OCNAV.push({ k: "replace", u: String(u) }); } catch { /* */ }
+      return r.apply(this, arguments);
+    };
+    window.addEventListener("popstate", () => {
+      try { window.__OCNAV.push({ k: "pop", u: location.pathname + location.search }); } catch { /* */ }
+    });
+  });
   return rec;
+}
+
+/** Read the in-page history-API nav log (soft navs). Returns [] if not present. */
+async function getNavLog(page) {
+  try {
+    return await page.evaluate(() => window.__OCNAV || []);
+  } catch {
+    return [];
+  }
 }
 
 async function newBrowser() {
@@ -99,20 +129,33 @@ async function snapText(page, selector = "body") {
  * doubleJump = >1 main-frame navigation triggered by a single click (the bug class #1 signature).
  */
 async function clickAndTrace(page, rec, clickFn, { settleSelector = "body", settleMs = 2500 } = {}) {
-  const mark = navMark(rec);
+  const hardMark = navMark(rec);
+  const softBefore = (await getNavLog(page)).length;
+  const urlBefore = page.url();
   await clickFn(page);
   // immediate snapshot (race the hydration)
   const immediateText = await snapText(page, settleSelector);
   await page.waitForLoadState("networkidle").catch(() => {});
   await page.waitForTimeout(settleMs);
   const settledText = await snapText(page, settleSelector);
-  const navSeq = navsSince(rec, mark);
+  // soft navs survive within a document; hard nav resets __OCNAV → fall back to framenavigated
+  const softLog = await getNavLog(page);
+  const softSeq = softLog.slice(softBefore).map((e) => `${e.k}:${e.u}`);
+  const hardSeq = navsSince(rec, hardMark).map((u) => u.replace(BASE, ""));
+  // total distinct navigation events triggered by this one click
+  const navSeq = softSeq.length ? softSeq : hardSeq;
   return {
     navSeq,
+    softSeq,
+    hardSeq,
+    urlBefore: urlBefore.replace(BASE, ""),
     finalUrl: page.url(),
     immediateText,
     settledText,
-    doubleJump: navSeq.length > 1,
+    // double-jump = >1 *logical* navigation from one click. A single soft nav fires BOTH a
+    // pushState (softSeq) and a framenavigated (hardSeq) — so don't sum them. Prefer the
+    // history log (captures push + any replace bounce); fall back to hard nav for full reloads.
+    doubleJump: softSeq.length ? softSeq.length > 1 : hardSeq.length > 1,
   };
 }
 
@@ -137,6 +180,7 @@ module.exports = {
   newGuest,
   newLoggedIn,
   attachRecorder,
+  getNavLog,
   navMark,
   navsSince,
   snapText,
