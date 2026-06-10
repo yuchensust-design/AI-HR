@@ -22,10 +22,13 @@ export const maxDuration = 60; // Vercel 60s 上限,刚好够爬虫慢响应
 
 /** §8.28 — 本地 mock 兜底:构造跟爬虫一致的 response shape */
 function buildLocalMockResponse(role: string, city: string, limit: number) {
-  const jobs = generateMockJobs(role, city, Math.min(limit, 6));
+  // 方案 D:不显示 51job(列表卡能拿,但 jdUrl 落搜索页、JD 详情抓不到)
+  const jobs = generateMockJobs(role, city, Math.min(limit, 6)).filter(
+    (j) => j.platform !== "51job",
+  );
   return {
     jobs,
-    blockedPlatforms: ["51job", "liepin", "zhilian"],
+    blockedPlatforms: ["liepin", "zhilian"],
     total: jobs.length,
     hasNext: false,
     cached: false,
@@ -91,6 +94,12 @@ export async function POST(request: NextRequest) {
         seenKey.add(key);
         return true;
       });
+
+      // 方案 D:不显示 51job —— 它只能拿到列表卡,jdUrl 落搜索页、JD 详情抓不到。
+      // 放在去重后、anti-noise/兜底/排序之前,确保所有下游分支都不含 51job。
+      data.jobs = (data.jobs as Array<{ platform?: string }>).filter(
+        (j) => j.platform !== "51job",
+      );
 
       // ==== Post-filter(plan offer-1-sparkling-hippo P1)====
       // 减少"搜 AI 产品实习出现总账会计"这类不相关结果
@@ -183,16 +192,7 @@ export async function POST(request: NextRequest) {
         data.anti_noise_filtered = 0;
         data.noiseFallback = true;
       }
-
-      // 51job(链接只能落搜索页、JD 详情抓不到)排到最后 → 评委先看 liepin/zhilian 优质岗位
-      data.jobs = (data.jobs as Array<{ platform?: string }>)
-        .map((j, i) => ({ j, i }))
-        .sort((a, b) => {
-          const a51 = a.j.platform === "51job" ? 1 : 0;
-          const b51 = b.j.platform === "51job" ? 1 : 0;
-          return a51 !== b51 ? a51 - b51 : a.i - b.i; // 稳定排序,组内保持原序
-        })
-        .map(({ j }) => j);
+      // (51job 已在去重后整体过滤,无需再做平台降权排序)
     }
 
     return NextResponse.json(data);

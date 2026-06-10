@@ -2,7 +2,6 @@ import Image from "next/image";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Nav } from "@/components/Nav";
-import { EntryChoiceCards } from "@/components/EntryChoiceCards";
 import { SixCapabilities } from "@/components/SixCapabilities";
 import { StepsSection } from "@/components/StepsSection";
 import { BuerFloatingButton } from "@/components/BuerFloatingButton";
@@ -203,9 +202,9 @@ export default function Home() {
         </section>
 
         {/* ============================================================
-            M6 Job Match Hero — 智能岗位匹配入口(首屏高位)
+            5 阶段切换式 step(顶部 nav + 主体大卡片 + 量化 metric bar)
             ============================================================ */}
-        <JobMatchHero />
+        <StepsSection />
 
         {/* ============================================================
             Pain Points — 学生求职 3 大痛点
@@ -288,14 +287,9 @@ export default function Home() {
         <SixCapabilities />
 
         {/* ============================================================
-            2 入口决策卡 — §8.28 Wave 6: 砍 Persona 6 卡 → 2 入口
+            M6 Job Match Hero — 看真实岗位 + AI 推荐最匹配的机会
             ============================================================ */}
-        <EntryChoiceCards />
-
-        {/* ============================================================
-            5 阶段切换式 step(顶部 nav + 主体大卡片 + 量化 metric bar)
-            ============================================================ */}
-        <StepsSection />
+        <JobMatchHero />
 
         {/* ============================================================
             Case 案例区 — 多学生 (5 personas) 横向 carousel

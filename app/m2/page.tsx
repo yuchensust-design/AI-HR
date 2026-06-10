@@ -605,7 +605,7 @@ function Module2Page({ scope }: { scope: string }) {
                 </Link>
                 <h1 className="text-3xl md:text-4xl font-bold text-ink mb-2 leading-tight">把零散经历讲明白</h1>
                 <p className="text-ink-soft text-sm">
-                  没简历也行 — 你认一认做过哪些,我帮你翻译成简历能用的 bullet,顺手点亮你没意识到的亮点
+                  没简历也没关系 — 我陪你慢慢回想做过的事,理成简历能用的经历,也帮你看见自己没在意的亮点
                 </p>
               </div>
             </section>

@@ -78,6 +78,7 @@ export const STORAGE_KEYS = {
   // M6 智能岗位匹配
   DISCOVER_FILTERS: "discover_filters", // { role, city }
   DISCOVER_SEARCH_JOBS: "discover_search_jobs", // 搜索 tab 结果
+  DISCOVER_SEARCH_PAGE: "discover_search_page", // 搜索 tab 已加载到第几页(加载更多用)
   DISCOVER_RECOMMENDED_JOBS: "discover_recommended_jobs", // 推荐 tab 结果
   DISCOVER_TAB: "discover_tab", // 'search' | 'recommend'
   DISCOVER_MATCH_META: "discover_match_meta", // { keywords, city, reasoning, stats }
