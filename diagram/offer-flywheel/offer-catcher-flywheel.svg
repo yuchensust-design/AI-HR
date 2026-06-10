@@ -1,0 +1,140 @@
+<svg viewBox="0 0 1360 900" xmlns="http://www.w3.org/2000/svg">
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&amp;display=swap');
+    text { font-family: 'JetBrains Mono', 'Noto Sans SC', 'PingFang SC', sans-serif; }
+    .title { font-size: 20px; font-weight: 700; fill: #f1f5f9; }
+    .subtitle { font-size: 11px; font-weight: 400; fill: #94a3b8; }
+    .mod { font-size: 15px; font-weight: 700; fill: #ffffff; }
+    .sub { font-size: 9px; font-weight: 400; fill: #cbd5e1; }
+    .pain { font-size: 12px; font-weight: 700; }
+    .edge { font-size: 10px; font-weight: 500; fill: #e2e8f0; }
+    .edge-sm { font-size: 9px; font-weight: 500; fill: #cbd5e1; }
+    .busl { font-size: 10px; font-weight: 700; fill: #fdba74; }
+    .leg { font-size: 10px; fill: #cbd5e1; }
+  </style>
+  <defs>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1e293b" stroke-width="0.5"/>
+    </pattern>
+    <marker id="a-blue" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#60a5fa"/></marker>
+    <marker id="a-amber" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#fbbf24"/></marker>
+    <marker id="a-emer" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#34d399"/></marker>
+    <marker id="a-cyan" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#22d3ee"/></marker>
+    <marker id="a-rose" markerWidth="11" markerHeight="8" refX="9" refY="4" orient="auto"><polygon points="0 0, 11 4, 0 8" fill="#fb7185"/></marker>
+    <marker id="a-orange" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#fb923c"/></marker>
+    <marker id="a-slate" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#94a3b8"/></marker>
+  </defs>
+
+  <rect width="100%" height="100%" fill="#0f172a"/>
+  <rect width="100%" height="100%" fill="url(#grid)"/>
+
+  <!-- Title -->
+  <text x="40" y="42" class="title">「Offer 捕手」求职飞轮 · 真实模块联通图</text>
+  <text x="40" y="64" class="subtitle">不是 6 个孤立工具 —— 围绕两个痛点、以「看岗位 ⇄ 简历」双枢纽自我增强的求职飞轮(箭头均依代码实测绘制)</text>
+
+  <!-- ===== 飞轮闭环背景弧(示意自我增强) ===== -->
+  <path d="M 680 560 C 360 660, 120 600, 120 452 C 120 320, 300 300, 470 330" fill="none" stroke="#3b82f6" stroke-width="1.2" stroke-dasharray="3,6" opacity="0.45"/>
+  <text x="150" y="640" class="edge-sm" fill="#7dd3fc" opacity="0.8">↺ 素材回流→命中率↑→匹配更好岗位→再投递→飞轮越转越强</text>
+
+  <!-- ===== 连线(先画线,后画框) ===== -->
+  <!-- 主轴 M6 ⇄ M3 -->
+  <line x1="300" y1="438" x2="554" y2="438" stroke="#fbbf24" stroke-width="2" marker-end="url(#a-blue)"/>
+  <text x="427" y="430" class="edge" text-anchor="middle">①选中岗位·带 JD → 算命中率/补缺口</text>
+  <line x1="554" y1="470" x2="304" y2="470" stroke="#60a5fa" stroke-width="2" marker-end="url(#a-amber)"/>
+  <text x="427" y="487" class="edge" text-anchor="middle">②用优化后的简历 ← 智能匹配更多岗位</text>
+
+  <!-- M1 → M4 -->
+  <path d="M 845 124 L 845 258 L 1190 258 L 1190 326" fill="none" stroke="#22d3ee" stroke-width="1.6" marker-end="url(#a-cyan)"/>
+  <text x="1005" y="250" class="edge-sm" text-anchor="middle">带目标岗位·定方向</text>
+
+  <!-- feeders → bus -->
+  <line x1="1090" y1="190" x2="953" y2="190" stroke="#34d399" stroke-width="1.6" marker-end="url(#a-orange)"/>
+  <line x1="1090" y1="370" x2="953" y2="370" stroke="#34d399" stroke-width="1.6" marker-end="url(#a-orange)"/>
+  <line x1="1090" y1="550" x2="953" y2="550" stroke="#fb7185" stroke-width="2.2" marker-end="url(#a-orange)"/>
+  <text x="1020" y="540" class="edge-sm" fill="#fda4af" text-anchor="middle">★闭环回流</text>
+
+  <!-- bus → M3 -->
+  <path d="M 905 452 L 804 452" fill="none" stroke="#fb923c" stroke-width="2.4" marker-end="url(#a-orange)"/>
+  <text x="858" y="444" class="edge-sm" fill="#fdba74" text-anchor="middle">回流进简历</text>
+
+  <!-- M6 → M5 (从岗位直接练面试) -->
+  <path d="M 185 508 L 185 662 L 1040 662 L 1040 572" fill="none" stroke="#94a3b8" stroke-width="1.4" stroke-dasharray="6,4" marker-end="url(#a-slate)"/>
+  <text x="600" y="678" class="edge-sm" text-anchor="middle">从岗位直接去练面试(带 JD)</text>
+
+  <!-- M5 → Tracker -->
+  <line x1="1190" y1="590" x2="1190" y2="696" stroke="#94a3b8" stroke-width="1.6" marker-end="url(#a-slate)"/>
+  <text x="1300" y="648" class="edge-sm" text-anchor="middle">投递·诊断卡点</text>
+
+  <!-- ===== hidden_experience 总线(竖向带) ===== -->
+  <rect x="905" y="150" width="44" height="440" rx="8" fill="rgba(251,146,60,0.12)" stroke="#fb923c" stroke-width="1.2" stroke-dasharray="6,4"/>
+  <text x="927" y="375" class="busl" text-anchor="middle" transform="rotate(-90 927 375)">hidden_experience 隐藏经历总线</text>
+
+  <!-- ===== 痛点 anchor 标签 ===== -->
+  <rect x="70" y="350" width="230" height="34" rx="8" fill="rgba(120,53,15,0.35)" stroke="#fbbf24" stroke-width="1"/>
+  <text x="185" y="372" class="pain" fill="#fcd34d" text-anchor="middle">痛点① 海量岗位里找对岗位</text>
+  <rect x="560" y="350" width="240" height="34" rx="8" fill="rgba(59,130,246,0.28)" stroke="#60a5fa" stroke-width="1"/>
+  <text x="680" y="372" class="pain" fill="#93c5fd" text-anchor="middle">痛点② 简历能否过初筛·怎么改</text>
+
+  <!-- ===== 模块框 ===== -->
+  <!-- M1 求职定位 -->
+  <rect x="730" y="44" width="230" height="78" rx="8" fill="#0f172a"/>
+  <rect x="730" y="44" width="230" height="78" rx="8" fill="rgba(8,51,68,0.55)" stroke="#22d3ee" stroke-width="1.6"/>
+  <text x="845" y="78" class="mod" text-anchor="middle">M1 求职定位</text>
+  <text x="845" y="98" class="sub" text-anchor="middle">RIASEC 测评 + 经历交叉 → 定方向</text>
+  <text x="845" y="112" class="sub" text-anchor="middle">瞄准类</text>
+
+  <!-- M6 看岗位(罗盘/目标) -->
+  <rect x="70" y="396" width="230" height="112" rx="10" fill="#0f172a"/>
+  <rect x="70" y="396" width="230" height="112" rx="10" fill="rgba(120,53,15,0.4)" stroke="#fbbf24" stroke-width="2.2"/>
+  <text x="185" y="432" class="mod" text-anchor="middle" font-size="17">🎯 M6 看岗位</text>
+  <text x="185" y="454" class="sub" text-anchor="middle">自建爬虫出真实在招岗位</text>
+  <text x="185" y="470" class="sub" text-anchor="middle">AI 按简历评分 / 推荐 / 解释</text>
+  <text x="185" y="492" class="sub" text-anchor="middle" fill="#fcd34d">= 罗盘 / 目标</text>
+
+  <!-- M3 简历优化(核心枢纽) -->
+  <rect x="560" y="396" width="240" height="112" rx="10" fill="#0f172a"/>
+  <rect x="560" y="396" width="240" height="112" rx="10" fill="rgba(59,130,246,0.38)" stroke="#60a5fa" stroke-width="2.6"/>
+  <text x="680" y="432" class="mod" text-anchor="middle" font-size="17">📄 M3 简历优化</text>
+  <text x="680" y="454" class="sub" text-anchor="middle">ATS 关键词命中率 + 针对性改写</text>
+  <text x="680" y="470" class="sub" text-anchor="middle">所有素材在此汇聚回流</text>
+  <text x="680" y="492" class="sub" text-anchor="middle" fill="#93c5fd">= 核心产物 / 枢纽</text>
+
+  <!-- M2 经历挖掘 -->
+  <rect x="1090" y="150" width="200" height="80" rx="8" fill="#0f172a"/>
+  <rect x="1090" y="150" width="200" height="80" rx="8" fill="rgba(6,78,59,0.5)" stroke="#34d399" stroke-width="1.6"/>
+  <text x="1190" y="184" class="mod" text-anchor="middle">M2 经历挖掘</text>
+  <text x="1190" y="204" class="sub" text-anchor="middle">STAR 结构化追问 → 经历素材</text>
+  <text x="1190" y="219" class="sub" text-anchor="middle">喂简历类</text>
+
+  <!-- M4 补项目 -->
+  <rect x="1090" y="330" width="200" height="80" rx="8" fill="#0f172a"/>
+  <rect x="1090" y="330" width="200" height="80" rx="8" fill="rgba(6,78,59,0.5)" stroke="#34d399" stroke-width="1.6"/>
+  <text x="1190" y="364" class="mod" text-anchor="middle">M4 补项目</text>
+  <text x="1190" y="384" class="sub" text-anchor="middle">gap 分析 + 时间感知 3 档卡</text>
+  <text x="1190" y="399" class="sub" text-anchor="middle">喂简历类</text>
+
+  <!-- M5 模拟面试 -->
+  <rect x="1090" y="510" width="200" height="80" rx="8" fill="#0f172a"/>
+  <rect x="1090" y="510" width="200" height="80" rx="8" fill="rgba(6,78,59,0.5)" stroke="#fb7185" stroke-width="2.2"/>
+  <text x="1190" y="544" class="mod" text-anchor="middle">M5 模拟面试</text>
+  <text x="1190" y="564" class="sub" text-anchor="middle">语音 AI 面试 + 双层复盘</text>
+  <text x="1190" y="579" class="sub" text-anchor="middle" fill="#fda4af">喂简历类 · 高光回流</text>
+
+  <!-- Tracker -->
+  <rect x="1090" y="700" width="200" height="78" rx="8" fill="#0f172a"/>
+  <rect x="1090" y="700" width="200" height="78" rx="8" fill="rgba(30,41,59,0.6)" stroke="#94a3b8" stroke-width="1.6"/>
+  <text x="1190" y="734" class="mod" text-anchor="middle">Tracker 投递追踪</text>
+  <text x="1190" y="754" class="sub" text-anchor="middle">记录结果 + AI 诊断卡点</text>
+  <text x="1190" y="768" class="sub" text-anchor="middle">结果类</text>
+
+  <!-- ===== Legend ===== -->
+  <rect x="40" y="806" width="1080" height="64" rx="8" fill="rgba(30,41,59,0.5)" stroke="#334155" stroke-width="1"/>
+  <text x="56" y="828" class="leg" font-weight="700" fill="#e2e8f0">图例</text>
+  <rect x="56" y="840" width="16" height="14" rx="3" fill="rgba(120,53,15,0.4)" stroke="#fbbf24"/><text x="78" y="851" class="leg">目标/罗盘(痛点①)</text>
+  <rect x="220" y="840" width="16" height="14" rx="3" fill="rgba(59,130,246,0.38)" stroke="#60a5fa"/><text x="242" y="851" class="leg">核心枢纽(痛点②)</text>
+  <rect x="392" y="840" width="16" height="14" rx="3" fill="rgba(8,51,68,0.55)" stroke="#22d3ee"/><text x="414" y="851" class="leg">瞄准方向</text>
+  <rect x="520" y="840" width="16" height="14" rx="3" fill="rgba(6,78,59,0.5)" stroke="#34d399"/><text x="542" y="851" class="leg">喂简历·提命中</text>
+  <rect x="688" y="840" width="16" height="14" rx="3" fill="rgba(30,41,59,0.6)" stroke="#94a3b8"/><text x="710" y="851" class="leg">结果追踪</text>
+  <line x1="820" y1="847" x2="852" y2="847" stroke="#fb923c" stroke-width="2.4" stroke-dasharray="6,4"/><text x="858" y="851" class="leg">hidden_experience 总线</text>
+  <line x1="1010" y1="847" x2="1042" y2="847" stroke="#fb7185" stroke-width="2.2"/><text x="1048" y="851" class="leg">★闭环回流</text>
+</svg>
