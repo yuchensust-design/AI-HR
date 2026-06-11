@@ -553,7 +553,11 @@ function ResultContent() {
   }, [status, data]);
 
   // 面试准备:预取 + 缓存(像竞品 — 一进结果页就在后台备好,点 tab 秒开)
-  const prepCacheKey = `m3_prep_${convId ?? "guest"}_${contentSig}`;
+  // 采纳的编辑指纹 —— 让面试题缓存在"接受/撤销改写"后失效(contentSig 不含 decisions)
+  const acceptedEditsSig = cheapSig(
+    JSON.stringify({ d: decisions, r: rewritten, k: keywordFills }),
+  );
+  const prepCacheKey = `m3_prep_${convId ?? "guest"}_${contentSig}_${acceptedEditsSig}`;
   const loadInterviewPrep = useCallback(
     async (force = false) => {
       if (!parsedResume) return;
@@ -573,7 +577,11 @@ function ResultContent() {
         const res = await fetch("/api/m3/interview-prep", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ parsedResume, jdContext: jdContext ?? null }),
+          body: JSON.stringify({
+            parsedResume,
+            jdContext: jdContext ?? null,
+            acceptedEdits: buildAcceptedEdits(), // 基于优化后简历出题
+          }),
         });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const json = (await res.json()) as { categories?: PrepCategory[] };
@@ -661,6 +669,54 @@ function ResultContent() {
     return [...base, ...fills];
   }
 
+  // 把优化后的终稿落库到 final_resume_md(游客→本地 FINAL_RESUME)。
+  // 这是「改简历→面试/看岗位」飞轮的关键:下游(m5 模拟面试 / m6 看岗位 / useLatestResume)
+  // 都优先读 final_resume_md;不落库的话它们只能回退到原始 parsed_resume_json(=优化前简历)。
+  function saveFinalMarkdown(markdown: string) {
+    const md = (markdown ?? "").trim();
+    if (md.length < 20) return; // 太短视为无效,别覆盖
+    if (isLoggedInWithConv) {
+      void saveField("final_resume_md", md);
+    } else if (typeof window !== "undefined") {
+      try {
+        window.localStorage.setItem(
+          STORAGE_KEYS.FINAL_RESUME,
+          JSON.stringify({ markdown: md, lastUpdated: new Date().toISOString() }),
+        );
+      } catch {
+        /* localStorage 不可用时静默 */
+      }
+    }
+  }
+
+  // 决策变更 → debounce 重算并落库终稿。finalize-resume 是纯组装(不调 LLM),便宜,可常跑。
+  // 这样用户点「去模拟面试 / 看岗位」前,优化稿早已落库,下游自然读到优化版而非原始版。
+  useEffect(() => {
+    if (!decisionsRestoredRef.current) return;
+    if (!parsedResume) return;
+    const t = setTimeout(async () => {
+      try {
+        const res = await fetch("/api/m3/finalize-resume", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            parsedResume,
+            jdContext: jdContext ?? null,
+            hiddenExperiences: hiddenExperiences ?? [],
+            acceptedEdits: buildAcceptedEdits(),
+          }),
+        });
+        if (!res.ok) return;
+        const { markdown } = (await res.json()) as { markdown?: string };
+        if (markdown) saveFinalMarkdown(markdown);
+      } catch {
+        /* 落库失败不打断用户,下游回退原始简历仍可用 */
+      }
+    }, 1200);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [decisions, rewritten, keywordFills, hiddenExperiences, parsedResume, jdContext, isLoggedInWithConv]);
+
   // Tab3 一键复制纯文本(走 finalize-resume 拿 markdown)
   async function handleCopyText() {
     if (!data || copyingText) return;
@@ -679,6 +735,7 @@ function ResultContent() {
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const finalized = (await res.json()) as { markdown?: string };
+      if (finalized.markdown) saveFinalMarkdown(finalized.markdown); // 顺手落库,下游读优化版
       const text = (finalized.markdown ?? "").replace(/[#*`>]/g, "").trim();
       await navigator.clipboard.writeText(text);
       setCopied(true);
@@ -708,6 +765,7 @@ function ResultContent() {
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const finalized = await res.json();
+      if (finalized.markdown) saveFinalMarkdown(finalized.markdown); // 顺手落库,下游读优化版
 
       // 用 finalized.markdown 走 export-docx
       const docxRes = await fetch("/api/m3/export-docx", {

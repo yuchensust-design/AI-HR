@@ -70,13 +70,21 @@ interface ScorerResult {
 }
 
 // ============ Agent 1: Splitter ============
-async function runSplitter(parsedResume: unknown, cityOverride?: string): Promise<{
+async function runSplitter(
+  parsedResume: unknown,
+  cityOverride?: string,
+  optimizedResume?: string,
+): Promise<{
   keywords: string[];
   city: string;
   reasoning: string;
 }> {
   const sys = await loadPrompt("m6-splitter.md");
-  const userJson = JSON.stringify({ resume: parsedResume, cityOverride }, null, 2);
+  const userJson = JSON.stringify(
+    { resume: parsedResume, optimizedResume, cityOverride },
+    null,
+    2,
+  );
 
   const raw = await chat(
     [
@@ -152,7 +160,8 @@ function dedupeJobs(jobs: Job[]): Job[] {
 // ============ Agent 2: Scorer ============
 async function runScorerBatch(
   parsedResume: unknown,
-  jobs: Job[]
+  jobs: Job[],
+  optimizedResume?: string,
 ): Promise<ScorerResult[]> {
   if (jobs.length === 0) return [];
   const sys = await loadPrompt("m6-scorer.md");
@@ -175,6 +184,7 @@ async function runScorerBatch(
   ): Promise<ScorerResult[] | null> {
     const userJson = JSON.stringify({
       resume: parsedResume,
+      optimizedResume,
       jobs: batch.map((j) => ({
         id: j.id,
         title: j.title,
@@ -318,6 +328,12 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const parsedResume = body.parsedResume;
     const cityOverride = typeof body.cityOverride === "string" ? body.cityOverride : undefined;
+    // 用户在 m3 优化后的简历全文(markdown)。若有 → 关键词/打分以它为权威,
+    // 否则 m6 一直按上传的原始简历匹配,m3 的优化对看岗位完全隐形。
+    const optimizedResume =
+      typeof body.optimizedResume === "string" && body.optimizedResume.trim().length > 20
+        ? body.optimizedResume
+        : undefined;
 
     if (!parsedResume) {
       return NextResponse.json(
@@ -327,7 +343,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Stage 1: Splitter
-    const split = await runSplitter(parsedResume, cityOverride);
+    const split = await runSplitter(parsedResume, cityOverride, optimizedResume);
 
     // Stage 2: 并行调爬虫
     const crawlerResults = await Promise.all(
@@ -362,7 +378,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Stage 3: Scorer (批量)
-    const scores = await runScorerBatch(parsedResume, deduped);
+    const scores = await runScorerBatch(parsedResume, deduped, optimizedResume);
 
     // Stage 4: Critic (代码逻辑)
     const passed = applyCritic(deduped, scores);

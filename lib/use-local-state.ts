@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { M5_STORAGE_KEYS } from "@/lib/interview-types";
 
 /**
  * useLocalState — localStorage 状态 hook
@@ -110,3 +111,39 @@ export const STORAGE_KEYS = {
    */
   M3_OPTIMIZATION_GOALS: "m3_optimization_goals",
 } as const;
+
+/**
+ * 模块前缀:所有 m1~m5 / 看岗位(discover)的本地缓存键都以这些开头,
+ * 包括动态拼接的会话级缓存(m3_decisions_<conv>、m3_edits_*、m5_live_progress、
+ * m4_master_conv_id、m1_quiz_draft 等)。前缀扫描 = 对将来同规范的新键自动生效。
+ */
+const PERSONAL_KEY_PREFIXES = ["m1_", "m2_", "m3_", "m4_", "m5_", "discover_"];
+
+/**
+ * 隐私:清掉本地所有"个人数据"localStorage 键。
+ * 登出 / 切换账号时调用,防止公用电脑上下一个人看到上一个登录用户的
+ * 简历 / 测评 / 面试 / 挖经历 / 补项目 / 看岗位推荐等。
+ *
+ * 覆盖:① STORAGE_KEYS 全量固定键(parsed_resume / final_resume / riasec_result 等);
+ *       ② 所有按模块前缀命名的键(含动态会话级缓存)。
+ * 不动 Supabase 自身的 sb-* 鉴权键(signOut 已处理),也不动与个人无关的键。
+ */
+export function clearLocalUserData(): void {
+  if (typeof window === "undefined") return;
+  try {
+    // STORAGE_KEYS 全量 + M5 独立命名空间(interview_session_config /
+    // from_debrief_highlight 等不带模块前缀、又含个人数据的键)
+    const exact = new Set<string>([
+      ...Object.values(STORAGE_KEYS),
+      ...Object.values(M5_STORAGE_KEYS),
+    ]);
+    // Object.keys 返回快照数组,遍历中 removeItem 安全
+    for (const key of Object.keys(window.localStorage)) {
+      if (exact.has(key) || PERSONAL_KEY_PREFIXES.some((p) => key.startsWith(p))) {
+        window.localStorage.removeItem(key);
+      }
+    }
+  } catch {
+    /* localStorage 不可用时静默 */
+  }
+}

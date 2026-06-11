@@ -390,7 +390,8 @@ function Module3Content() {
       if (pending.from_m6 && (hasJdText || pending.roleName)) {
         setJdText(hasJdText ? pending.jdText! : "");
         setJdRoleName(pending.roleName ?? "");
-        window.localStorage.removeItem(STORAGE_KEYS.M6_PENDING_JD);
+        // 不在此清除 —— 等 parseAndSaveJd 成功落库 JD_CONTEXT 后再清,
+        // 否则解析失败/中途刷新会丢 JD(state 没了,localStorage 也清了)。
       }
     } catch {
       /* ignore */
@@ -449,6 +450,14 @@ function Module3Content() {
         },
       });
       setJdAutoSaved(true);
+      // JD 已安全落库 JD_CONTEXT → 此时才清 m6 待消费 JD(避免落库前丢失)
+      if (typeof window !== "undefined") {
+        try {
+          window.localStorage.removeItem(STORAGE_KEYS.M6_PENDING_JD);
+        } catch {
+          /* ignore */
+        }
+      }
       return true;
     } catch (err) {
       setJdSavingError(err instanceof Error ? err.message : "JD 解析失败");

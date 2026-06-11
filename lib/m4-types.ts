@@ -34,6 +34,14 @@ export const TIME_TIERS: Record<
   deep: { label: "深耕", daysHint: "1-2 个月+", emoji: "🧗" },
 };
 
+/**
+ * 岗位与"独立项目补强"模型的适配度 —— 决定 recommend 兜底策略,避免库外岗位被静默糊弄。
+ *  covered  = 命中内置项目原型库(AI PM / SWE / 数据 / 市场 / 设计 / 销售),高置信
+ *  digital  = 库外但属知识/数字工作,可独立做项目,只是无种子库锚定 → 通用建议、中等可靠
+ *  hands_on = 实验/临床/制造/动手类,独立项目替代不了真实环境 → 不硬塞项目,改给可迁移数字证据
+ */
+export type BridgeFit = "covered" | "digital" | "hands_on";
+
 /** 简历对某条 JD 要求的覆盖程度 —— 逼 LLM 引用简历判定,治"分析不准" */
 export type GapCoverage = "none" | "partial" | "have";
 
@@ -53,6 +61,7 @@ export type GapReport = {
   matched: { jd_requirement: string; resume_evidence: string }[]; // 已具备 → 不用补
   gaps: ScoredGap[];
   summary: string;
+  bridge_fit: BridgeFit; // 这个岗位适不适合用"独立项目"补强 → 决定兜底策略
 };
 
 /** 学习资源(冲刺学习卡 / 项目内需学的) */

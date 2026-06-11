@@ -20,7 +20,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { chat } from "@/lib/llm";
-import type { GapReport, GapCoverage, ScoredGap } from "@/lib/m4-types";
+import type { GapReport, GapCoverage, ScoredGap, BridgeFit } from "@/lib/m4-types";
 
 // 线上防 Vercel 默认 10s 静默超时(Hobby 上限 60s)
 export const maxDuration = 60;
@@ -119,6 +119,11 @@ ${modeNote}
      · 需要长期积累或真实环境的(如"3年带团队"),三档可能都 false → 诚实标 false
 5. overall_fit 1-5:简历对这个岗位的整体匹配度(5=可直接投,1=差距很大)。
 6. summary:2-4 句,点明最该补的 1-2 个方向 + 诚实提醒(若高 impact 缺口短期补不了,直说)。
+7. bridge_fit:判定这个岗位适不适合用"一个人在家能独立做完、能写进简历的项目"来补强,三选一:
+   - "covered" = 岗位明确属于这 6 类之一:AI产品经理 / 软件开发工程师 / 数据科学·算法·ML / 市场·增长·营销运营 / 设计(UX·产品·视觉) / 销售·BD。
+   - "hands_on" = 硬证据必须来自**真实实验室/临床/产线/现场/设备**,独立数字项目替代不了:如化学·生物·材料实验、医护·临床·药剂、制造·工艺、土木·建筑施工、机械·硬件调试、食品检验、护理等。
+   - "digital" = 其余知识/数字类岗位(如运营变体、咨询、金融分析、法律、财会、HR、教研、写作等)——不在那 6 类库内,但仍可用独立数字项目补强。
+   判定从严:只有清楚属于 6 类才给 "covered";拿不准用 "digital";确属动手/实验/临床/现场才给 "hands_on"。
 
 【反编造 — 永不违反】
 - 不替用户编造简历里没有的经历来判 have/partial
@@ -139,7 +144,8 @@ ${modeNote}
       "fixable_in": { "sprint": true|false, "standard": true|false, "deep": true|false }
     }
   ],
-  "summary": "2-4 句,含诚实提醒"
+  "summary": "2-4 句,含诚实提醒",
+  "bridge_fit": "covered" | "digital" | "hands_on"
 }
 返 JSON。`;
 }
@@ -324,11 +330,19 @@ export async function POST(request: NextRequest) {
           .filter((g) => g.jd_requirement)
       : [];
 
+    const BRIDGE_FITS: BridgeFit[] = ["covered", "digital", "hands_on"];
+    const bridge_fit: BridgeFit = BRIDGE_FITS.includes(
+      parsed.bridge_fit as BridgeFit,
+    )
+      ? (parsed.bridge_fit as BridgeFit)
+      : "digital"; // 拿不准时按"库外数字岗"兜底(生成但标中等可靠),不冒充 covered
+
     const report: GapReport = {
       overall_fit: clampScore(parsed.overall_fit),
       matched,
       gaps,
       summary: scrub(String(parsed.summary ?? "")),
+      bridge_fit,
     };
 
     if (gaps.length === 0 && matched.length === 0) {

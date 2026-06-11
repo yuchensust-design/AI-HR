@@ -102,8 +102,10 @@ function DiscoverPageInner() {
       ? "db"
       : "local"
     : latestResume.source;
-  // 当前简历内容签名 + 上次推荐所依据的签名;不一致 = 推荐缓存已过期
-  const currentSig = resumeSignature(parsedResume);
+  // 当前简历内容签名 + 上次推荐所依据的签名;不一致 = 推荐缓存已过期。
+  // 含优化稿(finalMarkdown):在 m3 优化简历后,即便 parsed 结构没变也能让推荐失效重算。
+  const effectiveOptimized = uploadedResume ? "" : latestResume.finalMarkdown ?? "";
+  const currentSig = resumeSignature({ r: parsedResume, o: effectiveOptimized });
   const [recommendSig, setRecommendSig] = useLocalState<string>(
     STORAGE_KEYS.DISCOVER_RECOMMEND_SIG,
     ""
@@ -356,7 +358,11 @@ function DiscoverPageInner() {
       const res = await fetch("/api/m6/match-resume", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ parsedResume }),
+        // 带上 m3 优化后的简历全文 → 匹配以优化版为准(否则一直按原始上传简历推岗位)
+        body: JSON.stringify({
+          parsedResume,
+          optimizedResume: uploadedResume ? undefined : latestResume.finalMarkdown,
+        }),
       });
       const data: MatchResumeResponse & { error?: string } = await res.json();
       timers.forEach(clearTimeout);
