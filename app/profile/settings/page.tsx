@@ -11,6 +11,7 @@ import Link from "next/link";
 import { Nav } from "@/components/Nav";
 import { useUser } from "@/lib/auth/useUser";
 import { createClient } from "@/lib/supabase/client";
+import { clearLocalUserData } from "@/lib/use-local-state";
 
 export default function SettingsPage() {
   const { user, profile, loading } = useUser();
@@ -68,8 +69,10 @@ export default function SettingsPage() {
   async function signOut() {
     const supabase = createClient();
     await supabase.auth.signOut();
-    router.push("/");
-    router.refresh();
+    clearLocalUserData();
+    // 硬跳转:软导航不卸载页面组件,残留的 React state 仍会显示上个用户的个人数据;
+    // 硬重载彻底销毁 client state,用清空后的 localStorage + 已登出 session 重新加载。
+    window.location.assign("/");
   }
 
   if (loading || !user) {
