@@ -558,6 +558,9 @@ function DiscoverPageInner() {
     async (parsed: unknown) => {
       try {
         window.localStorage.setItem(STORAGE_KEYS.PARSED_RESUME, JSON.stringify(parsed));
+        // 就地上传 = 一份新的原始简历,旧的优化稿(FINAL_RESUME)已不对应这份 parsed。
+        // 不清的话,游客下游 useLatestResume 会把"旧优化稿 + 新 parsed"错配返回。
+        window.localStorage.removeItem(STORAGE_KEYS.FINAL_RESUME);
       } catch {
         /* localStorage 不可用也不阻断 */
       }

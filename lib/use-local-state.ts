@@ -117,7 +117,24 @@ export const STORAGE_KEYS = {
  * 包括动态拼接的会话级缓存(m3_decisions_<conv>、m3_edits_*、m5_live_progress、
  * m4_master_conv_id、m1_quiz_draft 等)。前缀扫描 = 对将来同规范的新键自动生效。
  */
-const PERSONAL_KEY_PREFIXES = ["m1_", "m2_", "m3_", "m4_", "m5_", "discover_"];
+const PERSONAL_KEY_PREFIXES = [
+  "m1_",
+  "m2_",
+  "m3_",
+  "m4_",
+  "m5_",
+  "discover_",
+  // buer_*:求职日记正文 / 同意位 / session(buer_diary_entries 等,强隐私)
+  "buer_",
+  // tracker_*:投递记录(tracker_applications_v1,强隐私)
+  "tracker_",
+];
+
+/** 不带模块前缀、但属于个人/会话状态、必须随登出清除的散键 */
+const PERSONAL_EXACT_KEYS = [
+  // 迁移哨兵:不清会导致换号后游客数据迁移被静默跳过(hasMigrated 误判)
+  "data_migrated_at",
+];
 
 /**
  * 隐私:清掉本地所有"个人数据"localStorage 键。
@@ -136,6 +153,7 @@ export function clearLocalUserData(): void {
     const exact = new Set<string>([
       ...Object.values(STORAGE_KEYS),
       ...Object.values(M5_STORAGE_KEYS),
+      ...PERSONAL_EXACT_KEYS,
     ]);
     // Object.keys 返回快照数组,遍历中 removeItem 安全
     for (const key of Object.keys(window.localStorage)) {
