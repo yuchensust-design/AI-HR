@@ -42,8 +42,15 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const role = typeof body.role === "string" ? body.role.trim() : "";
     const city = typeof body.city === "string" ? body.city.trim() : "上海";
-    const page = Number(body.page ?? 1);
-    const limit = Number(body.limit ?? 20);
+    // 校验 + clamp:body.page="abc" → NaN 会透传给爬虫的 slice(0, NaN)(→ 空结果误判全 blocked 走 mock),
+    // 超大 limit 也会放大抓取。统一钳到合理范围。
+    const toInt = (v: unknown, def: number, min: number, max: number): number => {
+      const n = Math.floor(Number(v));
+      if (!Number.isFinite(n)) return def;
+      return Math.max(min, Math.min(max, n));
+    };
+    const page = toInt(body.page ?? 1, 1, 1, 50);
+    const limit = toInt(body.limit ?? 20, 20, 1, 50);
 
     if (!role) {
       return NextResponse.json({ error: "role required" }, { status: 400 });

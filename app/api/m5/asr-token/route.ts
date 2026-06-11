@@ -3,8 +3,13 @@
  *
  * 架构变更说明:plan §4.C 原写"asr-stream WebSocket relay",但 Next.js 16 docs
  * (`02-guides/backend-for-frontend.md`)明确 WebSocket 在 route handler 里不可行
- * (connection closes on timeout)。改方案:此 endpoint 只签发 headers,
- * 浏览器拿到后直连火山 WSS,master access token 留 server。
+ * (connection closes on timeout)。
+ *
+ * ⚠️ 安全注意:浏览器直连火山 WSS 需要把 access token 下发前端 —— 而 VOLC_ACCESS_TOKEN
+ * 是**长期主密钥**,一旦下发,任何人都能在 Network 面板拿到并离站盗刷额度,expires_at
+ * 字段火山侧并不认。因此默认**不下发**:除非运营方显式设置 VOLC_ASR_ALLOW_DIRECT_WS=1
+ * 明确接受该风险(如内网/受控演示),否则一律走 fallback_mode(前端 Web Speech API)。
+ * 正解(TODO):用主密钥换发火山短期 STS 凭证只下发短期 token,本仓暂未接入。
  *
  * Body: { session_id? }
  * 返回: {
@@ -45,6 +50,18 @@ export async function POST(request: NextRequest) {
         expires_at: 0,
         fallback_mode: true,
         reason: "VOLC_* env 不全 — 前端走 Web Speech API",
+      });
+    }
+
+    // 安全默认:不把长期主密钥下发前端,除非运营方显式开启直连(见文件头说明)。
+    if (process.env.VOLC_ASR_ALLOW_DIRECT_WS !== "1") {
+      return NextResponse.json({
+        ws_url: "",
+        headers: {},
+        expires_at: 0,
+        fallback_mode: true,
+        reason:
+          "直连火山 WSS 会暴露长期密钥,默认关闭(设 VOLC_ASR_ALLOW_DIRECT_WS=1 显式开启)— 前端走 Web Speech API",
       });
     }
 

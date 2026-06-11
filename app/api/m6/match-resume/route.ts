@@ -94,17 +94,61 @@ async function runSplitter(
     { model: "chat", temperature: 0.2, max_tokens: 600, jsonMode: true }
   );
 
-  const parsed = JSON.parse(raw);
-  const keywords = Array.isArray(parsed.keywords)
-    ? parsed.keywords.slice(0, 3).map((s: unknown) => String(s))
+  // Splitter 是整条流水线的入口:JSON.parse 不能裸奔。
+  // max_tokens 偏小或模型偶发带壳/截断时,这里抛错会让整个"看岗位"返回 500
+  // (而下游 Scorer/Formatter 都做了降级)。失败时改用简历可推断的兜底关键词继续。
+  let parsed: { keywords?: unknown; city?: unknown; reasoning?: unknown } = {};
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    console.error("[m6/splitter] JSON parse failed, falling back:", raw.slice(0, 200));
+  }
+  let keywords = Array.isArray(parsed.keywords)
+    ? parsed.keywords.slice(0, 3).map((s: unknown) => String(s)).filter(Boolean)
     : [];
   const city = cityOverride || String(parsed.city ?? "全国");
-  const reasoning = String(parsed.reasoning ?? "");
+  let reasoning = String(parsed.reasoning ?? "");
 
   if (keywords.length === 0) {
-    throw new Error("Splitter returned no keywords");
+    keywords = fallbackKeywords(parsedResume, optimizedResume);
+    reasoning = reasoning || "(关键词解析失败,已用简历里的求职方向/技能兜底)";
+  }
+  if (keywords.length === 0) {
+    // 简历里也提不出任何线索 — 用一个最通用的词兜底,至少不让整条流水线崩
+    keywords = ["实习"];
   }
   return { keywords, city, reasoning };
+}
+
+/**
+ * Splitter 失败时的兜底:从简历里直接抽求职方向 / 职位名 / 技能,
+ * 不依赖 LLM,保证"看岗位"在模型抽风时仍能出结果(降级而非 500)。
+ */
+function fallbackKeywords(parsedResume: unknown, optimizedResume?: string): string[] {
+  const out: string[] = [];
+  const r = (parsedResume ?? {}) as Record<string, unknown>;
+  const basic = (r.basic ?? {}) as Record<string, unknown>;
+  const pushStr = (v: unknown) => {
+    const s = String(v ?? "").trim();
+    if (s && s.length <= 20 && !out.includes(s)) out.push(s);
+  };
+  // 求职意向 / 目标岗位(字段名在不同版本里有出入,逐个试)
+  pushStr(r.job_intention);
+  pushStr(r.target_role);
+  pushStr(basic.job_intention);
+  pushStr(basic.intention);
+  // 最近一段经历的职位名
+  const exp = Array.isArray(r.experience) ? r.experience : Array.isArray(r.work) ? r.work : [];
+  if (exp.length > 0) pushStr((exp[0] as Record<string, unknown>)?.title);
+  // 技能前两项
+  const skills = Array.isArray(r.skills) ? r.skills : [];
+  for (const s of skills.slice(0, 2)) pushStr(typeof s === "string" ? s : (s as Record<string, unknown>)?.name);
+  // 优化稿首行兜底(常含求职意向)
+  if (out.length === 0 && optimizedResume) {
+    const firstLine = optimizedResume.split("\n").map((l) => l.trim()).find((l) => l && !l.startsWith("#"));
+    if (firstLine) pushStr(firstLine.slice(0, 12));
+  }
+  return out.slice(0, 3);
 }
 
 // ============ 调爬虫(失败兜底本地 mock,§8.28) ============

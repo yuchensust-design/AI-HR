@@ -96,6 +96,13 @@ export function useLatestResume(): LatestResume {
     }
 
     // 登录 → 取最近一份有简历的 m3 会话(RLS 只返回自己的)
+    //
+    // 关键:不能简单地"按 updated_at 取最新一行"。挖经历/补项目/模拟面试回流、
+    // 或 m6 就地上传,都会新建一份**只有 parsed_resume_json、没有 final_resume_md**
+    // 的会话并刷新 updated_at —— 若取最新一行,会把用户在 m3 优化好的简历(有 final)
+    // 静默挤掉,下游(m4/m5/m6)反而读到未优化版本。
+    // 正确语义:优先取"最近一份带优化稿(final_resume_md)的简历";没有优化稿时,
+    // 再退回"最近一份 parsed"。故拉最近若干行,在内存里择优。
     setState((s) => ({ ...s, loading: true }));
     const supabase = createClient();
     supabase
@@ -103,17 +110,22 @@ export function useLatestResume(): LatestResume {
       .select("parsed_resume_json, final_resume_md, updated_at")
       .not("parsed_resume_json", "is", null)
       .order("updated_at", { ascending: false })
-      .limit(1)
-      .maybeSingle()
+      .limit(10)
       .then(({ data, error }) => {
         if (cancelled) return;
-        if (error || !data) {
+        const rows = Array.isArray(data) ? data : [];
+        if (error || rows.length === 0) {
           // DB 没拿到 → 退回 localStorage(可能是刚迁移、或 guest 残留),不让用户"无简历可用"
           setState(readLocal());
           return;
         }
-        const parsedResume = (data.parsed_resume_json ?? null) as ParsedResume;
-        const finalMarkdown = (data.final_resume_md ?? null) as string | null;
+        const hasFinal = (row: (typeof rows)[number]) =>
+          typeof row.final_resume_md === "string" &&
+          row.final_resume_md.trim().length > 20;
+        // 优先最近一份有优化稿的;否则最近一份(rows 已按 updated_at desc 排序)
+        const chosen = rows.find(hasFinal) ?? rows[0];
+        const parsedResume = (chosen.parsed_resume_json ?? null) as ParsedResume;
+        const finalMarkdown = (chosen.final_resume_md ?? null) as string | null;
         const resumeText = resumeTextFrom(finalMarkdown, parsedResume);
         if (resumeText.trim().length > 20) {
           setState({

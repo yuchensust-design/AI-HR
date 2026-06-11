@@ -140,45 +140,61 @@ function clamp1to5(n: unknown): number {
 }
 
 function normalizeScores(raw: unknown): DebriefScore[] {
-  const arr = Array.isArray(raw) ? (raw as unknown[]) : [];
-  const out: DebriefScore[] = [];
-  for (let i = 0; i < VALID_DIMS.length; i++) {
-    const dim = VALID_DIMS[i] as DebriefDim;
-    const item = arr[i] as Record<string, unknown> | undefined;
-    if (!item) {
-      out.push({ dim, score: 3, evidence: "本场未触发该维度评分" });
-      continue;
+  const arr = (Array.isArray(raw) ? raw : []).filter(
+    Boolean,
+  ) as Record<string, unknown>[];
+  // 按 dim 字段建索引 —— 不能"按位置取分":LLM 一旦打乱 scores 顺序,
+  // 按 arr[i] 取就会把某维度的分数/证据贴到另一维度上(score↔dim 错配)。
+  const byDim = new Map<DebriefDim, Record<string, unknown>>();
+  const noDim: Record<string, unknown>[] = [];
+  for (const item of arr) {
+    const d = item.dim;
+    if (
+      typeof d === "string" &&
+      VALID_DIMS.includes(d as DebriefDim) &&
+      !byDim.has(d as DebriefDim)
+    ) {
+      byDim.set(d as DebriefDim, item);
+    } else {
+      noDim.push(item);
     }
-    const incomingDim =
-      typeof item.dim === "string" &&
-      VALID_DIMS.includes(item.dim as DebriefDim)
-        ? (item.dim as DebriefDim)
-        : dim;
+  }
+
+  const buildOne = (
+    dim: DebriefDim,
+    item: Record<string, unknown> | undefined,
+  ): DebriefScore => {
+    if (!item) {
+      return {
+        dim,
+        score: 3,
+        evidence: "本场未触发该维度评分",
+        improvement_example: null,
+      };
+    }
     const finalScore = clamp1to5(item.score ?? item.rating ?? 3);
     const rawImprov =
       typeof item.improvement_example === "string"
         ? scrubCompanyNames(item.improvement_example.trim())
         : null;
-    out.push({
-      dim: incomingDim,
+    return {
+      dim,
       score: finalScore,
       evidence: scrubCompanyNames(
-        ((item.evidence as string) ?? (item.reason as string) ?? "").trim()
+        ((item.evidence as string) ?? (item.reason as string) ?? "").trim(),
       ),
       // 仅 score ≤ 2 时保留示范回答;score ≥ 3 时强制 null(避免 LLM 漏掉规则)
       improvement_example: finalScore <= 2 ? rawImprov || null : null,
-    });
-  }
-  // 顺序按 VALID_DIMS 排
-  return VALID_DIMS.map(
-    (d) =>
-      out.find((s) => s.dim === d) ?? {
-        dim: d,
-        score: 3,
-        evidence: "",
-        improvement_example: null,
-      },
-  );
+    };
+  };
+
+  return VALID_DIMS.map((dim, i) => {
+    // 优先按 dim 命中;若 LLM 完全没给 dim 字段(byDim 为空),退回按位置;
+    // 部分给了的,用没带 dim 的条目按出现顺序回填缺口。
+    const item =
+      byDim.get(dim) ?? (byDim.size === 0 ? arr[i] : noDim.shift());
+    return buildOne(dim, item);
+  });
 }
 
 function normalizeHighlights(raw: unknown): DebriefHighlight[] {

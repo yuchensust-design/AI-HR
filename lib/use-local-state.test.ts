@@ -47,6 +47,12 @@ describe("clearLocalUserData — 登出隐私清理", () => {
       "m5_live_progress", // m5_ 前缀
       "from_debrief_highlight", // M5_STORAGE_KEYS,无前缀
       "interview_session_config", // M5_STORAGE_KEYS,无前缀
+      "buer_diary_entries", // buer_ 前缀:日记正文(强隐私)
+      "buer_diary_consent",
+      "buer_session_id",
+      "tracker_applications_v1", // tracker_ 前缀:投递记录(强隐私)
+      "intake_artifact", // STORAGE_KEYS.M2_INTAKE
+      "data_migrated_at", // PERSONAL_EXACT_KEYS:迁移哨兵
     ];
     for (const k of personal) ls().setItem(k, "secret");
 

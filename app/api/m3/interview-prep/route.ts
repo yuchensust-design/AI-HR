@@ -14,6 +14,8 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { chat } from "@/lib/llm";
+import { scrubCompanyNames } from "@/lib/scrub-company";
+import { buildSourceCorpus, normalizeSuggestedText } from "@/lib/m3-normalize";
 
 // Vercel serverless 函数超时:LLM 调用常 >10s,默认 10s 会 504 → 必须显式拉到 60s(Hobby 上限)
 export const maxDuration = 60;
@@ -161,7 +163,27 @@ ${JSON.stringify(parsedResume, null, 2).slice(0, 5000)}${editsBlock}
       return NextResponse.json({ error: "LLM 返回格式异常,请重试" }, { status: 502 });
     }
 
-    const categories = clampTo15Questions(normalizePrepCategories(parsed.categories));
+    // Anti-fabrication 后处理(不能只靠 prompt):
+    //   ① 参考答案里无出处的数字 → 替换为占位符(corpus = 简历 + 已采纳优化)
+    //   ② 公司名脱敏(与 m3/suggest-edits、m5/debrief 行为一致)
+    // 这是"和别家工具的关键区别"的代码兜底层,模型一旦不听话也不会编造数字/泄露公司名。
+    const acceptedText = acceptedEdits
+      .map((e: { suggested_text?: unknown }) => String(e.suggested_text ?? ""))
+      .join("\n");
+    const corpus = `${buildSourceCorpus({ parsedResume })}\n${acceptedText}`;
+    const safeAnswer = (text: string): string =>
+      scrubCompanyNames(normalizeSuggestedText(text, corpus)[0]);
+
+    const categories = clampTo15Questions(normalizePrepCategories(parsed.categories)).map(
+      (cat) => ({
+        ...cat,
+        questions: cat.questions.map((q) => ({
+          ...q,
+          q: scrubCompanyNames(q.q),
+          reference_answer: safeAnswer(q.reference_answer),
+        })),
+      }),
+    );
     return NextResponse.json({
       categories,
       total_questions: categories.reduce((sum, cat) => sum + cat.questions.length, 0),

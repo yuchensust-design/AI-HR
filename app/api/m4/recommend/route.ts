@@ -99,18 +99,34 @@ async function loadLibraryResources(): Promise<{
 
 /**
  * 把一条 LLM 输出的资源校验/钉回种子库真资源:命中→返回库里权威版本,未命中→null(丢弃)。
- * 命中规则:归一化完全相等,或一方是另一方子串(≥4 长度,容忍 LLM 复制时多/少了出版社等尾巴)。
+ *
+ * 命中规则:
+ *   - 归一化完全相等 → exact 命中(LLM 抄对了书名)。
+ *   - 否则"实质重叠":较短的一方 ≥ 6 字、是较长一方的子串、且覆盖较长一方 ≥ 70%。
+ *     这样既容忍 LLM 复制时多/少了出版社、书名号、作者(小幅噪声,占比高),
+ *     又挡住"编造长书名借真短书名放行"(如 把《数据分析思维》注水成《数据分析思维实战:从入门到精通》,
+ *     占比低 → 拒)和"4 字泛词借位"(如 LLM 只给"数据分析"→ 不足 6 字 → 拒)。
+ * 返回 { res, exact }:exact=false 时调用方应丢弃 LLM 自带 note(可能是为另一本编造书写的简介)。
  */
+const FUZZY_MIN_LEN = 6;
+const FUZZY_MIN_COVER = 0.7;
 function matchLibraryResource(
   rawTitle: string,
   byNorm: Map<string, LibraryResource>,
-): LibraryResource | null {
+): { res: LibraryResource; exact: boolean } | null {
   const n = normTitle(rawTitle);
   if (!n) return null;
   const exact = byNorm.get(n);
-  if (exact) return exact;
+  if (exact) return { res: exact, exact: true };
   for (const [cn, res] of byNorm) {
-    if (n.length >= 4 && cn.length >= 4 && (cn.includes(n) || n.includes(cn))) return res;
+    const [short, long] = n.length <= cn.length ? [n, cn] : [cn, n];
+    if (
+      short.length >= FUZZY_MIN_LEN &&
+      long.includes(short) &&
+      short.length / long.length >= FUZZY_MIN_COVER
+    ) {
+      return { res, exact: false };
+    }
   }
   return null;
 }
@@ -373,7 +389,14 @@ function lockResourcesToLibrary(
   const out: M4Resource[] = [];
   for (const r of resources) {
     const hit = matchLibraryResource(r.title, byNorm);
-    if (hit) out.push({ type: hit.type, title: hit.title, note: r.note, lang: hit.lang });
+    if (!hit) continue;
+    // 模糊命中:LLM 可能本想推另一本(被钉回真书),其 note 是给那本写的 → 丢弃,避免"真书名+错简介"。
+    out.push({
+      type: hit.res.type,
+      title: hit.res.title,
+      note: hit.exact ? r.note : "",
+      lang: hit.res.lang,
+    });
   }
   return out;
 }

@@ -30,8 +30,26 @@ export const PLACEHOLDER = "【请补充】";
  *   匹配 (中文/英文/混合) 数字 token = [\d]+[+]?[%]?  后接量词
  *   量词:%、款、份、人、次、篇、个、家、条、轮、版、组、级、年、月、周、日、天、轮、轮次、版本、用户、客户、新生、同学、潜在用户
  */
-const NUMERIC_CLAIM_REGEX =
-  /(\d+\.?\d*)([%]|\+|\s*(?:款|份|人|次|篇|个|家|条|轮|版|组|位|名|人次|用户|客户|新生|学生|同学|潜在用户|顾客|访谈对象|受访者)|\s*%)?/g;
+const ARABIC_UNITS =
+  "款|份|人次|人|次|篇|个|家|条|轮|版|组|位|名|用户|客户|新生|学生|同学|潜在用户|顾客|访谈对象|受访者";
+/** 放大器单位:量级编造高发区(把 1 说成 1万),必须整体溯源 */
+const MAGNIFIERS = "亿|百万|万|千";
+
+const NUMERIC_CLAIM_REGEX = new RegExp(
+  `(\\d+\\.?\\d*)\\s*(?:${MAGNIFIERS}|[kKwW])?\\s*(?:[%+]|${ARABIC_UNITS})?`,
+  "g",
+);
+
+/**
+ * 中文数字 claim(如 "二十名" / "十人" / "三百个" / "上千次")。
+ * 原正则只认阿拉伯数字 \d,中文数字会整段逃逸溯源 —— 这里补上。
+ * 要求结尾带量词,避免误伤 "十分" / "百分百" / "三言两语" 这类非计量短语。
+ */
+const CN_NUMERAL_CHARS = "零一二两三四五六七八九十百千万亿";
+const CN_CLAIM_REGEX = new RegExp(
+  `[${CN_NUMERAL_CHARS}]+\\s*(?:${MAGNIFIERS})?\\s*(?:${ARABIC_UNITS})`,
+  "g",
+);
 
 /** 强承诺词 — 出现就要审查 */
 const STRONG_CLAIM_PATTERNS = [
@@ -54,19 +72,56 @@ const STRONG_CLAIM_PATTERNS = [
  *   2) 仅纯数字部分在 corpus 中出现 → 合法(可能源里用了不同量词)
  *   3) 不在 corpus → 非法
  */
+/**
+ * 纯数字是否在 corpus 中"以独立 token 出现"。
+ * 用前后非数字边界,避免 "20" 命中 "2024"(年份/学号/电话借位放行,旧 bug)。
+ */
+function numAppearsWithBoundary(num: string, corpusLower: string): boolean {
+  const esc = num.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  try {
+    return new RegExp(`(?<![\\d.,])${esc}(?![\\d.,])`).test(corpusLower);
+  } catch {
+    // 极旧运行时无 lookbehind 时退化为子串(不致命)
+    return corpusLower.includes(num);
+  }
+}
+
 function tokenInCorpus(rawToken: string, corpus: string): boolean {
   const trimmed = rawToken.trim();
   if (!trimmed) return true;
-  // 排除明显的年份(20XX / 19XX),它们是低风险背景信息
-  if (/^(19|20)\d{2}$/.test(trimmed)) return true;
-  // 排除单纯的 "1" "2" "3" 这种过于通用的数字
-  if (/^[1-9]$/.test(trimmed)) return true;
   const lowered = corpus.toLowerCase();
-  if (lowered.includes(trimmed.toLowerCase())) return true;
-  // 提取纯数字 fallback
+
+  // 中文数字 claim:整段在 corpus 中按子串溯源
+  const cnMatch = trimmed.match(new RegExp(`[${CN_NUMERAL_CHARS}]+`));
+  if (cnMatch && !/\d/.test(trimmed)) {
+    const cn = cnMatch[0];
+    // 单个小写中文数字(一~九)视为低风险,豁免(对齐阿拉伯单位数豁免)
+    if (/^[一二三四五六七八九]$/.test(cn)) return true;
+    return lowered.includes(cn.toLowerCase());
+  }
+
+  // 年份豁免(19xx / 20xx),低风险背景信息
+  if (/^(19|20)\d{2}$/.test(trimmed)) return true;
+
   const num = trimmed.match(/\d+\.?\d*/)?.[0];
-  if (num && lowered.includes(num)) return true;
-  return false;
+  if (!num) return true;
+
+  // 放大器单位(万/千/亿/百万/k/w):量级编造高发,必须整体溯源,不享单位数豁免
+  if (/[万千亿]|百万|[kKwW]/.test(trimmed)) {
+    const magCore = (
+      trimmed.match(/\d+\.?\d*\s*(?:亿|百万|万|千|[kKwW])/)?.[0] ?? num
+    )
+      .replace(/\s+/g, "")
+      .toLowerCase();
+    return lowered.includes(magCore);
+  }
+
+  // 单个数字(1-9)过于通用,豁免
+  if (/^[1-9]$/.test(num)) return true;
+  // 完整 token(含量词)命中
+  if (lowered.includes(trimmed.toLowerCase())) return true;
+  // 纯数字 fallback:token 边界匹配(非裸子串)
+  return numAppearsWithBoundary(num, lowered);
 }
 
 export type NormalizeReport = {
@@ -94,8 +149,14 @@ export function normalizeSuggestedText(
   const replacedTokens: string[] = [];
   const strongClaimsHit: string[] = [];
 
-  // 1) 替换不在 corpus 的数字 token
+  // 1) 替换不在 corpus 的数字 token(阿拉伯数字 + 中文数字两遍)
   let normalized = suggestedText.replace(NUMERIC_CLAIM_REGEX, (match) => {
+    if (tokenInCorpus(match, corpus)) return match;
+    modified = true;
+    replacedTokens.push(match.trim());
+    return PLACEHOLDER;
+  });
+  normalized = normalized.replace(CN_CLAIM_REGEX, (match) => {
     if (tokenInCorpus(match, corpus)) return match;
     modified = true;
     replacedTokens.push(match.trim());
@@ -185,19 +246,21 @@ export function normalizeEditSuggestions(
 }
 
 /**
- * 拼接 source corpus:parsedResume + jdContext + hiddenExperiences + fromDebriefHighlight。
+ * 拼接 source corpus:parsedResume + hiddenExperiences + fromDebriefHighlight。
  * 用于喂给 normalize 做"数字溯源"检查。
+ *
+ * 注意:**不含 jdContext**。JD 是"岗位要什么",不是"用户有什么";若把 JD 并入 corpus,
+ * LLM 把 JD 里的数字(如"负责 200 万 DAU")抄进简历就会被误判为有出处。这与本项目
+ * "JD 要的 ≠ 你有的"反编造原则冲突,故数字溯源只认用户侧来源。
  */
 export function buildSourceCorpus(input: {
   parsedResume?: unknown;
-  jdContext?: unknown;
   hiddenExperiences?: unknown;
   fromDebriefHighlight?: unknown;
 }): string {
   const parts: string[] = [];
   try {
     if (input.parsedResume) parts.push(JSON.stringify(input.parsedResume));
-    if (input.jdContext) parts.push(JSON.stringify(input.jdContext));
     if (input.hiddenExperiences)
       parts.push(JSON.stringify(input.hiddenExperiences));
     if (input.fromDebriefHighlight)

@@ -853,8 +853,18 @@ function IntakeForm({
   const [picked, setPicked] = useState<Set<string>>(new Set());
 
   // 有 handoff(从 M3 带过来的那份)就优先用它作"已有简历",否则用账号最新那份
-  const savedParsed = (handoffParsed ??
-    (latestResume.parsedResume as unknown)) as ParsedResume;
+  // 关键:若账号最新简历带 m3 优化稿(finalMarkdown),把它一并附到对象上,
+  // 否则差距分析只看 parsed_resume_json(优化前结构),会和已优化的简历对不上。
+  const savedParsed = (() => {
+    const base = (handoffParsed ?? latestResume.parsedResume) as unknown;
+    if (!handoffParsed && base && latestResume.finalMarkdown) {
+      return {
+        ...(base as Record<string, unknown>),
+        optimized_resume_markdown: latestResume.finalMarkdown,
+      } as unknown as ParsedResume;
+    }
+    return base as ParsedResume;
+  })();
   const hasSaved = !!handoffParsed || latestResume.hasResume;
 
   useEffect(() => {

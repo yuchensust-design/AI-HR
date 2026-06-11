@@ -827,7 +827,6 @@ ${JSON.stringify(jdContext ?? null, null, 2)}
     }
     const corpus = buildSourceCorpus({
       parsedResume,
-      jdContext,
       hiddenExperiences,
       fromDebriefHighlight,
     });

@@ -73,7 +73,6 @@ JD context: ${JSON.stringify(jdContext ?? null, null, 2).slice(0, 800)}
     // 反编造 normalize:数字溯源校验 + 强承诺词审查(offer-1-sparkling-hippo)
     const corpus = buildSourceCorpus({
       parsedResume,
-      jdContext,
       hiddenExperiences,
       fromDebriefHighlight,
     });
