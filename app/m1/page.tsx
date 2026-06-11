@@ -107,41 +107,73 @@ export default function Module1EntryPage() {
             >
               ← 回首页
             </Link>
-            <h1 className="text-3xl md:text-5xl font-bold text-ink mb-4 leading-tight">
-              先让我了解一下你
-            </h1>
-            <p className="text-base md:text-lg text-ink-soft leading-relaxed mb-8 max-w-2xl">
-              这是一次轻松的{" "}
-              <span
-                className="bg-esther-yellow/40"
-                style={{ padding: "0 0.15em" }}
-              >
-                自我对话
-              </span>{" "}
-              — 愿你的热爱与擅长终在某处相逢
-            </p>
-            <div className="flex flex-wrap items-center gap-3">
-              <Link
-                href="/m1/quiz"
-                className="inline-flex flex-col items-center justify-center rounded-2xl bg-esther-blue text-white px-7 py-3.5 hover:bg-esther-blue-dark transition-colors shadow-md"
-              >
-                <span className="text-base font-medium">快速测评 →</span>
-                <span className="text-[11px] opacity-80 font-display italic">18 题 · 约 3 分钟</span>
-              </Link>
-              <Link
-                href="/m1/quiz?v=full"
-                className="inline-flex flex-col items-center justify-center rounded-2xl border-2 border-esther-blue text-esther-blue px-7 py-3.5 hover:bg-esther-blue/5 transition-colors"
-              >
-                <span className="text-base font-medium">完整版 →</span>
-                <span className="text-[11px] opacity-80 font-display italic">60 题 · 更准 · 约 8 分钟</span>
-              </Link>
+            <div className="grid md:grid-cols-2 gap-8 md:gap-12 items-center">
+              {/* 左:标题 */}
+              <div>
+                <h1 className="text-3xl md:text-5xl font-bold text-ink mb-4 leading-tight">
+                  先让我了解一下你
+                </h1>
+                <p className="text-base md:text-lg text-ink-soft leading-relaxed mb-6">
+                  这是一次轻松的{" "}
+                  <span
+                    className="bg-esther-yellow/40"
+                    style={{ padding: "0 0.15em" }}
+                  >
+                    自我对话
+                  </span>{" "}
+                  — 愿你的热爱与擅长终在某处相逢
+                </p>
+                <a
+                  href="#sample"
+                  className="inline-flex items-center text-sm font-medium text-ink-soft hover:text-esther-blue transition-colors"
+                >
+                  先往下看看结果长什么样 ↓
+                </a>
+              </div>
+
+              {/* 右:两张版本卡 */}
+              <div className="space-y-4">
+                <p className="text-xs font-display italic text-ink-muted">
+                  选一个版本开始 ——
+                </p>
+                {/* 快速版(推荐先做) */}
+                <Link
+                  href="/m1/quiz"
+                  className="group block rounded-2xl border-2 border-esther-blue bg-esther-blue text-white p-5 shadow-md hover:shadow-xl hover:-translate-y-0.5 transition-all"
+                >
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="text-lg font-bold">⚡ 快速测评</span>
+                    <span className="text-[11px] bg-white/25 rounded-full px-2.5 py-0.5">
+                      推荐先做
+                    </span>
+                  </div>
+                  <p className="text-sm text-white/85 leading-relaxed mb-3">
+                    18 题 · 约 3 分钟，先快速看清大方向
+                  </p>
+                  <span className="inline-flex items-center gap-1 text-sm font-semibold group-hover:gap-2 transition-all">
+                    开始 →
+                  </span>
+                </Link>
+                {/* 完整版(更准) */}
+                <Link
+                  href="/m1/quiz?v=full"
+                  className="group block rounded-2xl border-2 border-esther-blue/30 bg-card p-5 hover:border-esther-blue hover:shadow-xl hover:-translate-y-0.5 transition-all"
+                >
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="text-lg font-bold text-ink">🎯 完整版</span>
+                    <span className="text-[11px] text-esther-blue bg-esther-blue/10 rounded-full px-2.5 py-0.5">
+                      结果更准
+                    </span>
+                  </div>
+                  <p className="text-sm text-ink-soft leading-relaxed mb-3">
+                    60 题 · 约 8 分钟 · 基于 O*NET 权威量表，题量 ×3，结果更稳
+                  </p>
+                  <span className="inline-flex items-center gap-1 text-sm font-semibold text-esther-blue group-hover:gap-2 transition-all">
+                    开始 →
+                  </span>
+                </Link>
+              </div>
             </div>
-            <a
-              href="#sample"
-              className="inline-flex items-center mt-3 text-sm font-medium text-ink-soft hover:text-esther-blue transition-colors"
-            >
-              先往下看看结果长什么样 ↓
-            </a>
           </div>
         </section>
 
