@@ -242,6 +242,104 @@ export const RIASEC_QUESTIONS: RIASECQuestion[] = [
 ];
 
 /**
+ * 完整版 RIASEC 题库 — 60 题(每维 10 题)
+ *
+ * 来源:O*NET Interest Profiler Short Form(美国劳工部,公有领域,2018)
+ *   - 题号 101-160(避开快速版 1-18 与兴趣题 19,answers 不冲突)
+ *   - text 为本土化微调译文(贴近国内求职语境,严格保留原维度)
+ *   - englishOriginal 为 O*NET 原题,溯源
+ * 计分与快速版完全一致:每维 Likert 求和后归一化到 3-15 标度(见 computeRIASEC)
+ */
+export const RIASEC_QUESTIONS_FULL: RIASECQuestion[] = [
+  // Realistic 现实型 101-110
+  { no: 101, dim: "R", text: "组装家具", englishOriginal: "Build kitchen cabinets" },
+  { no: 102, dim: "R", text: "铺地砖或贴墙砖", englishOriginal: "Lay brick or tile" },
+  { no: 103, dim: "R", text: "修理家用电器", englishOriginal: "Repair household appliances" },
+  { no: 104, dim: "R", text: "养殖动植物", englishOriginal: "Raise fish in a fish hatchery" },
+  { no: 105, dim: "R", text: "组装电子产品", englishOriginal: "Assemble electronic parts" },
+  { no: 106, dim: "R", text: "开车跑配送送货", englishOriginal: "Drive a truck to deliver packages to offices and homes" },
+  { no: 107, dim: "R", text: "出厂前做产品质检", englishOriginal: "Test the quality of parts before shipment" },
+  { no: 108, dim: "R", text: "安装维修门锁、水电", englishOriginal: "Repair and install locks" },
+  { no: 109, dim: "R", text: "操作机器进行生产", englishOriginal: "Set up and operate machines to make products" },
+  { no: 110, dim: "R", text: "参与消防救援", englishOriginal: "Put out forest fires" },
+  // Investigative 研究型 111-120
+  { no: 111, dim: "I", text: "研发新药", englishOriginal: "Develop a new medicine" },
+  { no: 112, dim: "I", text: "研究环境污染治理", englishOriginal: "Study ways to reduce water pollution" },
+  { no: 113, dim: "I", text: "做化学实验", englishOriginal: "Conduct chemical experiments" },
+  { no: 114, dim: "I", text: "研究天文与行星运动", englishOriginal: "Study the movement of planets" },
+  { no: 115, dim: "I", text: "用显微镜分析样本", englishOriginal: "Examine blood samples using a microscope" },
+  { no: 116, dim: "I", text: "调查事故或案件原因", englishOriginal: "Investigate the cause of a fire" },
+  { no: 117, dim: "I", text: "研究更准的天气预报模型", englishOriginal: "Develop a way to better predict the weather" },
+  { no: 118, dim: "I", text: "在生物实验室做研究", englishOriginal: "Work in a biology lab" },
+  { no: 119, dim: "I", text: "研发新材料或新配方", englishOriginal: "Invent a replacement for sugar" },
+  { no: 120, dim: "I", text: "做医学化验诊断疾病", englishOriginal: "Do laboratory tests to identify diseases" },
+  // Artistic 艺术型 121-130
+  { no: 121, dim: "A", text: "写小说或剧本", englishOriginal: "Write books or plays" },
+  { no: 122, dim: "A", text: "演奏乐器", englishOriginal: "Play a musical instrument" },
+  { no: 123, dim: "A", text: "作曲或编曲", englishOriginal: "Compose or arrange music" },
+  { no: 124, dim: "A", text: "画画或做插画", englishOriginal: "Draw pictures" },
+  { no: 125, dim: "A", text: "做影视特效", englishOriginal: "Create special effects for movies" },
+  { no: 126, dim: "A", text: "做舞台美术、布景", englishOriginal: "Paint sets for plays" },
+  { no: 127, dim: "A", text: "写影视剧本", englishOriginal: "Write scripts for movies or television shows" },
+  { no: 128, dim: "A", text: "跳舞或编舞", englishOriginal: "Perform jazz or tap dance" },
+  { no: 129, dim: "A", text: "在乐队唱歌、玩音乐", englishOriginal: "Sing in a band" },
+  { no: 130, dim: "A", text: "剪辑视频或短片", englishOriginal: "Edit movies" },
+  // Social 社会型 131-140
+  { no: 131, dim: "S", text: "当健身或运动教练", englishOriginal: "Teach an individual an exercise routine" },
+  { no: 132, dim: "S", text: "帮助有心理、情绪困扰的人", englishOriginal: "Help people with personal or emotional problems" },
+  { no: 133, dim: "S", text: "给别人做职业或升学指导", englishOriginal: "Give career guidance to people" },
+  { no: 134, dim: "S", text: "做康复治疗", englishOriginal: "Perform rehabilitation therapy" },
+  { no: 135, dim: "S", text: "在公益组织做志愿者", englishOriginal: "Do volunteer work at a non-profit organization" },
+  { no: 136, dim: "S", text: "教小朋友运动", englishOriginal: "Teach children how to play sports" },
+  { no: 137, dim: "S", text: "教听障人士手语", englishOriginal: "Teach sign language to people who are deaf or hard of hearing" },
+  { no: 138, dim: "S", text: "协助带领团体辅导、工作坊", englishOriginal: "Help conduct a group therapy session" },
+  { no: 139, dim: "S", text: "在幼托机构照顾孩子", englishOriginal: "Take care of children at a day-care center" },
+  { no: 140, dim: "S", text: "给学生上课", englishOriginal: "Teach a high-school class" },
+  // Enterprising 企业型 141-150
+  { no: 141, dim: "E", text: "做股票或基金投资", englishOriginal: "Buy and sell stocks and bonds" },
+  { no: 142, dim: "E", text: "经营一家店铺", englishOriginal: "Manage a retail store" },
+  { no: 143, dim: "E", text: "经营一家小店(如奶茶店)", englishOriginal: "Operate a beauty salon or barber shop" },
+  { no: 144, dim: "E", text: "在大公司管理一个团队", englishOriginal: "Manage a department within a large company" },
+  { no: 145, dim: "E", text: "自己创业", englishOriginal: "Start your own business" },
+  { no: 146, dim: "E", text: "谈生意、签商务合同", englishOriginal: "Negotiate business contracts" },
+  { no: 147, dim: "E", text: "当律师为客户辩护", englishOriginal: "Represent a client in a lawsuit" },
+  { no: 148, dim: "E", text: "推广一个新品牌或新产品", englishOriginal: "Market a new line of clothing" },
+  { no: 149, dim: "E", text: "做销售、带货", englishOriginal: "Sell merchandise at a department store" },
+  { no: 150, dim: "E", text: "管理一家门店", englishOriginal: "Manage a clothing store" },
+  // Conventional 常规型 151-160
+  { no: 151, dim: "C", text: "用 Excel 做数据表格", englishOriginal: "Develop a spreadsheet using computer software" },
+  { no: 152, dim: "C", text: "校对文档或表单", englishOriginal: "Proofread records or forms" },
+  { no: 153, dim: "C", text: "维护公司电脑与系统", englishOriginal: "Install software across computers on a large network" },
+  { no: 154, dim: "C", text: "做日常记账、算账", englishOriginal: "Operate a calculator" },
+  { no: 155, dim: "C", text: "管理收发货记录", englishOriginal: "Keep shipping and receiving records" },
+  { no: 156, dim: "C", text: "核算工资、做薪酬", englishOriginal: "Calculate the wages of employees" },
+  { no: 157, dim: "C", text: "用系统盘点库存", englishOriginal: "Inventory supplies using a hand-held computer" },
+  { no: 158, dim: "C", text: "登记账款、缴费记录", englishOriginal: "Record rent payments" },
+  { no: 159, dim: "C", text: "管理库存台账", englishOriginal: "Keep inventory records" },
+  { no: 160, dim: "C", text: "整理归档文件资料", englishOriginal: "Stamp, sort, and distribute mail for an organization" },
+];
+
+export type QuizVersion = "quick" | "full";
+
+/** 按版本取 RIASEC 题库 */
+export function getRiasecQuestions(version: QuizVersion): RIASECQuestion[] {
+  return version === "full" ? RIASEC_QUESTIONS_FULL : RIASEC_QUESTIONS;
+}
+
+/**
+ * 从 answers 自动判断用哪套题库:含任一完整版题号(101-160)的答案 → 完整版,否则快速版。
+ * 这样计分/置信度/推荐/refine 全链路无需显式传 version,answers 自带版本信号。
+ */
+export function getRiasecQuestionsForAnswers(
+  answers: Record<number, number | string[] | Record<string, number>>
+): RIASECQuestion[] {
+  const hasFull = RIASEC_QUESTIONS_FULL.some(
+    (q) => typeof answers[q.no] === "number"
+  );
+  return hasFull ? RIASEC_QUESTIONS_FULL : RIASEC_QUESTIONS;
+}
+
+/**
  * Likert 5 点量表 — 用户答题选项
  */
 export const LIKERT_OPTIONS = [
@@ -321,18 +419,14 @@ export type InterestWithStrength = {
  * 返回:[R, I, A, S, E, C] 数组,每维 0-15
  */
 export function computeRIASEC(
-  answers: Record<number, number | string[] | Record<string, number>>
+  answers: Record<number, number | string[] | Record<string, number>>,
+  questions: RIASECQuestion[] = getRiasecQuestionsForAnswers(answers)
 ): [number, number, number, number, number, number] {
-  const sums: Record<Dimension, number> = {
-    R: 0,
-    I: 0,
-    A: 0,
-    S: 0,
-    E: 0,
-    C: 0,
-  };
+  const sums: Record<Dimension, number> = { R: 0, I: 0, A: 0, S: 0, E: 0, C: 0 };
+  const counts: Record<Dimension, number> = { R: 0, I: 0, A: 0, S: 0, E: 0, C: 0 };
 
-  for (const q of RIASEC_QUESTIONS) {
+  for (const q of questions) {
+    counts[q.dim] += 1; // 每维总题数(含跳过)→ 归一化分母
     const ans = answers[q.no];
     // 只处理 1-5 数字答案;跳过 / 多选(兴趣 tag)不算
     if (typeof ans === "number" && ans >= 1 && ans <= 5) {
@@ -340,7 +434,20 @@ export function computeRIASEC(
     }
   }
 
-  return [sums.R, sums.I, sums.A, sums.S, sums.E, sums.C];
+  // 归一化到「每维 3 题等效」标度(3-15):rawSum × 3 / 每维题数。
+  // 快速版每维 3 题 → ×1(与旧版逐字节一致);完整版每维 10 题 → ×0.3。
+  // 这样两版分数同标度,下游计分/展示/推荐 prompt(均按 3-15 设计)无需改动。
+  const scale = (d: Dimension): number =>
+    counts[d] > 0 ? Math.round((sums[d] * 3) / counts[d]) : 0;
+
+  return [
+    scale("R"),
+    scale("I"),
+    scale("A"),
+    scale("S"),
+    scale("E"),
+    scale("C"),
+  ];
 }
 
 /**
@@ -410,18 +517,22 @@ export const DIMENSION_LEVEL_LABELS: Record<DimensionLevel, string> = {
  */
 export function computeConfidence(
   answers: Record<number, number | string[] | Record<string, number>>,
-  scores: [number, number, number, number, number, number]
+  scores: [number, number, number, number, number, number],
+  questions: RIASECQuestion[] = getRiasecQuestionsForAnswers(answers)
 ): Confidence {
-  const answered = RIASEC_QUESTIONS.filter(
+  const total = questions.length || 1;
+  const answered = questions.filter(
     (q) => typeof answers[q.no] === "number"
   ).length;
+  const frac = answered / total;
+  // 用「答题比例」而非绝对题数,两版同一套阈值。
+  // 快速版(18题)对应旧阈值:15/18≈.83、10/18≈.56、5/18≈.28,行为不变。
+  if (frac < 0.25) return "none";
 
-  if (answered < 5) return "none";
+  const top1 = Math.max(...scores); // scores 已归一化到 3-15
 
-  const top1 = Math.max(...scores);
-
-  if (answered >= 15 && top1 >= 12) return "high";
-  if (answered >= 10 || top1 >= 9) return "mid";
+  if (frac >= 0.83 && top1 >= 12) return "high";
+  if (frac >= 0.55 || top1 >= 9) return "mid";
   return "low";
 }
 
@@ -492,6 +603,7 @@ export function migrateAnswersSchema(
 
   const validQuestionNos = new Set<number>([
     ...RIASEC_QUESTIONS.map((q) => q.no),
+    ...RIASEC_QUESTIONS_FULL.map((q) => q.no),
     INTEREST_QUESTION.no,
   ]);
 
