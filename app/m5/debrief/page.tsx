@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Suspense, useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Card } from "@/components/ui/card";
 import { Nav } from "@/components/Nav";
@@ -13,6 +13,7 @@ import {
   type DebriefResult,
   type FromDebriefHighlight,
   type InterviewSession,
+  type InterviewQuestion,
 } from "@/lib/interview-types";
 import { STORAGE_KEYS } from "@/lib/use-local-state";
 import { useUser } from "@/lib/auth/useUser";
@@ -45,6 +46,109 @@ function highlightToHiddenExperience(
       },
     ],
   };
+}
+
+/**
+ * 复盘页内嵌教学:把用户选了「我不会答」的题逐道讲怎么答。
+ * 教学深度=思路+结构(结合简历真实经历,anti-fab,不替用户编经历)。
+ * 复用 /api/chat,挂载后逐题懒加载(顺序请求,避免一次性打爆)。
+ */
+function SkippedTeaching({ session }: { session: InterviewSession }) {
+  const items = useMemo<InterviewQuestion[]>(() => {
+    const byId = new Map((session.questions ?? []).map((q) => [q.id, q]));
+    return (session.answers ?? [])
+      .filter((a) => a.skipped === "dont_know")
+      .map((a) => byId.get(a.question_id))
+      .filter((q): q is InterviewQuestion => !!q);
+  }, [session]);
+
+  const [tips, setTips] = useState<Record<string, string>>({});
+  const startedRef = useRef(false);
+
+  useEffect(() => {
+    if (startedRef.current || items.length === 0) return;
+    startedRef.current = true;
+    const resumeBrief = (session.config?.resume_text ?? "").slice(0, 2000);
+    (async () => {
+      for (const q of items) {
+        try {
+          const res = await fetch("/api/chat", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              messages: [
+                {
+                  role: "system",
+                  content:
+                    "你是面试教练,在面试复盘里教学生【这道他答不上来的题】怎么答。这是复盘学习场景(非实战),可以讲透一点。规则:" +
+                    "①先点出这题考什么、面试官想听到什么;" +
+                    "②给清晰的回答结构/思路(怎么开头 → 主体讲什么 → 怎么收尾、控时多久);" +
+                    "③**结合学生简历里的真实经历**指出该调用哪段、从哪个角度切入、要不要给数字;" +
+                    "④anti-fabrication:绝不替学生编简历里没有的经历/数字,只能用他简历真有的;若简历确实没有相关素材,诚实说'这题你简历暂无直接素材,可以这样准备…';" +
+                    "⑤不输出公司名(大厂抽象成「某大厂」);" +
+                    "⑥分点清晰、可操作,不要套话,中文。",
+                },
+                {
+                  role: "user",
+                  content:
+                    `【题目】${q.text}\n` +
+                    `【考察】${q.whatItTests || q.intent || ""}\n` +
+                    (q.digHint ? `【可深挖方向】${q.digHint}\n` : "") +
+                    `\n【学生简历摘要】\n${resumeBrief}\n` +
+                    `\n教他这道题怎么答:先说考察点,再给结构化回答思路,并点名结合他简历哪段(中文,不替他编经历)。`,
+                },
+              ],
+            }),
+          });
+          const data = await res.text();
+          let content = data;
+          try {
+            const parsed = JSON.parse(data) as { content?: string; message?: string; reply?: string };
+            content = parsed.content ?? parsed.message ?? parsed.reply ?? data;
+          } catch {
+            /* 流式直接 text */
+          }
+          setTips((m) => ({ ...m, [q.id]: content }));
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : "生成失败";
+          setTips((m) => ({ ...m, [q.id]: `❌ ${msg},稍后重试` }));
+        }
+      }
+    })();
+  }, [items, session.config?.resume_text]);
+
+  if (items.length === 0) return null;
+
+  return (
+    <section className="border-b border-border bg-warm-bg-deep/30">
+      <div className="max-w-[1100px] mx-auto px-6 py-10">
+        <p className="font-display italic text-xs text-esther-blue mb-1">Learn the ones you skipped</p>
+        <h2 className="text-xl md:text-2xl font-bold text-ink mb-2">
+          你选了「我不会答」的 {items.length} 道题 — 来学怎么答
+        </h2>
+        <p className="text-xs text-ink-soft mb-6">
+          结合你的简历给出回答思路和结构(只给方向,不替你编经历)。下次遇到同类题就不慌了。
+        </p>
+        <div className="space-y-4">
+          {items.map((q) => (
+            <Card key={q.id} className="p-5 border-2 border-border">
+              <h3 className="text-base font-semibold text-ink mb-1">{q.text}</h3>
+              {(q.whatItTests || q.intent) && (
+                <p className="text-xs text-ink-muted mb-3">考察:{q.whatItTests || q.intent}</p>
+              )}
+              {tips[q.id] ? (
+                <div className="text-sm text-ink leading-relaxed whitespace-pre-wrap bg-warm-bg-deep/50 rounded-lg p-3">
+                  {tips[q.id]}
+                </div>
+              ) : (
+                <p className="text-sm text-ink-muted animate-pulse">正在为你生成回答思路…</p>
+              )}
+            </Card>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
 }
 
 /**
@@ -570,28 +674,29 @@ function Module5DebriefContent() {
         </section>
 
         {!isEvaluable ? (
-          // T3:全跳过 / 全未答 — 专属 N/A 页,不渲染评分卡
-          <section className="border-b border-border bg-warm-bg-deep/30">
-            <div className="max-w-[1100px] mx-auto px-6 py-16 text-center">
-              <div className="text-5xl mb-4">📭</div>
-              <h2 className="text-xl md:text-2xl font-bold text-ink mb-3">
-                本次未完成任何回答,无评估内容
-              </h2>
-              <p className="text-sm text-ink-soft max-w-[520px] mx-auto leading-relaxed mb-6">
-                {debrief.summary ??
-                  "因为没有 transcript,4 维评分(逻辑/具体/清晰/口水话)无法成立。建议重新开始,认真答完至少 3 题,我才能给你有意义的复盘。"}
-              </p>
-              <Link
-                href="/m5"
-                className="inline-block rounded-full bg-esther-blue text-white px-6 py-3 text-sm font-medium hover:bg-esther-blue-dark transition-colors"
-              >
-                重新开始一场 →
-              </Link>
-              <p className="text-[11px] text-ink-muted mt-6">
-                模拟面试仅供练习参考,不作为真实面试预测或录用依据
-              </p>
-            </div>
-          </section>
+          // T3:全跳过 / 全未答 — 不渲染评分卡;若有"我不会答"的题,下方逐道教学
+          <>
+            <section className="border-b border-border bg-warm-bg-deep/30">
+              <div className="max-w-[1100px] mx-auto px-6 py-12 text-center">
+                <div className="text-5xl mb-4">📭</div>
+                <h2 className="text-xl md:text-2xl font-bold text-ink mb-3">
+                  本次没有可评分的回答
+                </h2>
+                <p className="text-sm text-ink-soft max-w-[520px] mx-auto leading-relaxed mb-6">
+                  {(session.answers ?? []).some((a) => a.skipped === "dont_know")
+                    ? "你这场大多选了「我不会答」 — 没关系,下面把这些题逐道讲讲怎么答。"
+                    : "这场没有可评分的作答。重新来一场、认真答几题,我就能给你有意义的复盘。"}
+                </p>
+                <Link
+                  href="/m5"
+                  className="inline-block rounded-full bg-esther-blue text-white px-6 py-3 text-sm font-medium hover:bg-esther-blue-dark transition-colors"
+                >
+                  重新开始一场 →
+                </Link>
+              </div>
+            </section>
+            <SkippedTeaching session={session} />
+          </>
         ) : (
           <section className="border-b border-border bg-warm-bg-deep/30">
             <div className="max-w-[1100px] mx-auto px-6 py-10">

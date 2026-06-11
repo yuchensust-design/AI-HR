@@ -816,7 +816,7 @@ function Module5ConfigContent() {
             )}
             {canSubmit && (
               <p className="text-xs text-ink-muted">
-                开始后中途可以暂停 / 跳过 / 结束 · 刷新会丢失答案
+                开始后中途可以暂停 / 跳过 / 结束 · 刷新可继续上次进度(未提交的当前作答和录像会重置)
               </p>
             )}
           </div>
