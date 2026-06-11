@@ -774,9 +774,11 @@ function IntakeForm({
     setBusy(true);
     setError(null);
     setPhase(
-      timeTier === "sprint"
-        ? "正在设计快速补能方案…(约 20-40 秒)"
-        : "正在设计补强项目…(约 20-40 秒)",
+      report.bridge_fit === "hands_on"
+        ? "这类岗位靠真实实验/实习,正在设计可迁移的数字证据建议…(约 20-40 秒)"
+        : timeTier === "sprint"
+          ? "正在设计快速补能方案…(约 20-40 秒)"
+          : "正在设计补强项目…(约 20-40 秒)",
     );
     try {
       // 此时简历已解析过(分析差距时):saved 用账号简历,new 命中 parsedCache
@@ -790,6 +792,7 @@ function IntakeForm({
           gaps: selected,
           targetRole: role.trim() || undefined,
           parsedResumeBrief: summarizeResume(parsedResume),
+          bridgeFit: report.bridge_fit,
         }),
       });
       if (!res.ok) {
@@ -1167,6 +1170,20 @@ function GapReportView({
         </button>
       </div>
 
+      {/* 岗位适配度兜底横幅 —— 诚实告诉用户这岗位适不适合"独立项目"补强 */}
+      {report.bridge_fit === "digital" && (
+        <div className="mb-5 rounded-lg border border-esther-yellow/50 bg-esther-yellow/10 px-3 py-2.5 text-xs text-ink leading-relaxed">
+          ⚠️ 这个岗位不在内置项目原型库内,下面是基于通用经验的建议,<b>可靠性中等</b> —— 请结合自己判断是否贴合,不必照单全收。
+        </div>
+      )}
+      {report.bridge_fit === "hands_on" && (
+        <div className="mb-5 rounded-lg border border-esther-red/40 bg-esther-red/5 px-3 py-2.5 text-xs text-ink leading-relaxed">
+          🧪 这类岗位的硬证据来自<b>真实实验室 / 实习 / 现场</b>,一个人在家做不出能替代的"项目"。
+          <br />
+          所以下面不硬塞项目,而是给你<b>可迁移的"数字证据"</b>(数据分析 / 计算模拟 / 文献综述等)来加分;真·实操经验请走实验室 / 实习争取。
+        </div>
+      )}
+
       {/* 已具备 */}
       {report.matched.length > 0 && (
         <div className="mb-5">
@@ -1253,9 +1270,11 @@ function GapReportView({
       >
         {busy
           ? phase || "生成中…"
-          : timeTier === "sprint"
-            ? `✦ 生成快速补能方案(${pickedCount} 个缺口)`
-            : `✦ 生成补强项目(${pickedCount} 个缺口)`}
+          : report.bridge_fit === "hands_on"
+            ? `✦ 生成可迁移证据建议(${pickedCount} 个缺口)`
+            : timeTier === "sprint"
+              ? `✦ 生成快速补能方案(${pickedCount} 个缺口)`
+              : `✦ 生成补强项目(${pickedCount} 个缺口)`}
       </button>
     </Card>
   );
@@ -1299,6 +1318,23 @@ function ProjectTabs({
   );
 }
 
+/**
+ * 资源搜索链接 —— 不信任 LLM 现编的 url(URL 幻觉,常 404/跳错),
+ * 改用标题+类型拼一个必定可达的搜索链接,直接落到这个资源的搜索结果。
+ *   书→豆瓣读书搜  视频→B站搜  文档→Bing 搜
+ */
+function resourceSearchUrl(r: M4Resource): string {
+  const q = encodeURIComponent(r.title.trim());
+  switch (r.type) {
+    case "video":
+      return `https://search.bilibili.com/all?keyword=${q}`;
+    case "book":
+      return `https://search.douban.com/book/subject_search?search_text=${q}`;
+    default:
+      return `https://www.bing.com/search?q=${q}`;
+  }
+}
+
 /** —— 共享:资源列表 —— */
 function ResourceList({ resources }: { resources: M4Resource[] }) {
   const icon = { book: "📖", video: "🎬", doc: "📄" } as const;
@@ -1307,14 +1343,16 @@ function ResourceList({ resources }: { resources: M4Resource[] }) {
       {resources.map((r, i) => (
         <li key={i} className="text-sm leading-snug">
           <span className="mr-1.5">{icon[r.type]}</span>
-          {r.url ? (
+          {r.title.trim() ? (
             <a
-              href={r.url}
+              href={resourceSearchUrl(r)}
               target="_blank"
               rel="noreferrer"
               className="text-esther-blue hover:underline font-medium"
+              title="搜索这个资源"
             >
               {r.title}
+              <span className="ml-1 text-[10px] text-ink-muted">🔍</span>
             </a>
           ) : (
             <span className="text-ink font-medium">{r.title}</span>
@@ -1591,10 +1629,7 @@ function LearningDetail({
       {project.resources.length > 0 && (
         <Card className="p-5 border-2 border-border">
           <p className="font-display italic text-xs text-esther-blue mb-2">Resources</p>
-          <h3 className="text-base font-semibold text-ink mb-1">看这些(书 / 视频 / 文档)</h3>
-          <p className="text-xs text-ink-muted mb-3">
-            链接以平台为准,没给链接的自己搜一下确认
-          </p>
+          <h3 className="text-base font-semibold text-ink mb-3">看这些(书 / 视频 / 文档)</h3>
           <ResourceList resources={project.resources} />
         </Card>
       )}
@@ -1812,8 +1847,7 @@ function ProjectDetail({
       {project.learning_resources && project.learning_resources.length > 0 && (
         <Card className="p-5 border-2 border-border">
           <p className="font-display italic text-xs text-esther-blue mb-2">Learning resources</p>
-          <h3 className="text-base font-semibold text-ink mb-1">做这个项目要学/查的</h3>
-          <p className="text-xs text-ink-muted mb-3">链接以平台为准,没给链接的自己搜一下确认</p>
+          <h3 className="text-base font-semibold text-ink mb-3">做这个项目要学/查的</h3>
           <ResourceList resources={project.learning_resources} />
         </Card>
       )}

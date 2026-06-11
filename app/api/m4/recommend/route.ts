@@ -27,6 +27,7 @@ import { chat } from "@/lib/llm";
 import type {
   ScoredGap,
   TimeTier,
+  BridgeFit,
   M4ProjectDraftCore,
   M4LearningDraftCore,
   M4Resource,
@@ -39,6 +40,7 @@ type RequestBody = {
   gaps: ScoredGap[];
   targetRole?: string;
   parsedResumeBrief?: string;
+  bridgeFit?: BridgeFit; // 岗位适配度(来自 analyze-gaps)→ 决定兜底策略
 };
 
 // —— 按角色项目种子库(bridge skill 复用)——
@@ -57,6 +59,62 @@ async function loadArchetypes(): Promise<string> {
   return archetypesCache;
 }
 
+/**
+ * 种子库里真实存在的资源白名单(从 project-archetypes.md 逐行解析)。
+ * covered 路径只准输出这里面的资源,代码兜底过滤掉 LLM 自创的(治资源名幻觉)。
+ * 行格式:`  - 📖|🎬|📄 <资源名...>`
+ */
+type LibraryResource = { type: "book" | "video" | "doc"; title: string; lang: "zh" | "en" };
+let libraryCache: { list: LibraryResource[]; byNorm: Map<string, LibraryResource> } | null = null;
+
+// 归一化标题:去空白/标点/书名号/符号,转小写 → 容忍 LLM 复制时的细微差异,但编造的对不上
+function normTitle(s: string): string {
+  return s.toLowerCase().replace(/[\s\p{P}\p{S}]/gu, "");
+}
+
+async function loadLibraryResources(): Promise<{
+  list: LibraryResource[];
+  byNorm: Map<string, LibraryResource>;
+}> {
+  if (libraryCache) return libraryCache;
+  const md = await loadArchetypes();
+  const list: LibraryResource[] = [];
+  const byNorm = new Map<string, LibraryResource>();
+  const re = /^\s*-\s*(📖|🎬|📄)\s*(.+?)\s*$/;
+  for (const line of md.split("\n")) {
+    const m = re.exec(line);
+    if (!m) continue;
+    const type = m[1] === "📖" ? "book" : m[1] === "🎬" ? "video" : "doc";
+    const title = m[2].trim();
+    if (!title) continue;
+    const lang: "zh" | "en" = /英文/.test(title) && !/中文|中译|译本/.test(title) ? "en" : "zh";
+    const res: LibraryResource = { type, title, lang };
+    list.push(res);
+    const n = normTitle(title);
+    if (n.length >= 2 && !byNorm.has(n)) byNorm.set(n, res);
+  }
+  libraryCache = { list, byNorm };
+  return libraryCache;
+}
+
+/**
+ * 把一条 LLM 输出的资源校验/钉回种子库真资源:命中→返回库里权威版本,未命中→null(丢弃)。
+ * 命中规则:归一化完全相等,或一方是另一方子串(≥4 长度,容忍 LLM 复制时多/少了出版社等尾巴)。
+ */
+function matchLibraryResource(
+  rawTitle: string,
+  byNorm: Map<string, LibraryResource>,
+): LibraryResource | null {
+  const n = normTitle(rawTitle);
+  if (!n) return null;
+  const exact = byNorm.get(n);
+  if (exact) return exact;
+  for (const [cn, res] of byNorm) {
+    if (n.length >= 4 && cn.length >= 4 && (cn.includes(n) || n.includes(cn))) return res;
+  }
+  return null;
+}
+
 // ROI:impact 降序;过滤到本档能补的;同分保持原序。high-impact 但本档补不了的留作诚实提示。
 function rankGaps(gaps: ScoredGap[], tier: TimeTier): {
   picked: ScoredGap[];
@@ -71,11 +129,25 @@ function rankGaps(gaps: ScoredGap[], tier: TimeTier): {
   return { picked: (fixable.length ? fixable : sorted).slice(0, topN), unfixable };
 }
 
+// covered(命中 6 类种子库):资源必须逐字来自种子库,代码再兜底过滤
+const LIB_RESOURCE_RULE = `【学习资源 — 锁定种子库,严禁自创】
+- resources 里的每个 title **只能从上面「种子库」里逐字复制**真实资源名(连书名号/作者/出版社一起照抄),挑与这些 gap 最相关的。
+- **严禁**输出种子库里没有的资源名、严禁改写书名、严禁自己编课程/UP主/网站。
+- 找不到足够相关的,就少给几个甚至不给,**也绝不自创**。
+- 不要输出任何 URL/链接(系统按名字自动生成搜索链接)。`;
+
+// 库外(digital / hands_on):无种子库可锚 → 不点名具体资源,改给"搜索方向"
+const SEARCH_RESOURCE_RULE = `【学习资源 — 给搜索方向,不点名具体资源】
+- 这个岗位没有内置种子库,你**无法确认某本书/某门课/某个UP主是否真实存在**,所以**绝不点名具体资源**(不写书名/课程名/作者/UP主/网站名)。
+- resources 改成**搜索方向**:title 填一个**精准的搜索关键词/主题词**(用户拿去搜就能找到该领域真实资料),note 说明"搜到后重点看什么"。type 决定搜索渠道(book=找书、video=找视频、doc=找文档/官网)。
+- 例:title:"酸碱滴定 原理 实验步骤" / note:"重点看滴定终点判断和误差来源"。
+- 不要输出任何 URL/链接。`;
+
 const ANTI_FAB = `【反编造 — 永不违反】
 1. 不输出公司名 / 产品名 / 学校名
 2. 计划里写"计划做什么",不能写"已完成 N 次访谈"这种事实
 3. 不承诺具体成果数字("可提升 30%"→禁止)
-4. 学习资源**只推荐你确实记得存在的**(知名书 / 知名课 / 官方文档);不确定 URL 就只给名字 + 内容方向,绝不编造资源名/链接`;
+4. 学习资源**只推荐你确实记得存在的**(知名书 / 知名课 / 官方文档),给**准确的资源名**(用户靠名字就能搜到);**不要输出任何 URL/链接**(系统会按名字自动生成搜索链接);绝不编造资源名`;
 
 function gapsBlock(gaps: ScoredGap[]): string {
   return gaps
@@ -87,20 +159,28 @@ function gapsBlock(gaps: ScoredGap[]): string {
 }
 
 // —— sprint:学习卡 ——
-function buildLearningSystem(archetypes: string): string {
+function buildLearningSystem(archetypes: string, bridgeFit: BridgeFit): string {
+  const inLibrary = bridgeFit === "covered";
+  const resourceRule = inLibrary ? LIB_RESOURCE_RULE : SEARCH_RESOURCE_RULE;
+  const libraryBlock = inLibrary
+    ? `【资源种子库(resources 只能从这里逐字挑,见下方锁定规则)】
+${archetypes || "(种子库未加载,用你的通用知识,严格遵守反幻觉)"}`
+    : `【项目设计参考(仅供项目结构灵感,resources 不要照搬这里的资源名)】
+${archetypes || "(无)"}`;
   return `你是「Offer 捕手」模块 4 的补强设计师。用户只有 **3-7 天(冲刺档)**,时间太短做不出像样项目,所以你设计的是**学习型快速补强**:用看书/看视频/读文档快速补上相关概念,产出一个轻量但可验证的东西(一页总结 / 一条帖 / 一份笔记)。
 
 【冲刺档硬规则】
 - 针对给定的 1-2 个 gap,每个 gap 出 1 张学习卡(共 1-2 张)
 - concepts:3-6 个该 gap 下最该先搞懂的核心概念
-- resources:2-3 个针对性资源(优先免费 + 中文;英文标注 lang:"en")
+- resources:2-3 个(规则见下方「学习资源」)
 - micro_deliverable:3-7 天内能真做出的轻量可验证产出(一页概念总结 / 一条知乎/小红书帖 / 一份带截图的笔记)
 - honest_use:诚实说明这在简历/面试里只能写成"了解/入门级 + 轻量产出",**不是"做过项目"**
 - est_hours:预估总投入(如 "6-10h")
 - 不要输出 weekly_plan / 周计划 —— 这是学习卡不是项目
 
-【资源种子库(按角色,挑相关的改造)】
-${archetypes || "(种子库未加载,用你的通用知识,严格遵守反幻觉)"}
+${libraryBlock}
+
+${resourceRule}
 
 ${ANTI_FAB}
 
@@ -113,7 +193,7 @@ ${ANTI_FAB}
       "title": "≤20字,如:快速补 A/B 测试基础",
       "why": "≤100字 为什么这张卡能补这些 gap",
       "concepts": ["核心概念1", "..."],
-      "resources": [ { "type":"book"|"video"|"doc", "title":"", "note":"为什么相关+看哪部分", "url":"(可选)", "lang":"zh"|"en" } ],
+      "resources": [ { "type":"book"|"video"|"doc", "title":"准确的资源名(用户靠它搜得到)", "note":"为什么相关+看哪部分", "lang":"zh"|"en" } ],
       "micro_deliverable": "3-7天能产出的轻量可验证东西",
       "est_hours": "6-10h",
       "honest_use": "诚实落点:只能写成了解/入门级"
@@ -124,7 +204,13 @@ ${ANTI_FAB}
 }
 
 // —— standard / deep:项目卡 ——
-function buildProjectSystem(tier: "standard" | "deep", archetypes: string): string {
+function buildProjectSystem(
+  tier: "standard" | "deep",
+  archetypes: string,
+  bridgeFit: BridgeFit,
+): string {
+  const inLibrary = bridgeFit === "covered";
+  const resourceRule = inLibrary ? LIB_RESOURCE_RULE : SEARCH_RESOURCE_RULE;
   const dial =
     tier === "standard"
       ? `【标准档(2-4周)硬规则】
@@ -144,10 +230,17 @@ ${dial}
 每个项目末尾,扮演怀疑用户能否完成的 HR,给 1-3 条最尖锐的风险(时间/技术/真实用户从哪来等),每条配一句 mitigation,写进 risks[]。
 
 【学习资源】
-每个项目给 1-3 个项目内要学/查的资源(learning_resources),规则同下种子库 + 反幻觉。
+每个项目给 1-3 个项目内要学/查的资源(learning_resources),规则见下方「学习资源」。
 
-【资源/项目种子库(按角色,挑相关的改造,不要照搬)】
-${archetypes || "(种子库未加载,用你的通用知识)"}
+${
+  inLibrary
+    ? `【资源/项目种子库(learning_resources 只能从这里逐字挑,见下方锁定规则)】
+${archetypes || "(种子库未加载,用你的通用知识)"}`
+    : `【项目设计参考(仅供项目结构灵感,learning_resources 不要照搬这里的资源名)】
+${archetypes || "(无)"}`
+}
+
+${resourceRule}
 
 ${ANTI_FAB}
 
@@ -173,7 +266,58 @@ ${ANTI_FAB}
       "metrics_dictionary": [ { "name":"指标名", "definition":"定义", "data_source":"数据来源" } ],
       "skills_required": ["技能"],
       "risks": [ { "risk":"尖锐风险", "mitigation":"缓解" } ],
-      "learning_resources": [ { "type":"book"|"video"|"doc", "title":"", "note":"", "url":"(可选)", "lang":"zh"|"en" } ]
+      "learning_resources": [ { "type":"book"|"video"|"doc", "title":"准确的资源名(用户靠它搜得到)", "note":"", "lang":"zh"|"en" } ]
+    }
+  ]
+}
+返 JSON。`;
+}
+
+// —— digital(库外数字岗):无种子库锚定,加一条诚实降级 + 更狠反编造 ——
+const OFF_LIBRARY_NOTE = `
+
+[岗位库外提示] 这个岗位不在内置项目原型库中,没有可直接改造的种子。请用通用知识从零设计,并**额外严格**遵守反编造:学习资源只给你确实记得存在的(不确定就只给名字+方向,绝不编 URL/课程名)。`;
+
+// —— hands_on(动手/实验/临床/产线):不出项目,给"可迁移数字证据"卡 ——
+function buildHandsOnSystem(): string {
+  return `你是「Offer 捕手」模块 4 的诚实补强顾问。用户的目标岗位属于**动手/实验/临床/产线/现场**类(化学生物实验、医护临床、制造工艺、土木施工等)——这类岗位的**硬证据来自真实实验室/实习/现场,一个人在家做不出能替代的"项目"**。
+
+所以你**不编造项目**,而是给**可迁移的"数字证据"建议**:在家/校就能做、能体现相关能力、面试能聊,但**绝不冒充"实操经验"**。
+
+【硬规则】
+- 针对给定的 1-2 个缺口,每个出 1 张卡(共 1-3 张),kind 一律 "learning"。
+- 每张卡是一条"可迁移数字证据"路径,挑贴合缺口的:
+  · 公开数据集 / 实验数据的分析与可视化
+  · 计算 / 模拟(计算化学、仿真、建模等纯软件能跑的)
+  · 系统性文献综述 / 复现某篇论文的数据或方法部分
+  · 方法论笔记 / SOP 梳理 / 行业理解 writeup
+- concepts:3-6 个该路径要先搞懂的核心点。
+- resources:2-3 个(规则见下方「学习资源」)。
+- micro_deliverable:能真做出的轻量可验证产出(分析报告 / 可视化 / writeup / 笔记)。
+- honest_use:**必须诚实点明** —— 只能在简历/面试写成"对 X 的理解 + 数字侧实践",**不能写成"做过实验/有实操经验"**;真·实操要靠真实实验室/实习争取。
+- est_hours:预估投入。时间越充裕可多给 1 张或做深,但本质仍是"数字证据",不要升级成"项目"。
+
+${SEARCH_RESOURCE_RULE}
+
+【反编造 — 永不违反】
+1. 不输出公司名 / 产品名 / 学校名
+2. 只写"计划做什么",不写"已完成"
+3. 不承诺数字成果
+4. **绝不把数字替代物包装成真实实操经验**
+
+【输出 — 严格 JSON,无 markdown】
+{
+  "cards": [
+    {
+      "kind": "learning",
+      "covers_gaps": ["对应的 jd_requirement"],
+      "title": "≤20字",
+      "why": "≤100字 为什么这条能补这些缺口、为什么是数字替代",
+      "concepts": ["..."],
+      "resources": [ { "type":"book"|"video"|"doc", "title":"准确的资源名(用户靠它搜得到)", "note":"", "lang":"zh"|"en" } ],
+      "micro_deliverable": "能产出的轻量可验证东西",
+      "est_hours": "8-15h",
+      "honest_use": "诚实落点:只能写成理解+数字侧实践,不是实操经验"
     }
   ]
 }
@@ -209,13 +353,29 @@ ${gapsBlock(picked)}${unfixableLine}
 function normResource(r: Record<string, unknown>): M4Resource {
   const t = r.type === "video" || r.type === "doc" ? r.type : "book";
   const lang = r.lang === "en" ? "en" : "zh";
+  // 不落库 LLM 现编的 url —— 那是幻觉来源,前端统一拼搜索链接(resourceSearchUrl)。
   return {
     type: t as "book" | "video" | "doc",
     title: String(r.title ?? ""),
     note: String(r.note ?? ""),
-    ...(r.url ? { url: String(r.url) } : {}),
     lang: lang as "zh" | "en",
   };
+}
+
+/**
+ * covered 兜底:把卡里的 resources 钉回种子库真资源,丢掉 LLM 自创的(治资源名幻觉)。
+ * 命中→用库里权威 type/title/lang,保留 LLM 写的 note;未命中→丢弃。
+ */
+function lockResourcesToLibrary(
+  resources: M4Resource[],
+  byNorm: Map<string, LibraryResource>,
+): M4Resource[] {
+  const out: M4Resource[] = [];
+  for (const r of resources) {
+    const hit = matchLibraryResource(r.title, byNorm);
+    if (hit) out.push({ type: hit.type, title: hit.title, note: r.note, lang: hit.lang });
+  }
+  return out;
 }
 
 function normLearning(c: Record<string, unknown>): M4LearningDraftCore {
@@ -277,6 +437,7 @@ export async function POST(request: NextRequest) {
   try {
     const body = (await request.json()) as RequestBody;
     const { timeTier, gaps, targetRole, parsedResumeBrief } = body;
+    const bridgeFit: BridgeFit = body.bridgeFit ?? "covered";
 
     if (timeTier !== "sprint" && timeTier !== "standard" && timeTier !== "deep") {
       return NextResponse.json({ error: "timeTier 不合法" }, { status: 400 });
@@ -286,13 +447,43 @@ export async function POST(request: NextRequest) {
     }
 
     const { picked, unfixable } = rankGaps(gaps, timeTier);
+
+    // hands_on(动手/实验/临床/产线):不出项目,改给"可迁移数字证据"学习卡(复用 card 结构)
+    if (bridgeFit === "hands_on") {
+      const handsPrompt = buildUserPrompt(timeTier, picked, unfixable, targetRole, parsedResumeBrief);
+      const raw = await chat(
+        [
+          { role: "system", content: buildHandsOnSystem() },
+          { role: "user", content: handsPrompt },
+        ],
+        { model: "chat", temperature: 0.6, max_tokens: 3000, jsonMode: true },
+      );
+      let parsed: { cards?: unknown };
+      try {
+        parsed = JSON.parse(raw);
+      } catch {
+        console.error("[m4/recommend] hands_on JSON parse failed:", raw.slice(0, 500));
+        return NextResponse.json({ error: "返回格式异常,请重试" }, { status: 502 });
+      }
+      const cards = Array.isArray(parsed.cards)
+        ? (parsed.cards as Record<string, unknown>[]).map(normLearning).filter((c) => c.title)
+        : [];
+      if (cards.length === 0) {
+        return NextResponse.json({ error: "未生成有效建议,请重试" }, { status: 502 });
+      }
+      return NextResponse.json({ cards, offLibrary: true, bridgeFit });
+    }
+
     const archetypes = await loadArchetypes();
-    const userPrompt = buildUserPrompt(timeTier, picked, unfixable, targetRole, parsedResumeBrief);
+    // digital(库外数字岗):仍出项目/学习卡,但加诚实降级提示 + 标 offLibrary
+    const offNote = bridgeFit === "digital" ? OFF_LIBRARY_NOTE : "";
+    const userPrompt =
+      buildUserPrompt(timeTier, picked, unfixable, targetRole, parsedResumeBrief) + offNote;
 
     if (timeTier === "sprint") {
       const raw = await chat(
         [
-          { role: "system", content: buildLearningSystem(archetypes) },
+          { role: "system", content: buildLearningSystem(archetypes, bridgeFit) },
           { role: "user", content: userPrompt },
         ],
         { model: "chat", temperature: 0.7, max_tokens: 3000, jsonMode: true },
@@ -307,16 +498,23 @@ export async function POST(request: NextRequest) {
       const cards = Array.isArray(parsed.cards)
         ? (parsed.cards as Record<string, unknown>[]).map(normLearning).filter((c) => c.title)
         : [];
+      if (bridgeFit === "covered") {
+        const { byNorm } = await loadLibraryResources();
+        for (const c of cards) c.resources = lockResourcesToLibrary(c.resources, byNorm);
+      }
       if (cards.length === 0) {
         return NextResponse.json({ error: "未生成有效学习卡,请重试" }, { status: 502 });
       }
-      return NextResponse.json({ cards });
+      return NextResponse.json({
+        cards,
+        ...(bridgeFit === "digital" ? { offLibrary: true, bridgeFit } : {}),
+      });
     }
 
     // standard / deep
     const raw = await chat(
       [
-        { role: "system", content: buildProjectSystem(timeTier, archetypes) },
+        { role: "system", content: buildProjectSystem(timeTier, archetypes, bridgeFit) },
         { role: "user", content: userPrompt },
       ],
       { model: "chat", temperature: 0.7, max_tokens: 4000, jsonMode: true },
@@ -333,10 +531,18 @@ export async function POST(request: NextRequest) {
           .map((p) => normProject(p, timeTier))
           .filter((p) => p.title)
       : [];
+    if (bridgeFit === "covered") {
+      const { byNorm } = await loadLibraryResources();
+      for (const p of projects)
+        p.learning_resources = lockResourcesToLibrary(p.learning_resources ?? [], byNorm);
+    }
     if (projects.length === 0) {
       return NextResponse.json({ error: "未生成有效项目,请重试" }, { status: 502 });
     }
-    return NextResponse.json({ projects });
+    return NextResponse.json({
+      projects,
+      ...(bridgeFit === "digital" ? { offLibrary: true, bridgeFit } : {}),
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
     console.error("[m4/recommend] error:", err);
