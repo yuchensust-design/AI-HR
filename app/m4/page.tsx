@@ -181,19 +181,6 @@ export default function Module4Page() {
   );
 }
 
-// 补项目里「用真实在招岗位」搜出来供用户挑的岗位卡(对齐 /api/m6/search-jobs 的 Job 子集)
-type MarketJob = {
-  id: string;
-  platform: "51job" | "liepin" | "zhilian";
-  title: string;
-  company: string;
-  city?: string;
-  salary?: string;
-  experience?: string;
-  tags?: string[];
-  jdText?: string;
-};
-
 // 改简历常是「按岗位名推断」的 JD(raw_jd_text 为空,但有 jd_summary/must_have)。
 // 从某个缺口带进补项目时,用这份推断要求合成一份 JD 一起分析 —— 口径与改简历一致,
 // 自然不引入实时搜真岗带来的岗位无关噪声(如 AIDD/CADD)。
@@ -589,7 +576,7 @@ function Module4Content() {
                   {handoffActive && showForm && m1TargetRole && (
                     <div className="mb-6 rounded-xl border-2 border-esther-blue/30 bg-esther-blue/5 px-4 py-3">
                       <p className="text-xs font-semibold text-esther-blue mb-1">
-                        📥 从测评带来的目标
+                        从测评带来的目标
                       </p>
                       <p className="text-sm text-ink">
                         <span className="font-bold">{m1TargetRole.role_type}</span>
@@ -614,7 +601,7 @@ function Module4Content() {
                   {fromM3Active && showForm && (
                     <div className="mb-6 rounded-xl border-2 border-esther-blue/30 bg-esther-blue/5 px-4 py-3">
                       <p className="text-xs font-semibold text-esther-blue mb-1">
-                        📥 从改简历带来的缺口
+                        从改简历带来的缺口
                       </p>
                       <p className="text-sm text-ink">
                         要补强的能力：
@@ -805,68 +792,56 @@ function IntakeForm({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [source]);
 
-  // —— 没贴 JD 时的"岗位要求来源":默认 AI 推断;可改成搜真实在招岗位并挑一条 ——
-  const [groundMode, setGroundMode] = useState<"infer" | "market">("infer");
-  const [searchCity, setSearchCity] = useState("");
-  const [jobResults, setJobResults] = useState<MarketJob[] | null>(null);
-  const [jobsLoading, setJobsLoading] = useState(false);
-  const [jobsErr, setJobsErr] = useState<string | null>(null);
-  const [jobsAreMock, setJobsAreMock] = useState(false);
-  const [pickedJob, setPickedJob] = useState<MarketJob | null>(null);
-  const [pickedJdText, setPickedJdText] = useState("");
-  const [pickingDetail, setPickingDetail] = useState(false);
+  // —— 没贴真实 JD 时:让 AI 按岗位名生成一份 JD,填进框里给用户看(可编辑)——
+  const [jdGenerating, setJdGenerating] = useState(false);
+  const [jdGenErr, setJdGenErr] = useState<string | null>(null);
 
-  async function handleSearchJobs() {
+  async function generateJd(roleName: string): Promise<string> {
+    const res = await fetch("/api/m4/generate-jd", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ roleName }),
+    });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(j.error ?? `生成失败 HTTP ${res.status}`);
+    return String(j.jdText ?? "").trim();
+  }
+
+  async function handleGenerateJd() {
     const r = role.trim();
-    if (!r) {
-      setJobsErr("先在上面填目标岗位名,再搜真实在招岗位");
-      return;
-    }
-    setJobsLoading(true);
-    setJobsErr(null);
-    setJobResults(null);
-    setPickedJob(null);
-    setPickedJdText("");
+    if (!r || jdGenerating) return;
+    setJdGenerating(true);
+    setJdGenErr(null);
     try {
-      const res = await fetch("/api/m6/search-jobs", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ role: r, city: searchCity.trim() || "上海", limit: 6 }),
-      });
-      const j = await res.json();
-      if (!res.ok) throw new Error(j.error ?? `搜索失败 HTTP ${res.status}`);
-      setJobResults(Array.isArray(j.jobs) ? j.jobs.slice(0, 6) : []);
-      setJobsAreMock(!!j.isMock);
+      const txt = await generateJd(r);
+      if (txt) {
+        setJd(txt);
+        setJdInferred(true); // AI 生成的(非用户粘贴的真实 JD)→ 顶部标注、可编辑
+      } else {
+        setJdGenErr("没生成出来,请重试");
+      }
     } catch (e) {
-      setJobsErr(e instanceof Error ? e.message : "搜索失败,请重试");
+      setJdGenErr(e instanceof Error ? e.message : "生成失败,请重试");
     } finally {
-      setJobsLoading(false);
+      setJdGenerating(false);
     }
   }
 
-  async function handlePickJob(job: MarketJob) {
-    setPickedJob(job);
-    setPickedJdText("");
-    // mock 数据直接用列表里的 jdText;真岗去 /job-detail 拉全文
-    if (jobsAreMock || !job.id) {
-      setPickedJdText((job.jdText ?? "").trim());
+  // 从 m1/测评等带着岗位名(但没 JD)进来 → 自动生成一份 JD 填进框,让用户看见。
+  // 仅对"预填的岗位名"自动生成(initialRole 非空);手动打字的不自动触发,用按钮。
+  const autoGenRef = useRef(false);
+  useEffect(() => {
+    if (autoGenRef.current) return;
+    if (!initialRole.trim()) return; // 没有预填岗位名 → 不自动生成
+    if (jd.trim().length > 0) {
+      autoGenRef.current = true; // 已有 JD(粘贴/m3 带入)→ 不生成
       return;
     }
-    setPickingDetail(true);
-    try {
-      const res = await fetch("/api/m6/job-detail", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ jobId: job.id, platform: job.platform }),
-      });
-      const j = await res.json().catch(() => ({}));
-      setPickedJdText((j.jdText ?? job.jdText ?? "").trim());
-    } catch {
-      setPickedJdText((job.jdText ?? "").trim());
-    } finally {
-      setPickingDetail(false);
-    }
-  }
+    if (role.trim().length === 0) return; // 等岗位名落定
+    autoGenRef.current = true;
+    void handleGenerateJd();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialRole, role, jd]);
 
   // —— 流程状态 ——
   const [busy, setBusy] = useState(false);
@@ -979,45 +954,40 @@ function IntakeForm({
       return;
     }
     const roleStr = role.trim();
-    // 真实粘贴的 JD(用户自己贴的,非推断合成)→ 永远优先
-    const hasRealPastedJd = jdReady && !jdInferred;
-    // 选了「用真实在招岗位」(无真贴 JD 时可选,推断 JD 也可切过来)→ 必须先挑一条岗位
-    const useMarketJob = !hasRealPastedJd && groundMode === "market";
-    if (useMarketJob && (!pickedJob || pickedJdText.trim().length < 20)) {
-      setError(
-        "你选了「用真实在招岗位」分析 —— 请先搜索并选中一条岗位,或切换为「让 AI 按岗位知识推断」",
-      );
-      return;
-    }
     setBusy(true);
     setError(null);
     try {
       const parsedResume = await resolveParsedResume();
-      // 实际喂给分析的 JD:
-      //   真贴 JD > 挑的真实岗位 > 改简历带来的推断 JD(jdReady) > 无(纯岗位名推断)
-      const effectiveJd = hasRealPastedJd
-        ? jd.trim()
-        : useMarketJob
-          ? pickedJdText.trim()
-          : jdReady
-            ? jd.trim() // 改简历推断 JD,口径与改简历一致
-            : "";
-      setPhase(
-        effectiveJd
-          ? "正在把你的简历和岗位逐条对照,找出真实差距…(约 15-30 秒)"
-          : "正在按岗位常见要求,和你的简历逐条对照…(约 15-30 秒)",
-      );
+      // JD 框是唯一来源:有就用(粘贴的 / AI 生成的 / m3 带入的);
+      // 还空但有岗位名 → 现场生成一份(填进框,让用户也看得见),再分析。
+      let effectiveJd = jd.trim();
+      if (effectiveJd.length < 20) {
+        setPhase("正在按岗位名生成一份 JD…");
+        try {
+          const gen = await generateJd(roleStr);
+          if (gen) {
+            effectiveJd = gen;
+            setJd(gen);
+            setJdInferred(true);
+          }
+        } catch {
+          /* 生成失败 → 下面报错提示 */
+        }
+      }
+      if (effectiveJd.length < 20) {
+        setBusy(false);
+        setPhase("");
+        setError("没有可分析的 JD —— 点「生成 JD」或粘贴一段目标 JD 再试");
+        return;
+      }
+      setPhase("正在把你的简历和岗位逐条对照,找出真实差距…(约 15-30 秒)");
       const focus = focusGap.trim();
-      const body = effectiveJd
-        ? { mode: "full", jdText: effectiveJd, parsedResume, focusGap: focus }
-        : {
-            mode: "role",
-            roleName: roleStr,
-            parsedResume,
-            focusGap: focus,
-            // 用户显式选「AI 推断」→ 不搜真岗(搜真岗只在用户主动挑岗位时,走上面的 mode=full)
-            skipMarketSearch: true,
-          };
+      const body = {
+        mode: "full",
+        jdText: effectiveJd,
+        parsedResume,
+        focusGap: focus,
+      };
       const res = await fetch("/api/m4/analyze-gaps", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1031,17 +1001,15 @@ function IntakeForm({
       setReport(rep);
       // 默认勾选所有缺口
       setPicked(new Set(rep.gaps.map((g) => g.jd_requirement)));
-      // 有真 JD(粘贴或挑的真岗)→ 落到跨模块总线(供 M5 等继承)
-      if (effectiveJd) {
-        onJdParsed({
-          gaps: rep.gaps.map((g) => ({
-            jd_requirement: g.jd_requirement,
-            why_gap: g.why_matters,
-          })),
-          raw_jd_text: effectiveJd,
-          role_name: roleStr || pickedJob?.title || undefined,
-        });
-      }
+      // JD 落到跨模块总线(供 M5 等继承)
+      onJdParsed({
+        gaps: rep.gaps.map((g) => ({
+          jd_requirement: g.jd_requirement,
+          why_gap: g.why_matters,
+        })),
+        raw_jd_text: effectiveJd,
+        role_name: roleStr || undefined,
+      });
       setStep("report");
     } catch (err) {
       setError(err instanceof Error ? err.message : "分析失败,请重试");
@@ -1323,12 +1291,11 @@ function IntakeForm({
             className="w-full px-4 py-2.5 rounded-xl border-2 border-border bg-card text-sm text-ink placeholder-ink-muted focus:outline-none focus:border-esther-blue"
           />
           <div>
-            {/* 改简历常没传真 JD → 这段是按岗位名推断合成的;明确标注,别让用户误当真实 JD */}
+            {/* JD 框是唯一来源:没贴真实 JD 时,可让 AI 按岗位名生成一份(填进来给你看、可编辑)*/}
             {jdInferred && jd.trim().length > 0 && (
               <div className="mb-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2">
                 <p className="text-[11px] text-amber-700 leading-relaxed">
-                  🧠 以下是<span className="font-semibold">按岗位名「{role || "目标岗位"}」推断的要求(非真实 JD)</span> —— 与你在改简历里用的口径一致。
-                  想更贴市场?在下方改用「真实在招岗位」;也可直接编辑这段或粘贴真实 JD。
+                  这份 JD 是 <span className="font-semibold">AI 按岗位名「{role || "目标岗位"}」生成的(非真实 JD)</span>,仅作分析参考 —— 可直接编辑,或粘贴真实 JD 覆盖。
                 </p>
               </div>
             )}
@@ -1336,154 +1303,40 @@ function IntakeForm({
               value={jd}
               onChange={(e) => {
                 setJd(e.target.value);
-                setJdInferred(false); // 用户手改 → 当作真实 JD,去掉推断标注
+                setJdInferred(false); // 用户手改 → 当作真实 JD,去掉「AI 生成」标注
                 if (srcLabel) setSrcLabel(null);
               }}
-              placeholder="(可选,推荐)粘贴目标 JD 全文 — 填了差距分析更精准,只填岗位名也能跑"
+              placeholder="粘贴目标 JD 全文;没有的话,填上面的岗位名,点下面「让 AI 生成一份 JD」"
               className="w-full min-h-[120px] px-4 py-3 rounded-xl border-2 border-border bg-card text-sm text-ink placeholder-ink-muted focus:outline-none focus:border-esther-blue resize-y"
             />
-            <p className="text-[11px] text-ink-muted mt-1">
-              {jdInferred && jd.trim().length > 0
-                ? "🧠 当前按「推断要求」分析(口径同改简历);要更贴市场可在下方改用真实在招岗位"
-                : jd.trim().length === 0
-                  ? "没填 JD?可在下方选「岗位要求」从哪来"
-                  : jdReady
-                    ? "✓ 会按这段 JD 逐条拆解你的差距"
-                    : `还差 ${30 - jd.trim().length} 字才会按 JD 精准拆解(也可在下方选其它来源)`}
-            </p>
-          </div>
-
-          {/* 没贴真 JD(或当前是推断 JD)→ 选岗位要求来源:AI 推断 / 搜真实在招岗位挑一条 */}
-          {(!jdReady || jdInferred) && (
-            <div className="rounded-xl border-2 border-dashed border-border bg-warm-bg-deep/20 p-3.5 space-y-3">
-              <p className="text-xs font-medium text-ink">
-                岗位要求从哪来:
+            <div className="mt-1.5 flex items-center gap-3 flex-wrap">
+              <button
+                type="button"
+                onClick={handleGenerateJd}
+                disabled={jdGenerating || role.trim().length === 0}
+                className="inline-flex items-center rounded-full border-2 border-esther-blue/40 bg-card text-esther-blue px-3.5 py-1.5 text-xs font-medium hover:bg-esther-blue/5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {jdGenerating
+                  ? "AI 生成中…"
+                  : jd.trim().length > 0
+                    ? "重新生成 JD"
+                    : "让 AI 生成一份 JD"}
+              </button>
+              <p className="text-[11px] text-ink-muted">
+                {jdGenErr ? (
+                  <span className="text-esther-red">{jdGenErr}</span>
+                ) : role.trim().length === 0 ? (
+                  "先填目标岗位名,再让 AI 生成 JD"
+                ) : jdInferred && jd.trim().length > 0 ? (
+                  "AI 生成的 JD,可直接编辑;会按它逐条拆解你的差距"
+                ) : jd.trim().length > 0 ? (
+                  "会按这段 JD 逐条拆解你的差距"
+                ) : (
+                  "没有 JD 也行 —— 点「分析差距」会先按岗位名生成一份再分析"
+                )}
               </p>
-              <div className="grid sm:grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => setGroundMode("infer")}
-                  className={`text-left rounded-lg border-2 px-3 py-2 transition-colors ${
-                    groundMode === "infer"
-                      ? "border-esther-blue bg-esther-blue/5"
-                      : "border-border bg-card hover:border-esther-blue/40"
-                  }`}
-                >
-                  <p className="text-sm font-medium text-ink">
-                    🧠 {jdInferred ? "用改简历推断的岗位要求" : "让 AI 按岗位知识推断"}
-                  </p>
-                  <p className="text-[11px] text-ink-muted mt-0.5 leading-relaxed">
-                    {jdInferred
-                      ? "用上面那段推断要求分析,口径和改简历一致(当前、默认)"
-                      : "按岗位名 + 你的简历做通用差距分析,不联网搜岗位(快、默认)"}
-                  </p>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setGroundMode("market")}
-                  className={`text-left rounded-lg border-2 px-3 py-2 transition-colors ${
-                    groundMode === "market"
-                      ? "border-esther-blue bg-esther-blue/5"
-                      : "border-border bg-card hover:border-esther-blue/40"
-                  }`}
-                >
-                  <p className="text-sm font-medium text-ink">🔍 用真实在招岗位</p>
-                  <p className="text-[11px] text-ink-muted mt-0.5 leading-relaxed">
-                    实时搜该岗位在招样本,你挑一条,用它的真实 JD 分析(更贴市场)
-                  </p>
-                </button>
-              </div>
-
-              {groundMode === "market" && (
-                <div className="space-y-2.5 pt-1">
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      value={searchCity}
-                      onChange={(e) => setSearchCity(e.target.value)}
-                      placeholder="城市(默认上海)"
-                      className="w-32 px-3 py-2 rounded-lg border-2 border-border bg-card text-sm text-ink placeholder-ink-muted focus:outline-none focus:border-esther-blue"
-                    />
-                    <button
-                      type="button"
-                      onClick={handleSearchJobs}
-                      disabled={jobsLoading || role.trim().length === 0}
-                      className="inline-flex items-center rounded-lg bg-esther-blue text-white px-4 py-2 text-sm font-medium hover:bg-esther-blue-dark transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      {jobsLoading ? "搜索中…" : "搜索在招岗位"}
-                    </button>
-                  </div>
-                  {role.trim().length === 0 && (
-                    <p className="text-[11px] text-ink-muted">先在上面填目标岗位名再搜</p>
-                  )}
-                  {jobsErr && (
-                    <p className="text-[11px] text-esther-red">⚠️ {jobsErr}</p>
-                  )}
-                  {jobsAreMock && jobResults && jobResults.length > 0 && (
-                    <p className="text-[11px] text-amber-600">
-                      ⚠️ 实时岗位源暂时不可达,以下为演示数据(非真实在招)
-                    </p>
-                  )}
-                  {jobResults && jobResults.length === 0 && (
-                    <p className="text-[11px] text-ink-muted">
-                      没搜到这个岗位的在招样本 —— 换个岗位名/城市,或用「AI 推断」
-                    </p>
-                  )}
-                  {jobResults && jobResults.length > 0 && (
-                    <div className="space-y-2">
-                      {jobResults.map((job) => {
-                        const sel = pickedJob?.id === job.id;
-                        const meta = [job.company, job.experience, job.salary]
-                          .filter(Boolean)
-                          .join(" · ");
-                        return (
-                          <button
-                            key={job.id}
-                            type="button"
-                            onClick={() => handlePickJob(job)}
-                            className={`w-full text-left rounded-lg border-2 px-3 py-2 transition-colors ${
-                              sel
-                                ? "border-esther-blue bg-esther-blue/5"
-                                : "border-border bg-card hover:border-esther-blue/40"
-                            }`}
-                          >
-                            <p className="text-sm font-medium text-ink">
-                              {sel ? "✓ " : ""}
-                              {job.title}
-                              {job.city ? (
-                                <span className="text-ink-muted font-normal">
-                                  {" "}
-                                  · {job.city}
-                                </span>
-                              ) : null}
-                            </p>
-                            {meta && (
-                              <p className="text-[11px] text-ink-muted mt-0.5">{meta}</p>
-                            )}
-                            {sel && (
-                              <p className="text-[11px] mt-1">
-                                {pickingDetail ? (
-                                  <span className="text-ink-muted">正在拉取这条岗位的 JD 全文…</span>
-                                ) : pickedJdText.trim().length >= 20 ? (
-                                  <span className="text-emerald-700">
-                                    ✓ 已选,将用这条岗位的真实 JD 做差距分析
-                                  </span>
-                                ) : (
-                                  <span className="text-esther-red">
-                                    这条没抓到 JD 详情,换一条试试
-                                  </span>
-                                )}
-                              </p>
-                            )}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-              )}
             </div>
-          )}
+          </div>
         </div>
       </div>
 

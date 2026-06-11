@@ -144,6 +144,22 @@ AIDD/CADD 不在该会话推断里,是补项目走 `mode=role` 时 `fetchMarketJ
   - 验证:实点搜出 6 条真岗、选中拉到 JD、确认"将用这条岗位的真实 JD 分析"。
   - 旧的 `fetchMarketJDSample` 自动 blend 路径自此不再被 UI 触发(保留兜底,不删)。
 
+## 方向调整(2026-06-11:砍掉"搜真岗",改成 AI 生成可见 JD)
+
+用户反馈"搜真岗 + 挑一条"太复杂、且 UI 丑(emoji 太多)、JD 也不一定拉得到。最终拍板:
+**不再搜真实岗位。不管从哪个入口进补项目,只要没有真实 JD,就让 LLM 按岗位名生成一份 JD、
+填进 JD 框里给用户看(可编辑)。JD 框成为唯一来源,差距分析永远 `mode=full` 基于框里这段。**
+
+落地(取代上面 Part 2 的搜真岗整套):
+- 删除:`/api/m6/search-jobs`/`job-detail` 在补项目里的调用、"岗位要求来源"二选一、选岗卡片、
+  相关 state/函数/类型(MarketJob/marketJobToJd/groundMode/jobResults/picked* 等);并清掉这块的 emoji。
+- 新增 `/api/m4/generate-jd`:`{roleName} → {jdText}`,LLM 生成贴近市场的中文 JD(岗位概述/职责/任职要求/加分项)。
+- IntakeForm:JD 框下「让 AI 生成一份 JD / 重新生成」按钮;预填岗位名(m1)且 JD 空 → 自动生成一份;
+  `分析差距`时若 JD 仍空但有岗位名 → 现场生成再分析。AI 生成的 JD 顶部标注「非真实 JD,可编辑」。
+- m3→m4 仍复用改简历的推断要求(synthesizeJdFromContext)填进框,口径一致;focusGap 仍让所点缺口置顶。
+- analyze-gaps 的真岗搜索(fetchMarketJDSample)自此不再被任何 UI 触发(保留兜底函数,不删)。
+验证:游客 fresh /m4 无搜岗 UI 残留;填岗位名点生成 → JD 框填入 591 字 + "非真实 JD"标注 + "重新生成"。
+
 ## 铁律
 - 调 LLM 的 route 必带 `maxDuration=60`;反编造不放松(STAR 结果项只用真实 notes);
 - 表单/素材字段永不折叠;改完 dev server 实点验证;未经同意不提交。
