@@ -91,6 +91,10 @@ function DiscoverPageInner() {
     reasoning?: string;
     stats?: MatchResumeResponse["stats"];
   }>(STORAGE_KEYS.DISCOVER_MATCH_META, {});
+  // 推荐 tab「加载更多」:翻页复用上次关键词,抓下一页去重追加
+  const [recommendPage, setRecommendPage] = useState(1);
+  const [loadingMoreRec, setLoadingMoreRec] = useState(false);
+  const [noMoreRec, setNoMoreRec] = useState(false);
   // 统一读简历:登录读账号最近简历(DB),游客读 localStorage(见 useLatestResume)
   const latestResume = useLatestResume();
   // 就地上传解析出的简历:本会话即时生效(同时持久化,见 handleInlineResume),
@@ -316,6 +320,8 @@ function DiscoverPageInner() {
     setMatchError(null);
     setStaleNotice(false);
     setRecommendedJobs([]);
+    setRecommendPage(1);
+    setNoMoreRec(false);
 
     // 模拟分阶段进度更新(实际后端一次性返回,前端用 timer 演示流水线)
     setAgentSteps({
@@ -403,6 +409,62 @@ function DiscoverPageInner() {
       setMatchLoading(false);
     }
   }, [parsedResume, setRecommendedJobs, setMatchMeta, currentSig, setRecommendSig]);
+
+  // 加载更多推荐 — 复用上次关键词/城市,抓下一页,评分后去重追加(变体 A)
+  const loadMoreRecommend = useCallback(async () => {
+    if (loadingMoreRec || matchLoading || noMoreRec) return;
+    if (!parsedResume || !matchMeta.keywords?.length) return;
+    setLoadingMoreRec(true);
+    setMatchError(null);
+    const nextPage = recommendPage + 1;
+    try {
+      const res = await fetch("/api/m6/match-resume", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          parsedResume,
+          optimizedResume: uploadedResume ? undefined : latestResume.finalMarkdown,
+          keywords: matchMeta.keywords,
+          city: matchMeta.city,
+          page: nextPage,
+        }),
+      });
+      const data: MatchResumeResponse & { error?: string } = await res.json();
+      if (!res.ok) {
+        setMatchError(data.error ?? `请求失败 ${res.status}`);
+        return;
+      }
+      // 按 标题::公司 去重(与后端 dedupeJobs 一致),只追加新岗位
+      const seen = new Set(
+        recommendedJobs.map((j) => `${j.title}::${j.company}`.toLowerCase()),
+      );
+      const fresh = (data.jobs ?? []).filter(
+        (j) => !seen.has(`${j.title}::${j.company}`.toLowerCase()),
+      );
+      if (fresh.length === 0) {
+        setNoMoreRec(true);
+      } else {
+        setRecommendedJobs([...recommendedJobs, ...fresh]);
+        setRecommendPage(nextPage);
+      }
+    } catch (err) {
+      setMatchError(err instanceof Error ? err.message : "网络错误");
+    } finally {
+      setLoadingMoreRec(false);
+    }
+  }, [
+    loadingMoreRec,
+    matchLoading,
+    noMoreRec,
+    parsedResume,
+    matchMeta.keywords,
+    matchMeta.city,
+    recommendPage,
+    recommendedJobs,
+    uploadedResume,
+    latestResume.finalMarkdown,
+    setRecommendedJobs,
+  ]);
 
   // ============ 卡片三按钮 handler ============
   // /m6 写"待消费 JD" raw 数据;M3/M5 入口读后预填自有流程
@@ -630,6 +692,23 @@ function DiscoverPageInner() {
                   >
                     {loadingMore ? "正在抓取更多岗位…(约 20-30s)" : "加载更多岗位 ↓"}
                   </button>
+                </div>
+              )}
+
+              {/* 加载更多 — 推荐 tab:复用关键词抓下一页,评分后追加 */}
+              {activeTab === "recommend" && !matchLoading && (
+                <div className="mt-6 flex flex-col items-center gap-2">
+                  {!noMoreRec ? (
+                    <button
+                      onClick={loadMoreRecommend}
+                      disabled={loadingMoreRec}
+                      className="inline-flex items-center gap-2 px-6 py-2.5 rounded-full border border-esther-blue/40 text-esther-blue bg-esther-blue/5 hover:bg-esther-blue/10 transition-colors text-sm font-medium disabled:opacity-60"
+                    >
+                      {loadingMoreRec ? "正在为你找更多岗位…(约 30-60s)" : "加载更多岗位 ↓"}
+                    </button>
+                  ) : (
+                    <p className="text-sm text-ink-soft">没有更多匹配岗位了</p>
+                  )}
                 </div>
               )}
             </section>
