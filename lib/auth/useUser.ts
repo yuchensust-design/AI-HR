@@ -16,6 +16,7 @@ import { useEffect, useRef, useState } from "react";
 import type { User } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
 import { hasMigrated, migrateGuestDataOnLogin } from "@/lib/sync/migrate-guest-data";
+import { clearLocalUserData } from "@/lib/use-local-state";
 
 export type Profile = {
   user_id: string;
@@ -92,8 +93,16 @@ export function useUser() {
       if ((lastUserIdRef.current ?? null) === (nextUser?.id ?? null)) {
         return;
       }
+      const prevUserId = lastUserIdRef.current;
       lastUserIdRef.current = nextUser?.id ?? null;
       setUser(nextUser);
+      // 隐私:从某个登录用户切走(登出 / 换号)→ 清掉本地缓存的个人数据,
+      // 防止公用电脑上残留上一个用户的简历 / 测评 / 面试 / 推荐等。
+      // 放在 maybeMigrate 之前,避免把上一个用户的本地数据迁进新账号。
+      // 游客→登录(prevUserId 为空)不清,保留本地数据待迁移。
+      if (prevUserId) {
+        clearLocalUserData();
+      }
       if (nextUser) {
         fetchProfile(nextUser.id);
         if (event === "SIGNED_IN") void maybeMigrate(nextUser.id);
