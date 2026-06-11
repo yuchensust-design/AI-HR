@@ -7,15 +7,14 @@
 "use client";
 import { useState, useRef, useEffect } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useUser } from "@/lib/auth/useUser";
 import { createClient } from "@/lib/supabase/client";
+import { clearLocalUserData } from "@/lib/use-local-state";
 
 export default function UserMenu() {
   const { user, profile, loading } = useUser();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
-  const router = useRouter();
 
   // 点外部关闭
   useEffect(() => {
@@ -30,9 +29,13 @@ export default function UserMenu() {
   async function onSignOut() {
     const supabase = createClient();
     await supabase.auth.signOut();
+    clearLocalUserData();
     setOpen(false);
-    router.push("/");
-    router.refresh();
+    // 硬跳转(而非 router.push 软导航):软导航不卸载页面组件,
+    // 已挂载页面的 React state 仍保留上个用户的简历/测评等个人数据照常显示
+    // (清了 localStorage 也没用,屏幕显示的是内存 state)。硬重载彻底销毁所有
+    // client state,并用清空后的 localStorage + 已登出 session 重新加载。
+    window.location.assign("/");
   }
 
   if (loading) {
