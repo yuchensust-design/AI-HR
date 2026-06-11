@@ -1030,6 +1030,14 @@ function Module5LiveContent() {
     router.push(`/m5/debrief${convQs}`);
   }, [router, convQs]);
 
+  // 面试结束 → 自动跳复盘,不让用户再多点一次("看复盘"按钮保留作兜底)。
+  // 留 ~0.9s 让"面试结束"画面闪现 + 会话/录像收尾。
+  useEffect(() => {
+    if (state.status !== "finished") return;
+    const t = setTimeout(() => goDebrief(), 900);
+    return () => clearTimeout(t);
+  }, [state.status, goDebrief]);
+
   const personaLabel = config ? PERSONA_LABEL[config.persona] : "";
   const typeLabel = config ? TYPE_LABEL[config.type] : "";
   const personaTagline = config
