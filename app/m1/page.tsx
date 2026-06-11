@@ -120,20 +120,28 @@ export default function Module1EntryPage() {
               </span>{" "}
               — 愿你的热爱与擅长终在某处相逢
             </p>
-            <div className="flex flex-wrap items-center gap-4">
+            <div className="flex flex-wrap items-center gap-3">
               <Link
                 href="/m1/quiz"
-                className="inline-flex items-center justify-center rounded-full bg-esther-blue text-white px-8 py-4 text-base font-medium hover:bg-esther-blue-dark transition-colors shadow-md"
+                className="inline-flex flex-col items-center justify-center rounded-2xl bg-esther-blue text-white px-7 py-3.5 hover:bg-esther-blue-dark transition-colors shadow-md"
               >
-                开始测评 →
+                <span className="text-base font-medium">快速测评 →</span>
+                <span className="text-[11px] opacity-80 font-display italic">18 题 · 约 3 分钟</span>
               </Link>
-              <a
-                href="#sample"
-                className="inline-flex items-center justify-center px-5 py-3 text-sm font-medium text-ink-soft hover:text-esther-blue transition-colors"
+              <Link
+                href="/m1/quiz?v=full"
+                className="inline-flex flex-col items-center justify-center rounded-2xl border-2 border-esther-blue text-esther-blue px-7 py-3.5 hover:bg-esther-blue/5 transition-colors"
               >
-                先往下看看结果长什么样 ↓
-              </a>
+                <span className="text-base font-medium">完整版 →</span>
+                <span className="text-[11px] opacity-80 font-display italic">60 题 · 更准 · 约 8 分钟</span>
+              </Link>
             </div>
+            <a
+              href="#sample"
+              className="inline-flex items-center mt-3 text-sm font-medium text-ink-soft hover:text-esther-blue transition-colors"
+            >
+              先往下看看结果长什么样 ↓
+            </a>
           </div>
         </section>
 
@@ -287,12 +295,20 @@ export default function Module1EntryPage() {
               没有标准答案，也没有好坏之分<br />
               只是想帮你看清楚，你真正对什么感兴趣、在哪里能发光
             </p>
-            <Link
-              href="/m1/quiz"
-              className="inline-flex items-center justify-center rounded-full bg-esther-blue text-white px-10 py-4 text-base font-medium hover:bg-esther-blue-dark transition-colors shadow-md"
-            >
-              开始测评 → 看你自己的结果
-            </Link>
+            <div className="flex flex-wrap items-center justify-center gap-3">
+              <Link
+                href="/m1/quiz"
+                className="inline-flex items-center justify-center rounded-full bg-esther-blue text-white px-8 py-4 text-base font-medium hover:bg-esther-blue-dark transition-colors shadow-md"
+              >
+                快速测评(18 题)→
+              </Link>
+              <Link
+                href="/m1/quiz?v=full"
+                className="inline-flex items-center justify-center rounded-full border-2 border-esther-blue text-esther-blue px-8 py-4 text-base font-medium hover:bg-esther-blue/5 transition-colors"
+              >
+                完整版(60 题·更准)→
+              </Link>
+            </div>
           </div>
         </section>
 

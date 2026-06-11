@@ -1,17 +1,18 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Card } from "@/components/ui/card";
 import { Nav } from "@/components/Nav";
 import {
-  RIASEC_QUESTIONS,
+  getRiasecQuestions,
   INTEREST_QUESTION,
   INTEREST_TAGS,
   LIKERT_OPTIONS,
   migrateAnswersSchema,
   type LikertValue,
+  type QuizVersion,
 } from "@/lib/quiz-data";
 import { M1_SAMPLE } from "@/lib/m1-sample";
 
@@ -46,24 +47,6 @@ type MultiQ = {
 
 type QuestionUI = LikertQ | MultiQ;
 
-const ALL_QUESTIONS: QuestionUI[] = [
-  ...RIASEC_QUESTIONS.map((q) => ({
-    no: q.no,
-    text: q.text,
-    dim: q.dim,
-    type: "likert" as const,
-  })),
-  {
-    no: INTEREST_QUESTION.no,
-    text: INTEREST_QUESTION.text,
-    helper: INTEREST_QUESTION.helper,
-    options: INTEREST_TAGS.map((t) => ({ label: t.label, text: t.text })),
-    type: "multi" as const,
-  },
-];
-
-const DRAFT_KEY = "m1_quiz_draft";
-
 type AnswersMap = Record<number, LikertValue | Record<string, number>>;
 
 type DraftPayload = {
@@ -79,7 +62,41 @@ function clampIndex(idx: number, max: number): number {
 }
 
 export default function Module1QuizPage() {
+  return (
+    <Suspense fallback={<main className="min-h-screen bg-warm-bg" />}>
+      <QuizContent />
+    </Suspense>
+  );
+}
+
+function QuizContent() {
   const router = useRouter();
+  const sp = useSearchParams();
+  const version: QuizVersion = sp.get("v") === "full" ? "full" : "quick";
+
+  // 题集随版本变化(完整版 60 + 兴趣题;快速版 18 + 兴趣题)
+  const ALL_QUESTIONS = useMemo<QuestionUI[]>(
+    () => [
+      ...getRiasecQuestions(version).map((q) => ({
+        no: q.no,
+        text: q.text,
+        dim: q.dim,
+        type: "likert" as const,
+      })),
+      {
+        no: INTEREST_QUESTION.no,
+        text: INTEREST_QUESTION.text,
+        helper: INTEREST_QUESTION.helper,
+        options: INTEREST_TAGS.map((t) => ({ label: t.label, text: t.text })),
+        type: "multi" as const,
+      },
+    ],
+    [version]
+  );
+  // 草稿按版本分桶,切版本不串答案
+  const DRAFT_KEY = `m1_quiz_draft_${version}`;
+  const likertCount = ALL_QUESTIONS.length - 1;
+
   const [current, setCurrent] = useState(0);
   const [answers, setAnswers] = useState<AnswersMap>({});
   const [loading, setLoading] = useState(false);
@@ -359,10 +376,12 @@ export default function Module1QuizPage() {
             <div className="p-4 rounded-xl bg-esther-yellow/15 border-l-4 border-esther-yellow">
               <p className="text-sm text-ink leading-relaxed">
                 <span className="font-medium">说明:</span>{" "}
-                下面 18 件事,如果让你做,你对它的喜欢程度是?选 1(非常不喜欢)到 5(非常喜欢)。
+                下面 {likertCount} 件事,如果让你做,你对它的喜欢程度是?选 1(非常不喜欢)到 5(非常喜欢)。
               </p>
               <p className="text-xs text-ink-soft mt-2 italic">
-                基于霍兰德 RIASEC 职业兴趣理论的简化测评,结合你的经历信号做交叉验证 · 共 19 题约 3-4 分钟。
+                {version === "full"
+                  ? `完整版:基于美国劳工部 O*NET 职业兴趣量表(60 题)+ 经历信号交叉验证 · 共 ${ALL_QUESTIONS.length} 题约 8-10 分钟,结果更稳。`
+                  : `基于霍兰德 RIASEC 职业兴趣理论的简化测评,结合你的经历信号做交叉验证 · 共 ${ALL_QUESTIONS.length} 题约 3-4 分钟。`}
               </p>
             </div>
           </section>
