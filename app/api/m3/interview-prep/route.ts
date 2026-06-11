@@ -6,7 +6,9 @@
  * Anti-fabrication:参考答案只用简历真实内容组织,不编造数字 / 经历 / 成果。
  * 这是和竞品的关键区别 —— 竞品参考答案里会编"覆盖 200+ 用户访谈""CET-6 568 分"等。
  *
- * Body: { parsedResume, jdContext }
+ * Body: { parsedResume, jdContext, acceptedEdits? }
+ *   acceptedEdits:用户在 m3 已采纳的改写/新增。面试题必须基于**优化后**的简历,
+ *   否则会问优化前的旧内容(和"基于你改好的简历"的承诺不符)。
  * 返回: { categories: [{ name, questions: [{ q, reference_answer, tip }] }] }
  */
 
@@ -84,6 +86,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const parsedResume = body.parsedResume ?? null;
     const jdContext = body.jdContext ?? null;
+    const acceptedEdits = Array.isArray(body.acceptedEdits) ? body.acceptedEdits : [];
     if (!parsedResume) {
       return NextResponse.json({ error: "parsedResume required" }, { status: 400 });
     }
@@ -91,6 +94,19 @@ export async function POST(request: NextRequest) {
     const jdLine = jdContext
       ? `目标岗位:${jdContext.jd_summary ?? ""}\nmust_have: ${(jdContext.must_have ?? []).join("、")}`
       : "无明确 JD,按简历求职方向出通用题";
+
+    // 已采纳的优化 = 权威优化版。面试题必须基于这些改写/新增,而非原始简历对应处。
+    const editsBlock =
+      acceptedEdits.length > 0
+        ? `\n\n【用户已采纳的简历优化 —— 权威优化版,出题/参考答案请优先采用这些改写/新增,覆盖原始简历对应处】\n${acceptedEdits
+            .map((e: { target?: string; original_text?: string; suggested_text?: string }, i: number) => {
+              const isNew = String(e.target ?? "").startsWith("new:");
+              return isNew
+                ? `${i + 1}. [新增] ${String(e.suggested_text ?? "").trim()}`
+                : `${i + 1}. [改写] 原:${String(e.original_text ?? "").trim()} → 优化后:${String(e.suggested_text ?? "").trim()}`;
+            })
+            .join("\n")}`
+        : "";
 
     const prompt = `你是资深面试官 + 求职辅导老师。基于用户的简历 + 目标 JD,生成一份面试准备文档,帮用户提前准备。
 
@@ -113,8 +129,8 @@ export async function POST(request: NextRequest) {
      ③ 口语、第一人称、可解释;真实内容不够撑长度时,宁可把现有经历讲透,也不要灌水套话
   · tip:答题技巧 —— **一句可操作的结构/时间/重点提示**(40-80 字),例:"控制 2 分钟内,先讲身份和经验年限,再重点讲和 JD 匹配度最高的那段经历+量化成果,最后点出匹配点,不要讲无关的个人生活信息"
 
-【用户简历】
-${JSON.stringify(parsedResume, null, 2).slice(0, 5000)}
+【用户简历(原始结构)】
+${JSON.stringify(parsedResume, null, 2).slice(0, 5000)}${editsBlock}
 
 【${jdLine}】
 
