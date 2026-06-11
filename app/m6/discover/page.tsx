@@ -61,6 +61,14 @@ function resumeSignature(r: unknown): string {
   return (h >>> 0).toString(36);
 }
 
+// 猎聘优先:稳定排序,把 liepin 平台岗位提到最前(组内保持原有匹配分顺序)
+function sortLiepinFirst(jobs: Job[]): Job[] {
+  return [
+    ...jobs.filter((j) => j.platform === "liepin"),
+    ...jobs.filter((j) => j.platform !== "liepin"),
+  ];
+}
+
 function DiscoverPageInner() {
   const router = useRouter();
   const sp = useSearchParams();
@@ -393,7 +401,7 @@ function DiscoverPageInner() {
         scorer: { step: "scorer", status: "done", label: `Agent 2 — Scorer:评分 ${data.stats.scored} 个岗位` },
         formatter: { step: "formatter", status: "done", label: `Agent 4 — Formatter:推荐 ${data.stats.recommended} 个(80 分放行 + Fallback 保底)` },
       });
-      setRecommendedJobs(data.jobs);
+      setRecommendedJobs(sortLiepinFirst(data.jobs));
       setMatchMeta({
         keywords: data.keywords,
         city: data.city,
@@ -444,7 +452,7 @@ function DiscoverPageInner() {
       if (fresh.length === 0) {
         setNoMoreRec(true);
       } else {
-        setRecommendedJobs([...recommendedJobs, ...fresh]);
+        setRecommendedJobs(sortLiepinFirst([...recommendedJobs, ...fresh]));
         setRecommendPage(nextPage);
       }
     } catch (err) {
@@ -974,14 +982,6 @@ function RecommendTab({
           </p>
           {meta.reasoning && (
             <p className="text-xs text-ink-soft leading-relaxed">{meta.reasoning}</p>
-          )}
-          {meta.stats && (
-            <p className="text-xs text-ink-muted mt-2">
-              共抓取 {meta.stats.scraped} 个 · 评分 {meta.stats.scored} 个 · 推荐{" "}
-              {meta.stats.recommended} 个
-              {meta.stats.blockedPlatforms.length > 0 &&
-                ` · 平台兜底生效:${meta.stats.blockedPlatforms.join("/")}`}
-            </p>
           )}
         </div>
       )}
