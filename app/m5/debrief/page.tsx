@@ -384,6 +384,11 @@ function Module5DebriefContent() {
     try {
       const he = highlightsToHidden(highlights);
       const jdText = (session.config.jd_text ?? "").trim();
+      const roleName = (session.config.target_role ?? "").trim();
+      // JD 回流改简历:带上 raw_jd_text + 目标岗位名(role_name),避免 m3 目标岗位丢失
+      const jdCtx = jdText
+        ? { raw_jd_text: jdText, ...(roleName ? { role_name: roleName } : {}) }
+        : null;
       const parsed = await parseInterviewResume();
       appendHiddenToLocal(he); // 本地池兜底(游客必需,登录也留一份)
 
@@ -400,7 +405,7 @@ function Module5DebriefContent() {
               .from("m3_resumes")
               .update({
                 parsed_resume_json: parsed,
-                jd_context_json: jdText ? { raw_jd_text: jdText } : null,
+                jd_context_json: jdCtx,
                 hidden_experience_json: he,
               })
               .eq("conversation_id", convId);
@@ -421,10 +426,10 @@ function Module5DebriefContent() {
             JSON.stringify(parsed),
           );
         }
-        if (jdText) {
+        if (jdCtx) {
           window.localStorage.setItem(
             STORAGE_KEYS.JD_CONTEXT,
-            JSON.stringify({ raw_jd_text: jdText }),
+            JSON.stringify(jdCtx),
           );
         }
       } catch {

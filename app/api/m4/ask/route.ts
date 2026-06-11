@@ -1,11 +1,12 @@
 /**
- * POST /api/m4/ask — 模块 4 · Ask AI(基于项目上下文回答学生问题)
+ * POST /api/m4/ask — 模块 4 · Ask AI(基于项目上下文多轮对话)
  *
  * Body:
  *   {
- *     project: M4Project,        // 当前项目卡(含 title / why / weekly_plan / metrics_dictionary)
- *     question: string,          // 用户问题(eg "我访谈时用户答得很笼统怎么办")
- *     userNotes?: string | null  // 用户已记的项目笔记(可选,让 AI 知道当前进展)
+ *     project: M4Project,                       // 当前项目卡(含 title / why / weekly_plan / metrics_dictionary)
+ *     messages?: { role: "user"|"assistant"; content: string }[],  // 多轮对话历史(末条是本次新问题)
+ *     question?: string,                        // (向后兼容)单条问题 = messages 只有一条 user
+ *     userNotes?: string | null                 // 用户已记的项目笔记(可选,让 AI 知道当前进展)
  *   }
  *
  * 返回:
@@ -17,14 +18,18 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { chat } from "@/lib/llm";
+import { chat, type ChatMessage } from "@/lib/llm";
 import type { M4Project } from "@/lib/m4-types";
 
+type Turn = { role: "user" | "assistant"; content: string };
 type RequestBody = {
   project?: M4Project;
+  messages?: Turn[];
   question?: string;
   userNotes?: string | null;
 };
+
+const MAX_TURNS = 12; // 防 prompt 过长:只保留最近 12 轮
 
 function buildSystemPrompt(): string {
   return `你是「Offer 捕手」模块 4 的项目教练。学生正在做一个为期 2-4 周的补强项目,他卡住了来问你。
@@ -56,8 +61,24 @@ export async function POST(req: NextRequest) {
   }
 
   const project = body.project;
-  const question = (body.question ?? "").trim();
-  if (!project || !question) {
+  // 多轮:优先用 messages;没有则回退单条 question
+  const rawTurns: Turn[] = Array.isArray(body.messages)
+    ? body.messages
+    : body.question
+      ? [{ role: "user", content: body.question }]
+      : [];
+  const turns = rawTurns
+    .filter(
+      (t) =>
+        t &&
+        (t.role === "user" || t.role === "assistant") &&
+        typeof t.content === "string" &&
+        t.content.trim().length > 0,
+    )
+    .slice(-MAX_TURNS)
+    .map((t) => ({ role: t.role, content: t.content.trim() }));
+
+  if (!project || turns.length === 0 || turns[turns.length - 1].role !== "user") {
     return NextResponse.json(
       { error: "missing project or question" },
       { status: 400 },
@@ -88,25 +109,22 @@ export async function POST(req: NextRequest) {
           .join("; ") || "未指定"}
 【需要的技能】${project.skills_required.join(", ") || "未指定"}`;
 
-  const userPrompt = `${projectBrief}
+  const systemPrompt = `${buildSystemPrompt()}
 
-${userNotes ? `【学生已记的笔记】\n${userNotes}\n\n` : ""}【学生现在问】
-${question}
+【当前项目上下文】
+${projectBrief}${userNotes ? `\n\n【学生已记的笔记】\n${userNotes}` : ""}`;
 
-请按 system 原则回答。`;
+  const messages: ChatMessage[] = [
+    { role: "system", content: systemPrompt },
+    ...turns,
+  ];
 
   try {
-    const answer = await chat(
-      [
-        { role: "system", content: buildSystemPrompt() },
-        { role: "user", content: userPrompt },
-      ],
-      {
-        model: "chat",
-        temperature: 0.6,
-        max_tokens: 800,
-      },
-    );
+    const answer = await chat(messages, {
+      model: "chat",
+      temperature: 0.6,
+      max_tokens: 800,
+    });
 
     return NextResponse.json({ answer: answer.trim() });
   } catch (err) {

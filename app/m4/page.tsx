@@ -15,8 +15,8 @@ import type { LatestResume } from "@/lib/sync/useLatestResume";
 import { useUser } from "@/lib/auth/useUser";
 import { createClient } from "@/lib/supabase/client";
 import { appendHiddenToLocal } from "@/lib/sync/hidden-experience";
-import { createConversation } from "@/lib/conversations";
-import { useM4Projects } from "@/lib/useM4Projects";
+import { createConversation, listConversations } from "@/lib/conversations";
+import { useM4Projects, type SaveCloudResult } from "@/lib/useM4Projects";
 import { projectToHiddenExperience, TIME_TIERS } from "@/lib/m4-types";
 import type {
   GapReport,
@@ -36,6 +36,11 @@ type M1TargetRole = {
   industry: string;
   employability_level: "now" | "needs_project" | "long_term";
   saved_at: string;
+  // 富载荷(R2):测评算出的个性化信号，治「千人一面」
+  why_fit?: string;
+  match_percentage?: number;
+  riasec_code?: string;
+  evidence_summary?: string;
 };
 
 /**
@@ -79,34 +84,29 @@ type ParsedResume = {
   skills?: Record<string, string[]>;
 } | null;
 
-const STATUS_LABEL: Record<M4ProjectStatus, string> = {
-  PROPOSED: "📋 PROPOSED · 未开工",
-  IN_PROGRESS: "🟡 IN_PROGRESS · 进行中",
-  DONE: "✅ DONE · 已完成",
-};
-
-const STATUS_NEXT: Record<M4ProjectStatus, M4ProjectStatus | null> = {
-  PROPOSED: "IN_PROGRESS",
-  IN_PROGRESS: "DONE",
-  DONE: null,
-};
-
-const PROJECT_NEXT_LABEL: Record<M4ProjectStatus, string | null> = {
-  PROPOSED: "开始做这个项目 →",
-  IN_PROGRESS: "标记为已完成 →",
-  DONE: null,
-};
-const LEARNING_NEXT_LABEL: Record<M4ProjectStatus, string | null> = {
-  PROPOSED: "开始补这一块 →",
-  IN_PROGRESS: "标记为学完 →",
-  DONE: null,
-};
 
 const COVERAGE_LABEL: Record<ScoredGap["current_coverage"], string> = {
   none: "完全没有",
   partial: "沾边不够",
   have: "已具备",
 };
+
+const TIER_ORDER: TimeTier[] = ["sprint", "standard", "deep"];
+
+/**
+ * 建议档位:基于差距报告里「核心缺口(impact≥4)」的 fixable_in,算出最小够用的时间档。
+ * 返回 { tier, coverable }:tier=能覆盖核心缺口的最小档(全都覆盖不了则 deep);
+ * coverable=该档是否真能覆盖全部核心缺口(false → 连深耕档也补不齐,诚实提示)。
+ */
+function recommendTier(report: GapReport): { tier: TimeTier; coverable: boolean } {
+  const core = report.gaps.filter((g) => g.impact >= 4);
+  const considered = core.length > 0 ? core : report.gaps;
+  if (considered.length === 0) return { tier: "sprint", coverable: true };
+  for (const t of TIER_ORDER) {
+    if (considered.every((g) => g.fixable_in?.[t])) return { tier: t, coverable: true };
+  }
+  return { tier: "deep", coverable: false };
+}
 
 /** 把 ParsedResume 摘成 ≤ 500 字的纯文本,给 LLM 当 brief */
 function summarizeResume(pr: ParsedResume): string {
@@ -181,11 +181,48 @@ export default function Module4Page() {
   );
 }
 
+// 补项目里「用真实在招岗位」搜出来供用户挑的岗位卡(对齐 /api/m6/search-jobs 的 Job 子集)
+type MarketJob = {
+  id: string;
+  platform: "51job" | "liepin" | "zhilian";
+  title: string;
+  company: string;
+  city?: string;
+  salary?: string;
+  experience?: string;
+  tags?: string[];
+  jdText?: string;
+};
+
+// 改简历常是「按岗位名推断」的 JD(raw_jd_text 为空,但有 jd_summary/must_have)。
+// 从某个缺口带进补项目时,用这份推断要求合成一份 JD 一起分析 —— 口径与改简历一致,
+// 自然不引入实时搜真岗带来的岗位无关噪声(如 AIDD/CADD)。
+function synthesizeJdFromContext(jc: {
+  role_name?: string;
+  jd_summary?: string;
+  must_have?: string[];
+  nice_to_have?: string[];
+}): string {
+  const parts: string[] = [];
+  if (jc.role_name) parts.push(`目标岗位：${jc.role_name}`);
+  if (jc.jd_summary) parts.push(`岗位概述：${jc.jd_summary}`);
+  if (Array.isArray(jc.must_have) && jc.must_have.length > 0)
+    parts.push("硬性要求：\n" + jc.must_have.map((s) => `- ${s}`).join("\n"));
+  if (Array.isArray(jc.nice_to_have) && jc.nice_to_have.length > 0)
+    parts.push("加分项：\n" + jc.nice_to_have.map((s) => `- ${s}`).join("\n"));
+  return parts.join("\n\n");
+}
+
 function Module4Content() {
   const sp = useSearchParams();
   const router = useRouter();
   const { user, loading: userLoading } = useUser();
   const fromM1 = sp.get("from") === "m1";
+  const convId = sp.get("c"); // 当前会话(登录态隔离;游客忽略)
+  // 从「改简历」的 JD 关键词缺口点「补项目」进来:fromm3=<m3会话id>(带回那份简历+JD),gap=<缺口关键词>
+  const fromM3 = sp.get("fromm3");
+  const gapKw = sp.get("gap") ?? "";
+  const fromM3Active = !!fromM3 || !!gapKw;
 
   const [jdContext, setJdContext] = useLocalState<JdContext | null>(
     STORAGE_KEYS.JD_CONTEXT,
@@ -275,27 +312,92 @@ function Module4Content() {
     [user, router, jdContext],
   );
   const latestResume = useLatestResume();
-  const [projects, setProjects] = useM4Projects();
+  const [projects, setProjects, { loading: projectsLoading, saveToCloud }] =
+    useM4Projects(convId);
 
-  // M1→M4 直通:读 m1_target_role(预填表单目标岗位/行业)
+  // M1→M4 直通:读 m1_target_role(预填表单目标岗位/行业 + 测评个性化信号)
   const [m1TargetRole, setM1TargetRole] = useState<M1TargetRole | null>(null);
+  // R3:测评时上传过的简历原文(预填 m4 简历框,省得再传一遍)
+  const [m1ResumeSnippet, setM1ResumeSnippet] = useState<string>("");
   useEffect(() => {
     if (!fromM1) return;
     try {
       const raw = window.localStorage.getItem(STORAGE_KEYS.M1_TARGET_ROLE);
       if (raw) setM1TargetRole(JSON.parse(raw) as M1TargetRole);
+      // R3:测评里若上传过简历,把原文片段带到 m4 简历框(标注请确认是否完整/最新)
+      const evRaw = window.localStorage.getItem("m1_evidence");
+      if (evRaw) {
+        const ev = JSON.parse(evRaw) as { source?: string; rawSnippet?: string };
+        if (ev?.source === "resume" && ev.rawSnippet?.trim()) {
+          setM1ResumeSnippet(ev.rawSnippet.trim());
+        }
+      }
     } catch {
       /* ignore */
     }
   }, [fromM1]);
 
+  // 从测评带着目标进来 + 已读到目标 = 本次是 handoff 流程(控制 banner / 自动展开 / 隐藏旧卡)
+  const handoffActive = fromM1 && !!m1TargetRole;
+
+  // —— 会话编排(仅登录态):保证进 m4 时有一个 convId,实现「一个经历一个会话」——
+  //   from=m1  → 永远开一个新空会话(进去是干净表单,不串旧目标的卡)
+  //   有历史会话 → 跳到最近一个(老用户的卡都在里面,不丢)
+  //   无任何会话 → 建第一个
+  const convOrchestrated = useRef(false);
+  useEffect(() => {
+    if (userLoading) return;
+    if (!user) return; // 游客单轨,不做会话编排
+    if (convId) return; // 已经在某个会话里
+    if (convOrchestrated.current) return;
+    convOrchestrated.current = true;
+    let cancelled = false;
+    (async () => {
+      if (fromM1) {
+        let title = "补经历";
+        try {
+          const raw = window.localStorage.getItem(STORAGE_KEYS.M1_TARGET_ROLE);
+          const r = raw ? (JSON.parse(raw) as M1TargetRole) : null;
+          if (r?.role_type) title = `补:${r.role_type}`.slice(0, 20);
+        } catch {
+          /* ignore */
+        }
+        const id = await createConversation("m4", title);
+        if (!cancelled && id) router.replace(`/m4?c=${id}&from=m1`);
+        return;
+      }
+      // 从改简历的缺口来:给这个缺口单开一个新会话(不串旧卡),并把 fromm3/gap 带过去
+      if (fromM3 || gapKw) {
+        const title = (gapKw ? `补:${gapKw}` : "补经历").slice(0, 20);
+        const id = await createConversation("m4", title);
+        if (!cancelled && id) {
+          const qs = new URLSearchParams({ c: id });
+          if (fromM3) qs.set("fromm3", fromM3);
+          if (gapKw) qs.set("gap", gapKw);
+          router.replace(`/m4?${qs.toString()}`);
+        }
+        return;
+      }
+      const convs = await listConversations("m4");
+      if (cancelled) return;
+      if (convs.length > 0) router.replace(`/m4?c=${convs[0].id}`);
+      else {
+        const id = await createConversation("m4", "补经历 1");
+        if (!cancelled && id) router.replace(`/m4?c=${id}`);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [user, userLoading, convId, fromM1, fromM3, gapKw, router]);
+
   // M3→M4:按 ?fromm3=<m3会话id> 读「你在改简历里看的那份」简历+JD,作最高优先预填
   // (修跨模块串简历:登录多会话时不再默认套账号最新那份)
-  const fromM3 = sp.get("fromm3");
   const [handoff, setHandoff] = useState<{
     parsed: ParsedResume;
     role: string;
     jd: string;
+    jdInferred: boolean; // true = 这段 JD 是按岗位名推断合成的(非真实 JD),给前端标注用
   } | null>(null);
   // 探针:fromm3 跳转时,IntakeForm 的 role/jd 用 useState(initialJd) 在挂载时冻结。
   // handoff 是异步晚到的,若先挂载表单 → role/JD 永远填不进(简历走 prop 响应式没事)。
@@ -324,11 +426,18 @@ function Module4Content() {
           const jc = (data.jd_context_json ?? {}) as {
             role_name?: string;
             raw_jd_text?: string;
+            jd_summary?: string;
+            must_have?: string[];
+            nice_to_have?: string[];
           };
+          // 有真 JD 用真 JD;改简历常是推断 JD(raw 为空)→ 合成一份,绝不再去搜真岗
+          const rawJd = (jc.raw_jd_text ?? "").trim();
+          const synth = rawJd || synthesizeJdFromContext(jc);
           setHandoff({
             parsed: (data.parsed_resume_json ?? null) as ParsedResume,
             role: jc.role_name ?? "",
-            jd: jc.raw_jd_text ?? "",
+            jd: synth,
+            jdInferred: !rawJd && synth.length > 0, // 无真 JD、靠合成 → 标记为推断
           });
         }
         setHandoffPending(false);
@@ -342,9 +451,29 @@ function Module4Content() {
   const [showForm, setShowForm] = useState(false);
   const [adoptErr, setAdoptErr] = useState<string | null>(null);
 
+  // 切换会话:清空选中卡,让 activeProject 重新落到新会话的第一张(防显示上个会话的卡)
+  useEffect(() => {
+    setActiveId(null);
+  }, [convId]);
+
   useEffect(() => {
     if (!activeId && projects.length > 0) setActiveId(projects[0].id);
   }, [activeId, projects]);
+
+  const isGuest = !userLoading && !user;
+
+  // 从测评带目标进来时自动展开表单。
+  //   登录:from=m1 已开新空会话(projects 为空)→ 干净表单,不串旧卡。
+  //   游客:单轨无法开新会话 → 也展开,并在下方隐藏旧卡(止血),避免新分析与旧卡并排。
+  const autoOpenedRef = useRef(false);
+  useEffect(() => {
+    if ((!handoffActive && !fromM3Active) || projectsLoading || autoOpenedRef.current)
+      return;
+    if (projects.length === 0 || isGuest) {
+      autoOpenedRef.current = true;
+      setShowForm(true);
+    }
+  }, [handoffActive, fromM3Active, projectsLoading, projects.length, isGuest]);
 
   const activeProject = useMemo(
     () => projects.find((p) => p.id === activeId) ?? null,
@@ -355,6 +484,8 @@ function Module4Content() {
   const prefillRole =
     handoff?.role || jdContext?.role_name || m1TargetRole?.role_type || "";
   const prefillJd = handoff?.jd || jdContext?.raw_jd_text || "";
+  // 这段预填 JD 是否为「按岗位名推断」的(改简历常没传真 JD)→ 前端标注 + 允许切换到真岗
+  const prefillJdInferred = !!handoff?.jdInferred;
   const prefillSource: "m3" | "m1" | null =
     handoff || jdContext?.raw_jd_text ? "m3" : m1TargetRole ? "m1" : null;
 
@@ -371,8 +502,11 @@ function Module4Content() {
       setProjects((prev) => [...newProjects, ...prev]);
       setActiveId(newProjects[0]?.id ?? null);
       setShowForm(false);
+      // 首次 handoff 已落地 → 去掉 from=m1 / fromm3 / gap,后续不再触发横幅/止血
+      if (fromM1 || fromM3Active)
+        router.replace(convId ? `/m4?c=${convId}` : "/m4");
     },
-    [setProjects],
+    [setProjects, fromM1, fromM3Active, convId, router],
   );
 
   const updateProject = useCallback(
@@ -380,25 +514,6 @@ function Module4Content() {
       setProjects((prev) => prev.map((p) => (p.id === id ? updater(p) : p)));
     },
     [setProjects],
-  );
-
-  const handleAdvanceStatus = useCallback(
-    (id: string) => {
-      updateProject(id, (p) => {
-        const next = STATUS_NEXT[p.status];
-        if (!next) return p;
-        const nowIso = new Date().toISOString();
-        return {
-          ...p,
-          status: next,
-          started_at:
-            next === "IN_PROGRESS" && !p.started_at ? nowIso : p.started_at,
-          done_at: next === "DONE" ? nowIso : p.done_at,
-          committable: next === "DONE" && p.notes.trim().length > 10,
-        };
-      });
-    },
-    [updateProject],
   );
 
   const handleToggleTask = useCallback(
@@ -416,7 +531,8 @@ function Module4Content() {
       updateProject(id, (p) => ({
         ...p,
         notes,
-        committable: p.status === "DONE" && notes.trim().length > 10,
+        // 不再要求「先标完成」:写够 10 字实际成果即可送进简历优化
+        committable: notes.trim().length > 10,
       }));
     },
     [updateProject],
@@ -439,7 +555,7 @@ function Module4Content() {
 
         <div className="flex">
           <Suspense fallback={<aside className="w-60 flex-shrink-0" />}>
-            <ConversationSwitcher module="m4" basePath="/m4" defaultTitle="项目" />
+            <ConversationSwitcher module="m4" basePath="/m4" defaultTitle="补经历" />
           </Suspense>
           <div className="flex-1 min-w-0">
             <section className="border-b border-border">
@@ -454,15 +570,63 @@ function Module4Content() {
                   补一段能写进简历的经历
                 </h1>
                 <p className="text-ink-soft text-sm">
-                  先把你和目标岗位的真实差距分析清楚,再按你的可准备时间出方案 ·
-                  时间够就做项目,时间紧就先快速补概念 · 做完再加进简历,绝不把"提案"包装成"已完成"
+                  先把你和目标岗位的真实差距分析清楚,再按你的可准备时间出方案
                 </p>
               </div>
             </section>
 
-            {(projects.length === 0 || showForm) && (
+            {/* 登录态正在建/选会话(还没 convId)→ 占位,避免空表单闪一下又跳走 */}
+            {!!user && !convId ? (
+              <section className="border-b border-border bg-warm-bg-deep/30">
+                <div className="max-w-[1100px] mx-auto px-6 py-12">
+                  <p className="text-sm text-ink-soft text-center">正在准备工作区…</p>
+                </div>
+              </section>
+            ) : (projects.length === 0 || showForm) && (
               <section className="border-b border-border bg-warm-bg-deep/30">
                 <div className="max-w-[1100px] mx-auto px-6 py-8">
+                  {/* 从测评带来的目标横幅:让用户看见"这次补的是测评推荐的哪个方向" */}
+                  {handoffActive && showForm && m1TargetRole && (
+                    <div className="mb-6 rounded-xl border-2 border-esther-blue/30 bg-esther-blue/5 px-4 py-3">
+                      <p className="text-xs font-semibold text-esther-blue mb-1">
+                        📥 从测评带来的目标
+                      </p>
+                      <p className="text-sm text-ink">
+                        <span className="font-bold">{m1TargetRole.role_type}</span>
+                        {m1TargetRole.industry ? (
+                          <span className="text-ink-soft"> · {m1TargetRole.industry}</span>
+                        ) : null}
+                        {typeof m1TargetRole.match_percentage === "number" ? (
+                          <span className="text-ink-soft"> · 匹配 {m1TargetRole.match_percentage}%</span>
+                        ) : null}
+                      </p>
+                      {m1TargetRole.why_fit ? (
+                        <p className="mt-1 text-xs text-ink-soft leading-relaxed">
+                          测评判断：{m1TargetRole.why_fit}
+                        </p>
+                      ) : null}
+                      <p className="mt-1.5 text-[11px] text-ink-muted">
+                        已为你预填目标岗位{m1ResumeSnippet ? "和测评时上传的简历" : ""}，确认后开始分析差距。
+                      </p>
+                    </div>
+                  )}
+                  {/* 从「改简历」的 JD 关键词缺口带来的:让用户看见"这次专门补的是哪个能力" */}
+                  {fromM3Active && showForm && (
+                    <div className="mb-6 rounded-xl border-2 border-esther-blue/30 bg-esther-blue/5 px-4 py-3">
+                      <p className="text-xs font-semibold text-esther-blue mb-1">
+                        📥 从改简历带来的缺口
+                      </p>
+                      <p className="text-sm text-ink">
+                        要补强的能力：
+                        <span className="font-bold">
+                          {gapKw || "目标岗位相关经历"}
+                        </span>
+                      </p>
+                      <p className="mt-1.5 text-[11px] text-ink-muted">
+                        已带入你在简历优化里的那份简历和目标岗位，做完一段经历后回到「改简历」即可补进去。
+                      </p>
+                    </div>
+                  )}
                   {handoffPending ? (
                     <p className="text-sm text-ink-soft py-8 text-center">
                       正在带入你在简历优化里的简历和目标岗位…
@@ -473,6 +637,9 @@ function Module4Content() {
                       handoffParsed={handoff?.parsed ?? null}
                       initialRole={prefillRole}
                       initialJd={prefillJd}
+                      initialResumeText={m1ResumeSnippet}
+                      focusGap={gapKw}
+                      initialJdInferred={prefillJdInferred}
                       source={prefillSource}
                       hasProjects={projects.length > 0}
                       onCancel={() => setShowForm(false)}
@@ -484,22 +651,13 @@ function Module4Content() {
               </section>
             )}
 
-            {projects.length > 0 && (
+            {/* 止血:从测评带新目标、表单正开着时,隐藏下方旧卡,避免新分析与旧卡并排
+                (登录态此时多半是新空会话本就无卡;游客单轨靠这条隐藏) */}
+            {projects.length > 0 && !((handoffActive || fromM3Active) && showForm) && (
               <div className="max-w-[1100px] mx-auto px-6 py-10 space-y-6">
                 {adoptErr && (
                   <div className="rounded-lg border border-esther-red/40 bg-esther-red/10 px-3 py-2 text-xs text-esther-red">
                     ⚠️ {adoptErr}
-                  </div>
-                )}
-                {!showForm && (
-                  <div className="flex justify-end">
-                    <button
-                      type="button"
-                      onClick={() => setShowForm(true)}
-                      className="inline-flex items-center gap-1 rounded-full border-2 border-esther-blue/40 bg-card text-esther-blue px-4 py-2 text-sm font-medium hover:bg-esther-blue/5 transition-colors"
-                    >
-                      ➕ 再补一个(换简历 / 换目标 / 换时间档)
-                    </button>
                   </div>
                 )}
                 <ProjectTabs
@@ -511,21 +669,23 @@ function Module4Content() {
                   activeProject.kind === "learning" ? (
                     <LearningDetail
                       project={activeProject}
-                      onAdvance={() => handleAdvanceStatus(activeProject.id)}
                       onNotesChange={(n) => handleNotesChange(activeProject.id, n)}
                       onDelete={() => handleDelete(activeProject.id)}
                       onAdopt={() => handleAdoptToResume(activeProject)}
+                      onSaveCloud={saveToCloud}
+                      isGuest={isGuest}
                     />
                   ) : (
                     <ProjectDetail
                       project={activeProject}
-                      onAdvance={() => handleAdvanceStatus(activeProject.id)}
                       onToggleTask={(taskId) =>
                         handleToggleTask(activeProject.id, taskId)
                       }
                       onNotesChange={(n) => handleNotesChange(activeProject.id, n)}
                       onDelete={() => handleDelete(activeProject.id)}
                       onAdopt={() => handleAdoptToResume(activeProject)}
+                      onSaveCloud={saveToCloud}
+                      isGuest={isGuest}
                     />
                   )
                 ) : (
@@ -552,6 +712,9 @@ function IntakeForm({
   handoffParsed,
   initialRole,
   initialJd,
+  initialResumeText = "",
+  focusGap = "",
+  initialJdInferred = false,
   source,
   hasProjects,
   onCancel,
@@ -563,6 +726,12 @@ function IntakeForm({
   handoffParsed: ParsedResume;
   initialRole: string;
   initialJd: string;
+  /** R3:测评时上传过的简历原文片段,预填进粘贴框(用户可确认/补全) */
+  initialResumeText?: string;
+  /** 从改简历的 JD 关键词缺口点进来时,要重点补强的能力关键词(让差距分析优先覆盖它) */
+  focusGap?: string;
+  /** 预填的 JD 是否为「按岗位名推断」合成的(非真实 JD)→ 顶部标注 + 允许切换到真岗 */
+  initialJdInferred?: boolean;
   source: "m3" | "m1" | null;
   hasProjects: boolean;
   onCancel: () => void;
@@ -612,6 +781,8 @@ function IntakeForm({
   const [jd, setJd] = useState(initialJd);
   const [srcLabel, setSrcLabel] = useState<"m3" | "m1" | null>(source);
   const [timeTier, setTimeTier] = useState<TimeTier | null>(null);
+  // 当前 JD 是否为「按岗位名推断」合成的(改简历常没传真 JD);用户一改 JD 就不算推断了
+  const [jdInferred, setJdInferred] = useState(initialJdInferred);
 
   // 类② 修:目标岗位/JD 的预填来自【异步晚到】的源(?from=m1 的 m1_target_role、
   // JD_CONTEXT 总线 hydrate、fromm3 DB handoff)。useState(initialX) 在挂载首帧冻结了空值,
@@ -626,9 +797,76 @@ function IntakeForm({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialJd]);
   useEffect(() => {
+    if (initialJdInferred) setJdInferred(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialJdInferred]);
+  useEffect(() => {
     if (source && srcLabel === null) setSrcLabel(source);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [source]);
+
+  // —— 没贴 JD 时的"岗位要求来源":默认 AI 推断;可改成搜真实在招岗位并挑一条 ——
+  const [groundMode, setGroundMode] = useState<"infer" | "market">("infer");
+  const [searchCity, setSearchCity] = useState("");
+  const [jobResults, setJobResults] = useState<MarketJob[] | null>(null);
+  const [jobsLoading, setJobsLoading] = useState(false);
+  const [jobsErr, setJobsErr] = useState<string | null>(null);
+  const [jobsAreMock, setJobsAreMock] = useState(false);
+  const [pickedJob, setPickedJob] = useState<MarketJob | null>(null);
+  const [pickedJdText, setPickedJdText] = useState("");
+  const [pickingDetail, setPickingDetail] = useState(false);
+
+  async function handleSearchJobs() {
+    const r = role.trim();
+    if (!r) {
+      setJobsErr("先在上面填目标岗位名,再搜真实在招岗位");
+      return;
+    }
+    setJobsLoading(true);
+    setJobsErr(null);
+    setJobResults(null);
+    setPickedJob(null);
+    setPickedJdText("");
+    try {
+      const res = await fetch("/api/m6/search-jobs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ role: r, city: searchCity.trim() || "上海", limit: 6 }),
+      });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error ?? `搜索失败 HTTP ${res.status}`);
+      setJobResults(Array.isArray(j.jobs) ? j.jobs.slice(0, 6) : []);
+      setJobsAreMock(!!j.isMock);
+    } catch (e) {
+      setJobsErr(e instanceof Error ? e.message : "搜索失败,请重试");
+    } finally {
+      setJobsLoading(false);
+    }
+  }
+
+  async function handlePickJob(job: MarketJob) {
+    setPickedJob(job);
+    setPickedJdText("");
+    // mock 数据直接用列表里的 jdText;真岗去 /job-detail 拉全文
+    if (jobsAreMock || !job.id) {
+      setPickedJdText((job.jdText ?? "").trim());
+      return;
+    }
+    setPickingDetail(true);
+    try {
+      const res = await fetch("/api/m6/job-detail", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jobId: job.id, platform: job.platform }),
+      });
+      const j = await res.json().catch(() => ({}));
+      setPickedJdText((j.jdText ?? job.jdText ?? "").trim());
+    } catch {
+      setPickedJdText((job.jdText ?? "").trim());
+    } finally {
+      setPickingDetail(false);
+    }
+  }
 
   // —— 流程状态 ——
   const [busy, setBusy] = useState(false);
@@ -655,6 +893,25 @@ function IntakeForm({
     if (latestResume.hasResume) setResumeMode("saved");
     autoPicked.current = true;
   }, [latestResume.loading, latestResume.hasResume, handoffParsed]);
+
+  // R3:测评时上传过简历 → 预填粘贴框(只在没有账号已存简历时切到「换一份」,不覆盖用户已输入)
+  const m1ResumePrefilled = useRef(false);
+  const [resumeFromM1, setResumeFromM1] = useState(false);
+  useEffect(() => {
+    if (m1ResumePrefilled.current) return;
+    if (!initialResumeText.trim()) return;
+    if (latestResume.loading) return;
+    m1ResumePrefilled.current = true;
+    if (resumeText.trim() === "") {
+      setResumeText(initialResumeText);
+      setResumeFromM1(true);
+      if (!handoffParsed && !latestResume.hasResume) {
+        setResumeMode("new");
+        setResumeTab("paste");
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialResumeText, latestResume.loading, latestResume.hasResume, handoffParsed]);
 
   // 简历就绪:用已有简历 → 有解析结果;换一份 → 有 ≥20 字原始文本(解析延后做)
   const resumeReady =
@@ -721,15 +978,46 @@ function IntakeForm({
       setError("请选一个可准备时间档");
       return;
     }
+    const roleStr = role.trim();
+    // 真实粘贴的 JD(用户自己贴的,非推断合成)→ 永远优先
+    const hasRealPastedJd = jdReady && !jdInferred;
+    // 选了「用真实在招岗位」(无真贴 JD 时可选,推断 JD 也可切过来)→ 必须先挑一条岗位
+    const useMarketJob = !hasRealPastedJd && groundMode === "market";
+    if (useMarketJob && (!pickedJob || pickedJdText.trim().length < 20)) {
+      setError(
+        "你选了「用真实在招岗位」分析 —— 请先搜索并选中一条岗位,或切换为「让 AI 按岗位知识推断」",
+      );
+      return;
+    }
     setBusy(true);
     setError(null);
-    const roleStr = role.trim();
     try {
       const parsedResume = await resolveParsedResume();
-      setPhase("正在把你的简历和岗位逐条对照,找出真实差距…(约 15-30 秒)");
-      const body = jdReady
-        ? { mode: "full", jdText: jd.trim(), parsedResume }
-        : { mode: "role", roleName: roleStr, parsedResume };
+      // 实际喂给分析的 JD:
+      //   真贴 JD > 挑的真实岗位 > 改简历带来的推断 JD(jdReady) > 无(纯岗位名推断)
+      const effectiveJd = hasRealPastedJd
+        ? jd.trim()
+        : useMarketJob
+          ? pickedJdText.trim()
+          : jdReady
+            ? jd.trim() // 改简历推断 JD,口径与改简历一致
+            : "";
+      setPhase(
+        effectiveJd
+          ? "正在把你的简历和岗位逐条对照,找出真实差距…(约 15-30 秒)"
+          : "正在按岗位常见要求,和你的简历逐条对照…(约 15-30 秒)",
+      );
+      const focus = focusGap.trim();
+      const body = effectiveJd
+        ? { mode: "full", jdText: effectiveJd, parsedResume, focusGap: focus }
+        : {
+            mode: "role",
+            roleName: roleStr,
+            parsedResume,
+            focusGap: focus,
+            // 用户显式选「AI 推断」→ 不搜真岗(搜真岗只在用户主动挑岗位时,走上面的 mode=full)
+            skipMarketSearch: true,
+          };
       const res = await fetch("/api/m4/analyze-gaps", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -743,15 +1031,15 @@ function IntakeForm({
       setReport(rep);
       // 默认勾选所有缺口
       setPicked(new Set(rep.gaps.map((g) => g.jd_requirement)));
-      // 把 JD 落到跨模块总线(供 M5 等继承)
-      if (jdReady) {
+      // 有真 JD(粘贴或挑的真岗)→ 落到跨模块总线(供 M5 等继承)
+      if (effectiveJd) {
         onJdParsed({
           gaps: rep.gaps.map((g) => ({
             jd_requirement: g.jd_requirement,
             why_gap: g.why_matters,
           })),
-          raw_jd_text: jd.trim(),
-          role_name: roleStr || undefined,
+          raw_jd_text: effectiveJd,
+          role_name: roleStr || pickedJob?.title || undefined,
         });
       }
       setStep("report");
@@ -833,6 +1121,7 @@ function IntakeForm({
           })
         }
         timeTier={timeTier!}
+        onChangeTier={(t) => setTimeTier(t)}
         busy={busy}
         phase={phase}
         error={error}
@@ -942,11 +1231,17 @@ function IntakeForm({
 
             {resumeTab === "paste" ? (
               <div>
+                {resumeFromM1 && (
+                  <p className="text-[11px] text-esther-blue bg-esther-blue/5 border border-esther-blue/20 rounded-lg px-2.5 py-1.5 mb-1.5">
+                    📎 已带入你测评时上传的简历，请确认是否完整 / 最新，可直接补全
+                  </p>
+                )}
                 <textarea
                   value={resumeText}
                   onChange={(e) => {
                     setResumeText(e.target.value);
                     setParsedCache(null); // 文本变了,解析缓存失效
+                    if (resumeFromM1) setResumeFromM1(false);
                   }}
                   placeholder="直接粘贴简历全文(姓名 / 教育 / 实习 / 项目 / 技能…)— 贴完直接点下面「分析差距」即可,不用单独解析"
                   className="w-full min-h-[160px] px-4 py-3 rounded-xl border-2 border-border bg-card text-sm text-ink placeholder-ink-muted focus:outline-none focus:border-esther-blue resize-y"
@@ -1028,23 +1323,167 @@ function IntakeForm({
             className="w-full px-4 py-2.5 rounded-xl border-2 border-border bg-card text-sm text-ink placeholder-ink-muted focus:outline-none focus:border-esther-blue"
           />
           <div>
+            {/* 改简历常没传真 JD → 这段是按岗位名推断合成的;明确标注,别让用户误当真实 JD */}
+            {jdInferred && jd.trim().length > 0 && (
+              <div className="mb-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2">
+                <p className="text-[11px] text-amber-700 leading-relaxed">
+                  🧠 以下是<span className="font-semibold">按岗位名「{role || "目标岗位"}」推断的要求(非真实 JD)</span> —— 与你在改简历里用的口径一致。
+                  想更贴市场?在下方改用「真实在招岗位」;也可直接编辑这段或粘贴真实 JD。
+                </p>
+              </div>
+            )}
             <textarea
               value={jd}
               onChange={(e) => {
                 setJd(e.target.value);
+                setJdInferred(false); // 用户手改 → 当作真实 JD,去掉推断标注
                 if (srcLabel) setSrcLabel(null);
               }}
               placeholder="(可选,推荐)粘贴目标 JD 全文 — 填了差距分析更精准,只填岗位名也能跑"
               className="w-full min-h-[120px] px-4 py-3 rounded-xl border-2 border-border bg-card text-sm text-ink placeholder-ink-muted focus:outline-none focus:border-esther-blue resize-y"
             />
             <p className="text-[11px] text-ink-muted mt-1">
-              {jd.trim().length === 0
-                ? "没填 JD → 基于岗位名 + 你的简历做通用差距分析"
-                : jdReady
-                  ? "✓ 会按这段 JD 逐条拆解你的差距"
-                  : `还差 ${30 - jd.trim().length} 字才会按 JD 精准拆解(也可只靠岗位名)`}
+              {jdInferred && jd.trim().length > 0
+                ? "🧠 当前按「推断要求」分析(口径同改简历);要更贴市场可在下方改用真实在招岗位"
+                : jd.trim().length === 0
+                  ? "没填 JD?可在下方选「岗位要求」从哪来"
+                  : jdReady
+                    ? "✓ 会按这段 JD 逐条拆解你的差距"
+                    : `还差 ${30 - jd.trim().length} 字才会按 JD 精准拆解(也可在下方选其它来源)`}
             </p>
           </div>
+
+          {/* 没贴真 JD(或当前是推断 JD)→ 选岗位要求来源:AI 推断 / 搜真实在招岗位挑一条 */}
+          {(!jdReady || jdInferred) && (
+            <div className="rounded-xl border-2 border-dashed border-border bg-warm-bg-deep/20 p-3.5 space-y-3">
+              <p className="text-xs font-medium text-ink">
+                岗位要求从哪来:
+              </p>
+              <div className="grid sm:grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setGroundMode("infer")}
+                  className={`text-left rounded-lg border-2 px-3 py-2 transition-colors ${
+                    groundMode === "infer"
+                      ? "border-esther-blue bg-esther-blue/5"
+                      : "border-border bg-card hover:border-esther-blue/40"
+                  }`}
+                >
+                  <p className="text-sm font-medium text-ink">
+                    🧠 {jdInferred ? "用改简历推断的岗位要求" : "让 AI 按岗位知识推断"}
+                  </p>
+                  <p className="text-[11px] text-ink-muted mt-0.5 leading-relaxed">
+                    {jdInferred
+                      ? "用上面那段推断要求分析,口径和改简历一致(当前、默认)"
+                      : "按岗位名 + 你的简历做通用差距分析,不联网搜岗位(快、默认)"}
+                  </p>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setGroundMode("market")}
+                  className={`text-left rounded-lg border-2 px-3 py-2 transition-colors ${
+                    groundMode === "market"
+                      ? "border-esther-blue bg-esther-blue/5"
+                      : "border-border bg-card hover:border-esther-blue/40"
+                  }`}
+                >
+                  <p className="text-sm font-medium text-ink">🔍 用真实在招岗位</p>
+                  <p className="text-[11px] text-ink-muted mt-0.5 leading-relaxed">
+                    实时搜该岗位在招样本,你挑一条,用它的真实 JD 分析(更贴市场)
+                  </p>
+                </button>
+              </div>
+
+              {groundMode === "market" && (
+                <div className="space-y-2.5 pt-1">
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={searchCity}
+                      onChange={(e) => setSearchCity(e.target.value)}
+                      placeholder="城市(默认上海)"
+                      className="w-32 px-3 py-2 rounded-lg border-2 border-border bg-card text-sm text-ink placeholder-ink-muted focus:outline-none focus:border-esther-blue"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleSearchJobs}
+                      disabled={jobsLoading || role.trim().length === 0}
+                      className="inline-flex items-center rounded-lg bg-esther-blue text-white px-4 py-2 text-sm font-medium hover:bg-esther-blue-dark transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {jobsLoading ? "搜索中…" : "搜索在招岗位"}
+                    </button>
+                  </div>
+                  {role.trim().length === 0 && (
+                    <p className="text-[11px] text-ink-muted">先在上面填目标岗位名再搜</p>
+                  )}
+                  {jobsErr && (
+                    <p className="text-[11px] text-esther-red">⚠️ {jobsErr}</p>
+                  )}
+                  {jobsAreMock && jobResults && jobResults.length > 0 && (
+                    <p className="text-[11px] text-amber-600">
+                      ⚠️ 实时岗位源暂时不可达,以下为演示数据(非真实在招)
+                    </p>
+                  )}
+                  {jobResults && jobResults.length === 0 && (
+                    <p className="text-[11px] text-ink-muted">
+                      没搜到这个岗位的在招样本 —— 换个岗位名/城市,或用「AI 推断」
+                    </p>
+                  )}
+                  {jobResults && jobResults.length > 0 && (
+                    <div className="space-y-2">
+                      {jobResults.map((job) => {
+                        const sel = pickedJob?.id === job.id;
+                        const meta = [job.company, job.experience, job.salary]
+                          .filter(Boolean)
+                          .join(" · ");
+                        return (
+                          <button
+                            key={job.id}
+                            type="button"
+                            onClick={() => handlePickJob(job)}
+                            className={`w-full text-left rounded-lg border-2 px-3 py-2 transition-colors ${
+                              sel
+                                ? "border-esther-blue bg-esther-blue/5"
+                                : "border-border bg-card hover:border-esther-blue/40"
+                            }`}
+                          >
+                            <p className="text-sm font-medium text-ink">
+                              {sel ? "✓ " : ""}
+                              {job.title}
+                              {job.city ? (
+                                <span className="text-ink-muted font-normal">
+                                  {" "}
+                                  · {job.city}
+                                </span>
+                              ) : null}
+                            </p>
+                            {meta && (
+                              <p className="text-[11px] text-ink-muted mt-0.5">{meta}</p>
+                            )}
+                            {sel && (
+                              <p className="text-[11px] mt-1">
+                                {pickingDetail ? (
+                                  <span className="text-ink-muted">正在拉取这条岗位的 JD 全文…</span>
+                                ) : pickedJdText.trim().length >= 20 ? (
+                                  <span className="text-emerald-700">
+                                    ✓ 已选,将用这条岗位的真实 JD 做差距分析
+                                  </span>
+                                ) : (
+                                  <span className="text-esther-red">
+                                    这条没抓到 JD 详情,换一条试试
+                                  </span>
+                                )}
+                              </p>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
@@ -1128,6 +1567,7 @@ function GapReportView({
   picked,
   onTogglePick,
   timeTier,
+  onChangeTier,
   busy,
   phase,
   error,
@@ -1138,6 +1578,7 @@ function GapReportView({
   picked: Set<string>;
   onTogglePick: (req: string) => void;
   timeTier: TimeTier;
+  onChangeTier: (t: TimeTier) => void;
   busy: boolean;
   phase: string;
   error: string | null;
@@ -1146,6 +1587,12 @@ function GapReportView({
 }) {
   const tier = TIME_TIERS[timeTier];
   const pickedCount = report.gaps.filter((g) => picked.has(g.jd_requirement)).length;
+
+  // 建议档位:当前选的档比能覆盖核心缺口的最小档还短时,提示用户升档(可一键切换)
+  const rec = recommendTier(report);
+  const recTier = TIME_TIERS[rec.tier];
+  const currentTooShort =
+    TIER_ORDER.indexOf(rec.tier) > TIER_ORDER.indexOf(timeTier);
   return (
     <Card className="p-6 border-2 border-border bg-card">
       <div className="flex items-start justify-between gap-4 flex-wrap mb-4">
@@ -1166,6 +1613,38 @@ function GapReportView({
           ← 改信息
         </button>
       </div>
+
+      {/* 建议档位:当前档补不出核心缺口的可信证据时,提示升档 */}
+      {currentTooShort && rec.coverable && (
+        <div className="mb-4 flex items-start gap-3 flex-wrap rounded-xl border-2 border-esther-yellow/50 bg-esther-yellow/10 px-4 py-3">
+          <span className="text-sm flex-shrink-0">💡</span>
+          <div className="flex-1 min-w-[220px]">
+            <p className="text-sm font-medium text-ink">
+              建议至少选「{recTier.emoji} {recTier.label}档({recTier.daysHint})」
+            </p>
+            <p className="text-xs text-ink-soft mt-0.5">
+              你勾选要攻的核心缺口在「{tier.label}档({tier.daysHint})」内拿不出可信证据，硬出方案会注水。
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => onChangeTier(rec.tier)}
+            className="flex-shrink-0 rounded-full bg-esther-blue text-white px-4 py-1.5 text-xs font-medium hover:bg-esther-blue-dark transition-colors"
+          >
+            切到{recTier.label}档
+          </button>
+        </div>
+      )}
+      {/* 连深耕档也补不齐的诚实提示 */}
+      {!rec.coverable && (
+        <div className="mb-4 flex items-start gap-3 rounded-xl border-2 border-esther-red/30 bg-esther-red/5 px-4 py-3">
+          <span className="text-sm flex-shrink-0">⚠️</span>
+          <p className="text-xs text-ink-soft leading-relaxed">
+            说句实在话：部分核心缺口即使「深耕档」也很难在 1-2 个月内补出可信证据，这个方向可能更适合
+            <span className="text-ink font-medium">拉长时间线或换一个更贴近你现状的目标</span>。下面仍可生成方案，但请把它当作起步而非终点。
+          </p>
+        </div>
+      )}
 
       {/* 已具备 */}
       {report.matched.length > 0 && (
@@ -1290,7 +1769,6 @@ function ProjectTabs({
             title={p.title}
           >
             <span className="mr-1.5">{p.kind === "learning" ? "📚" : "📋"}</span>
-            <span className="mr-1.5">{STATUS_LABEL[p.status].slice(0, 2)}</span>
             {p.title}
           </button>
         );
@@ -1332,44 +1810,11 @@ function ResourceList({ resources }: { resources: M4Resource[] }) {
 }
 
 /** —— 共享:状态推进 + 送进简历 + 删除 —— */
-function StatusActions({
-  project,
-  nextLabel,
-  onAdvance,
-  onAdopt,
-  onDelete,
-}: {
-  project: M4Project;
-  nextLabel: string | null;
-  onAdvance: () => void;
-  onAdopt: () => void;
-  onDelete: () => void;
-}) {
+function StatusActions({ onDelete }: { onDelete: () => void }) {
+  // 进度靠「按周里程碑」勾选 + 笔记体现;「送进简历优化」在笔记卡底部一步送出。
+  // 不再有「开始/完成」状态按钮(纯仪式,无意义)。
   return (
     <div className="mt-5 flex items-center gap-3 flex-wrap">
-      {nextLabel && (
-        <button
-          type="button"
-          onClick={onAdvance}
-          className="inline-flex items-center justify-center rounded-full bg-esther-blue text-white px-4 py-2 text-sm font-medium hover:bg-esther-blue-dark transition-colors"
-        >
-          {nextLabel}
-        </button>
-      )}
-      {project.status === "DONE" && project.committable && (
-        <button
-          type="button"
-          onClick={onAdopt}
-          className="inline-flex items-center gap-1 rounded-full bg-esther-blue text-white px-4 py-2 text-sm font-medium hover:bg-esther-blue-dark transition-colors"
-        >
-          ✓ 送进简历优化 →
-        </button>
-      )}
-      {project.status === "DONE" && !project.committable && (
-        <span className="text-xs text-ink-muted">
-          ⚠️ 请在「笔记」里写下 ≥ 10 字的实际成果,才允许送进简历
-        </span>
-      )}
       <button
         type="button"
         onClick={onDelete}
@@ -1385,22 +1830,123 @@ function StatusActions({
 function NotesCard({
   project,
   onNotesChange,
+  onAdopt,
+  onSaveCloud,
+  isGuest,
 }: {
   project: M4Project;
   onNotesChange: (notes: string) => void;
+  onAdopt: () => void;
+  onSaveCloud: () => Promise<SaveCloudResult>;
+  isGuest: boolean;
 }) {
   const learning = project.kind === "learning";
+
+  // 显式「保存到云端」状态
+  const [saving, setSaving] = useState(false);
+  const [savedAt, setSavedAt] = useState<string | null>(null);
+  const [saveErr, setSaveErr] = useState<string | null>(null);
+
+  async function handleSaveCloud() {
+    if (saving) return;
+    setSaving(true);
+    setSaveErr(null);
+    try {
+      const r = await onSaveCloud();
+      if (r.ok) {
+        setSavedAt(
+          new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" }),
+        );
+      } else {
+        setSaveErr(r.error ?? "保存失败,请重试");
+      }
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  // 已勾选(声称在做/做过)的任务文本 —— 用于「AI 整理笔记草稿」
+  const doneTasks = useMemo(() => {
+    if (project.kind !== "project") return [];
+    const out: string[] = [];
+    for (const w of project.weekly_plan) {
+      for (const t of w.tasks) {
+        if (project.task_progress[t.id]) out.push(t.task);
+      }
+    }
+    return out;
+  }, [project]);
+
+  const [drafting, setDrafting] = useState(false);
+  const [draftErr, setDraftErr] = useState<string | null>(null);
+
+  async function handleDraft() {
+    if (drafting || doneTasks.length === 0) return;
+    if (
+      project.notes.trim().length > 0 &&
+      !confirm("已有笔记内容,用 AI 草稿覆盖?(覆盖后你仍可继续编辑)")
+    ) {
+      return;
+    }
+    setDrafting(true);
+    setDraftErr(null);
+    try {
+      const res = await fetch("/api/m4/draft-notes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ project, doneTasks }),
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        throw new Error(j.error ?? `HTTP ${res.status}`);
+      }
+      const j = (await res.json()) as { draft: string };
+      onNotesChange(j.draft);
+    } catch (err) {
+      setDraftErr(err instanceof Error ? err.message : "AI 整理失败");
+    } finally {
+      setDrafting(false);
+    }
+  }
+
   return (
     <Card className="p-5 border-2 border-border">
       <p className="font-display italic text-xs text-esther-blue mb-2">Notes</p>
       <h3 className="text-base font-semibold text-ink mb-1">
         📝 {learning ? "学习笔记" : "项目笔记"}
       </h3>
-      <p className="text-xs text-ink-muted mb-3 leading-relaxed">
-        {learning
-          ? "学完后记一笔:你真正搞懂了什么、做出了什么产出 —— 一页概念总结、一条科普帖、笔记链接都行。"
-          : "记下你实际做过的事:访谈了几人、Dashboard 链接、报告产出、卡点等。"}
-      </p>
+      {learning && (
+        <p className="text-xs text-ink-muted mb-3 leading-relaxed">
+          学完后记一笔:你真正搞懂了什么、做出了什么产出 —— 一页概念总结、一条科普帖、笔记链接都行。
+        </p>
+      )}
+
+      {/* AI 整理笔记草稿:基于已勾选任务,出一版带【】占位的脚手架,用户填真实成果 */}
+      {!learning && (
+        <div className="mb-3">
+          <button
+            type="button"
+            onClick={handleDraft}
+            disabled={drafting || doneTasks.length === 0}
+            className="inline-flex items-center gap-1.5 rounded-full border-2 border-esther-blue/40 bg-card text-esther-blue px-3.5 py-1.5 text-xs font-medium hover:bg-esther-blue/5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {drafting
+              ? "AI 整理中…"
+              : `✦ 根据已勾选的 ${doneTasks.length} 个任务，让 AI 整理一版草稿`}
+          </button>
+          <p className="text-[11px] text-ink-muted mt-1.5 leading-relaxed">
+            {doneTasks.length === 0
+              ? "先在上面「按周里程碑」勾选你在做 / 做过的任务，再让 AI 帮你起草。"
+              : "AI 只把任务组织成叙述、真实成果留【】占位 —— 记得把【】换成你的真实数字 / 产出再保存。"}
+          </p>
+          {draftErr && (
+            <div className="mt-1.5 rounded-lg border border-esther-red/40 bg-esther-red/10 px-3 py-2 text-xs text-esther-red">
+              ⚠️ {draftErr}
+            </div>
+          )}
+        </div>
+      )}
+
       <textarea
         value={project.notes}
         onChange={(e) => onNotesChange(e.target.value)}
@@ -1411,46 +1957,92 @@ function NotesCard({
         }
         className="w-full min-h-[120px] px-4 py-3 rounded-xl border-2 border-border bg-card text-sm text-ink placeholder-ink-muted focus:outline-none focus:border-esther-blue resize-y"
       />
-      <div className="mt-2 flex items-baseline justify-between gap-3 flex-wrap">
+      <div className="mt-2 flex items-center justify-between gap-3 flex-wrap">
         <p className="text-[11px] text-ink-muted">
           当前字数:{project.notes.trim().length}
           {project.notes.trim().length >= 10 ? " ✓" : " · 至少 10 字"}
         </p>
-        <p className="text-[11px] text-ink-muted">
-          {learning
-            ? "填够 10 字并标「学完」后,可送进简历"
-            : "标 DONE 并填够 10 字后,可送进简历池"}
-        </p>
+        {isGuest ? (
+          <p className="text-[11px] text-ink-muted">
+            📍 游客笔记只存在本机浏览器,{" "}
+            <Link href="/login" className="text-esther-blue hover:underline">
+              登录
+            </Link>{" "}
+            后存云端,换设备 / 重新登录也能看到
+          </p>
+        ) : (
+          <div className="flex items-center gap-2">
+            {saveErr ? (
+              <span className="text-[11px] text-esther-red">⚠️ {saveErr}</span>
+            ) : savedAt ? (
+              <span className="text-[11px] text-ink-muted">✓ 已保存到云端 · {savedAt}</span>
+            ) : null}
+            <button
+              type="button"
+              onClick={handleSaveCloud}
+              disabled={saving}
+              className="inline-flex items-center gap-1 rounded-full border-2 border-esther-blue/40 bg-card text-esther-blue px-3.5 py-1.5 text-xs font-medium hover:bg-esther-blue/5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {saving ? "保存中…" : "💾 保存到云端"}
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* 送进简历优化 —— 写完笔记就在这一步送出(从项目头部移来) */}
+      <div className="mt-4 pt-4 border-t border-border">
+        {project.committable ? (
+          <button
+            type="button"
+            onClick={onAdopt}
+            className="inline-flex items-center gap-1 rounded-full bg-esther-blue text-white px-5 py-2.5 text-sm font-medium hover:bg-esther-blue-dark transition-colors"
+          >
+            ✓ 把这段经历送进简历优化 →
+          </button>
+        ) : (
+          <p className="text-xs text-ink-muted">
+            ⚠️ 写够 10 字的实际成果(把【】换成你的真实数字 / 产出),就能送进简历优化
+          </p>
+        )}
       </div>
     </Card>
   );
 }
 
-/** —— 共享:Ask AI —— */
+/** —— 共享:Ask AI(多轮对话)—— */
+type AskTurn = { role: "user" | "assistant"; content: string };
 function AskAiCard({ project }: { project: M4Project }) {
   const [askQuestion, setAskQuestion] = useState("");
   const [askLoading, setAskLoading] = useState(false);
-  const [askAnswer, setAskAnswer] = useState<string | null>(null);
+  const [turns, setTurns] = useState<AskTurn[]>([]);
   const [askError, setAskError] = useState<string | null>(null);
+  const threadRef = useRef<HTMLDivElement | null>(null);
+
+  // 新消息进来自动滚到底
+  useEffect(() => {
+    if (threadRef.current) threadRef.current.scrollTop = threadRef.current.scrollHeight;
+  }, [turns, askLoading]);
 
   async function handleAsk() {
     const q = askQuestion.trim();
-    if (!q) return;
+    if (!q || askLoading) return;
+    const nextTurns: AskTurn[] = [...turns, { role: "user", content: q }];
+    setTurns(nextTurns);
+    setAskQuestion("");
     setAskLoading(true);
     setAskError(null);
-    setAskAnswer(null);
     try {
       const res = await fetch("/api/m4/ask", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ project, question: q, userNotes: project.notes }),
+        body: JSON.stringify({ project, messages: nextTurns, userNotes: project.notes }),
       });
       if (!res.ok) {
         const j = await res.json().catch(() => ({}));
         throw new Error(j.error ?? `HTTP ${res.status}`);
       }
       const j = (await res.json()) as { answer: string };
-      setAskAnswer(j.answer);
+      setTurns((prev) => [...prev, { role: "assistant", content: j.answer }]);
     } catch (err) {
       setAskError(err instanceof Error ? err.message : "AI 调用失败");
     } finally {
@@ -1460,11 +2052,53 @@ function AskAiCard({ project }: { project: M4Project }) {
 
   return (
     <Card className="p-5 border-2 border-esther-yellow bg-esther-yellow/10">
-      <p className="text-sm font-semibold text-ink mb-2">💬 Ask AI · 卡住了就问</p>
-      <p className="text-xs text-ink-soft mb-3 leading-relaxed">
-        AI 会基于这张卡的上下文回答 · 不会假设你已经完成任何事
-      </p>
-      <div className="flex gap-2 mb-3">
+      <div className="flex items-center justify-between gap-2 mb-2">
+        <p className="text-sm font-semibold text-ink">💬 Ask AI · 卡住了就问</p>
+        {turns.length > 0 && (
+          <button
+            type="button"
+            onClick={() => {
+              setTurns([]);
+              setAskError(null);
+            }}
+            className="text-[11px] text-ink-muted hover:text-ink transition-colors"
+          >
+            清空对话
+          </button>
+        )}
+      </div>
+
+      {turns.length > 0 && (
+        <div
+          ref={threadRef}
+          className="mb-3 max-h-[360px] overflow-y-auto space-y-3 pr-1"
+        >
+          {turns.map((t, i) =>
+            t.role === "user" ? (
+              <div key={i} className="flex justify-end">
+                <p className="max-w-[85%] bg-esther-blue text-white rounded-2xl rounded-br-sm px-3.5 py-2 text-sm leading-relaxed whitespace-pre-wrap">
+                  {t.content}
+                </p>
+              </div>
+            ) : (
+              <div key={i} className="flex justify-start">
+                <p className="max-w-[85%] bg-card border border-border rounded-2xl rounded-bl-sm px-3.5 py-2 text-sm text-ink leading-relaxed whitespace-pre-wrap">
+                  {t.content}
+                </p>
+              </div>
+            ),
+          )}
+          {askLoading && (
+            <div className="flex justify-start">
+              <p className="bg-card border border-border rounded-2xl rounded-bl-sm px-3.5 py-2 text-sm text-ink-muted">
+                思考中…
+              </p>
+            </div>
+          )}
+        </div>
+      )}
+
+      <div className="flex gap-2">
         <input
           type="text"
           value={askQuestion}
@@ -1472,7 +2106,11 @@ function AskAiCard({ project }: { project: M4Project }) {
           onKeyDown={(e) => {
             if (e.key === "Enter" && !askLoading) handleAsk();
           }}
-          placeholder="例:这个概念没看懂,能举个具体例子吗?"
+          placeholder={
+            turns.length > 0
+              ? "接着问…(例:那第一步具体怎么做?)"
+              : "例:这个概念没看懂,能举个具体例子吗?"
+          }
           className="flex-1 px-4 py-2.5 rounded-full border border-border bg-card text-sm text-ink placeholder-ink-muted focus:outline-none focus:border-esther-blue"
         />
         <button
@@ -1485,18 +2123,8 @@ function AskAiCard({ project }: { project: M4Project }) {
         </button>
       </div>
       {askError && (
-        <div className="rounded-lg border border-esther-red/40 bg-esther-red/10 px-3 py-2 text-xs text-esther-red">
+        <div className="mt-3 rounded-lg border border-esther-red/40 bg-esther-red/10 px-3 py-2 text-xs text-esther-red">
           ⚠️ {askError}
-        </div>
-      )}
-      {askAnswer && (
-        <div className="mt-3 bg-card border border-border rounded-lg p-4">
-          <p className="text-[11px] text-ink-muted mb-2 font-display italic uppercase tracking-wider">
-            AI answer
-          </p>
-          <p className="text-sm text-ink leading-relaxed whitespace-pre-wrap">
-            {askAnswer}
-          </p>
         </div>
       )}
     </Card>
@@ -1508,16 +2136,18 @@ function AskAiCard({ project }: { project: M4Project }) {
  * ============================================================ */
 function LearningDetail({
   project,
-  onAdvance,
   onNotesChange,
   onDelete,
   onAdopt,
+  onSaveCloud,
+  isGuest,
 }: {
   project: M4LearningItem;
-  onAdvance: () => void;
   onNotesChange: (notes: string) => void;
   onDelete: () => void;
   onAdopt: () => void;
+  onSaveCloud: () => Promise<SaveCloudResult>;
+  isGuest: boolean;
 }) {
   return (
     <div className="space-y-6">
@@ -1530,16 +2160,13 @@ function LearningDetail({
             <h2 className="text-2xl font-bold text-ink mb-2">{project.title}</h2>
             <p className="text-sm text-ink-soft leading-relaxed">{project.why}</p>
           </div>
-          <div className="flex flex-col items-end gap-2 flex-shrink-0">
-            <span className="inline-flex items-center px-3 py-1 rounded-full bg-esther-yellow/40 border border-esther-yellow text-ink text-xs font-bold">
-              {STATUS_LABEL[project.status]}
-            </span>
-            {project.est_hours && (
+          {project.est_hours && (
+            <div className="flex flex-col items-end gap-2 flex-shrink-0">
               <span className="text-xs text-ink-muted font-display italic">
                 预估投入 {project.est_hours}
               </span>
-            )}
-          </div>
+            </div>
+          )}
         </div>
 
         {project.covers_gaps.length > 0 && (
@@ -1560,13 +2187,7 @@ function LearningDetail({
           </div>
         )}
 
-        <StatusActions
-          project={project}
-          nextLabel={LEARNING_NEXT_LABEL[project.status]}
-          onAdvance={onAdvance}
-          onAdopt={onAdopt}
-          onDelete={onDelete}
-        />
+        <StatusActions onDelete={onDelete} />
       </Card>
 
       {/* 核心概念 */}
@@ -1591,10 +2212,7 @@ function LearningDetail({
       {project.resources.length > 0 && (
         <Card className="p-5 border-2 border-border">
           <p className="font-display italic text-xs text-esther-blue mb-2">Resources</p>
-          <h3 className="text-base font-semibold text-ink mb-1">看这些(书 / 视频 / 文档)</h3>
-          <p className="text-xs text-ink-muted mb-3">
-            链接以平台为准,没给链接的自己搜一下确认
-          </p>
+          <h3 className="text-base font-semibold text-ink mb-3">看这些(书 / 视频 / 文档)</h3>
           <ResourceList resources={project.resources} />
         </Card>
       )}
@@ -1615,7 +2233,13 @@ function LearningDetail({
         </Card>
       </div>
 
-      <NotesCard project={project} onNotesChange={onNotesChange} />
+      <NotesCard
+        project={project}
+        onNotesChange={onNotesChange}
+        onAdopt={onAdopt}
+        onSaveCloud={onSaveCloud}
+        isGuest={isGuest}
+      />
       <AskAiCard project={project} />
     </div>
   );
@@ -1626,18 +2250,20 @@ function LearningDetail({
  * ============================================================ */
 function ProjectDetail({
   project,
-  onAdvance,
   onToggleTask,
   onNotesChange,
   onDelete,
   onAdopt,
+  onSaveCloud,
+  isGuest,
 }: {
   project: M4ProjectItem;
-  onAdvance: () => void;
   onToggleTask: (taskId: string) => void;
   onNotesChange: (notes: string) => void;
   onDelete: () => void;
   onAdopt: () => void;
+  onSaveCloud: () => Promise<SaveCloudResult>;
+  isGuest: boolean;
 }) {
   const totalTasks = useMemo(
     () => project.weekly_plan.reduce((sum, w) => sum + w.tasks.length, 0),
@@ -1662,9 +2288,6 @@ function ProjectDetail({
             <p className="text-sm text-ink-soft leading-relaxed">{project.why}</p>
           </div>
           <div className="flex flex-col items-end gap-2 flex-shrink-0">
-            <span className="inline-flex items-center px-3 py-1 rounded-full bg-esther-yellow/40 border border-esther-yellow text-ink text-xs font-bold">
-              {STATUS_LABEL[project.status]}
-            </span>
             <span className="text-xs text-ink-muted font-display italic">
               {project.weeks} 周{byWeek ? "(按周)" : ""}计划 · {doneTasks}/{totalTasks} 任务完成
             </span>
@@ -1686,13 +2309,7 @@ function ProjectDetail({
           </div>
         )}
 
-        <StatusActions
-          project={project}
-          nextLabel={PROJECT_NEXT_LABEL[project.status]}
-          onAdvance={onAdvance}
-          onAdopt={onAdopt}
-          onDelete={onDelete}
-        />
+        <StatusActions onDelete={onDelete} />
       </Card>
 
       {/* 计划 */}
@@ -1812,8 +2429,7 @@ function ProjectDetail({
       {project.learning_resources && project.learning_resources.length > 0 && (
         <Card className="p-5 border-2 border-border">
           <p className="font-display italic text-xs text-esther-blue mb-2">Learning resources</p>
-          <h3 className="text-base font-semibold text-ink mb-1">做这个项目要学/查的</h3>
-          <p className="text-xs text-ink-muted mb-3">链接以平台为准,没给链接的自己搜一下确认</p>
+          <h3 className="text-base font-semibold text-ink mb-3">做这个项目要学/查的</h3>
           <ResourceList resources={project.learning_resources} />
         </Card>
       )}
@@ -1825,7 +2441,7 @@ function ProjectDetail({
             Risks & Mitigations
           </p>
           <h3 className="text-base font-semibold text-ink mb-3">
-            ⚠️ 怀疑你做不完的人会问这些
+            ⚠️ 可能会问的问题
           </h3>
           <ul className="space-y-3">
             {project.risks.map((r, i) => (
@@ -1840,7 +2456,13 @@ function ProjectDetail({
         </Card>
       )}
 
-      <NotesCard project={project} onNotesChange={onNotesChange} />
+      <NotesCard
+        project={project}
+        onNotesChange={onNotesChange}
+        onAdopt={onAdopt}
+        onSaveCloud={onSaveCloud}
+        isGuest={isGuest}
+      />
       <AskAiCard project={project} />
     </div>
   );

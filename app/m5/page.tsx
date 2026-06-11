@@ -171,6 +171,9 @@ function Module5ConfigContent() {
   const [jdText, setJdText] = useState(SAMPLE_JD);
   // JD 来源标签:"M3" 表示来自简历优化的目标岗位,"M6" 表示来自岗位发现,null 表示未继承(默认示例 / 用户手动改)
   const [jdSource, setJdSource] = useState<"m3" | "m6" | null>(null);
+  // 目标岗位名 —— 跟随 JD 一起继承(m6 roleName / m3 jd_context.role_name),写进 config.target_role,
+  // 复盘回流改简历时一并带过去,避免目标岗位丢失。
+  const [roleName, setRoleName] = useState<string>("");
   const [type, setType] = useState<InterviewType | null>(null);
   const [persona, setPersona] = useState<PersonaKey | null>(null);
   const [numQuestions, setNumQuestions] = useState<5 | 10 | 15>(10);
@@ -208,7 +211,11 @@ function Module5ConfigContent() {
           const name = (
             data.parsed_resume_json as { basic?: { name?: string } } | null
           )?.basic?.name?.trim();
-          const jc = (data.jd_context_json ?? {}) as { raw_jd_text?: string };
+          const jc = (data.jd_context_json ?? {}) as {
+            raw_jd_text?: string;
+            role_name?: string;
+          };
+          if (jc.role_name?.trim()) setRoleName(jc.role_name.trim());
           // 用户明确从这条改简历会话跳来 → 无论简历长短都【不许】回退到账号最新那份
           // (否则 JD 来自该会话、简历却被悄悄串成账号最新 —— 类① 静默串简历)。
           m3ResumeAppliedRef.current = true;
@@ -267,6 +274,7 @@ function Module5ConfigContent() {
           setJdText(
             pending.jdText && pending.jdText.length > 50 ? pending.jdText : fallback
           );
+          if (pending.roleName?.trim()) setRoleName(pending.roleName.trim());
           setJdSource("m6");
           window.localStorage.removeItem(STORAGE_KEYS.M6_PENDING_JD);
           return;
@@ -287,6 +295,7 @@ function Module5ConfigContent() {
       } | null;
       if (ctx?.raw_jd_text && ctx.raw_jd_text.trim().length > 20) {
         setJdText(ctx.raw_jd_text);
+        if (ctx.role_name?.trim()) setRoleName(ctx.role_name.trim());
         setJdSource("m3");
       }
     } catch {
@@ -376,6 +385,8 @@ function Module5ConfigContent() {
       mode: cameraOn ? "camera" : "audio_only",
       record: cameraOn && recordSession,
       started_at: new Date().toISOString(),
+      // 继承到的目标岗位名 —— 复盘回流改简历时随 JD 一起带过去
+      ...(roleName.trim() ? { target_role: roleName.trim() } : {}),
     };
     try {
       // 1. 始终写 localStorage(游客 + 登录 fallback)

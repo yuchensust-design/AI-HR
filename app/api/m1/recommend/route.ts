@@ -245,7 +245,11 @@ function buildSystemPromptWithResume(): string {
         "role_type": "教育行业咨询顾问",
         "why_fit": "E 高的远期方向，需积累系统的行业知识和咨询方法论",
         "match": "中",
-        "match_percentage": 72
+        "match_percentage": 72,
+        "long_term_note": {
+          "realistic_cost": "诚实代价：大概需要 1-2 年系统积累行业知识和方法论，可能涉及读研/考证/转行，不是这次找工作能补齐的",
+          "first_validation": "低成本验证第一步：找一位该领域从业者聊 30 分钟，或读一本入门书，先确认这是不是你真想投入数年的方向"
+        }
       }
     ]
   },
@@ -274,7 +278,10 @@ function buildSystemPromptWithResume(): string {
 - 每个 key 至少 1 个职业，总共 6-10 个，合理分配三段
 - needs_project 的 why_fit 必须体现桥接推理
 - negative 3 个，refine_chips 4-6 个
-- match_percentage：高匹配 75-95，中匹配 55-74，不低于 50，不给 100`;
+- match_percentage：高匹配 75-95，中匹配 55-74，不低于 50，不给 100
+- 【long_term 必带 long_term_note】每个 long_term 职业都要给 long_term_note：
+  · realistic_cost：诚实说明进入这个方向的真实代价（通常 1-2 年深造/考证/转行/积累），明确"不是这次找工作能补齐的"，不要粉饰
+  · first_validation：一个低成本的「验证兴趣」第一步（找从业者聊/读入门书/做小尝试），目的是帮用户判断要不要赌上数年，**不是教他补简历，不要写成项目计划**`;
 }
 
 type EvidenceForPrompt = {
@@ -446,6 +453,25 @@ type TieredPositive = {
   long_term: PositiveRaw[];
 };
 
+// long_term 诚实提示：LLM 漏填时兜底，保证每个长期方向都有「代价 + 验证第一步」
+function normalizeLongTermNote(raw: unknown): {
+  realistic_cost: string;
+  first_validation: string;
+} {
+  const r = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+  const cost = typeof r.realistic_cost === "string" ? r.realistic_cost.trim() : "";
+  const validation =
+    typeof r.first_validation === "string" ? r.first_validation.trim() : "";
+  return {
+    realistic_cost:
+      cost ||
+      "这是长期方向，通常需要 1-2 年的深造、考证或转行积累，不是这次找工作能补齐的。",
+    first_validation:
+      validation ||
+      "想认真考虑的话，先低成本验证兴趣：找一位该领域从业者聊聊，或读一本入门书，确认值得再投入。",
+  };
+}
+
 function guaranteeThreeTiers(
   tiers: TieredPositive,
   candidates: CareerEntry[],
@@ -615,7 +641,11 @@ export async function POST(request: NextRequest) {
       normalizedPositive = [
         ...tiered.now.map((p) => ({ ...p, employability_level: "now" })),
         ...tiered.needs_project.map((p) => ({ ...p, employability_level: "needs_project" })),
-        ...tiered.long_term.map((p) => ({ ...p, employability_level: "long_term" })),
+        ...tiered.long_term.map((p) => ({
+          ...p,
+          employability_level: "long_term",
+          long_term_note: normalizeLongTermNote(p.long_term_note),
+        })),
       ];
     } else {
       // No resume: flat array without employability_level

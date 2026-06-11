@@ -290,6 +290,10 @@ function ResultContent() {
     for (const e of parsed.edits) {
       if (e.claim_type === "explicit" && LOW_RISK_CAT.has(e.category)) {
         initialDecisions[e.id] = "accept";
+      } else if (e.category === "hidden-experience-add") {
+        // 补经历 / 面试 / 挖经历主动带来的素材:用户已在带入处确认过 → 默认采纳并显示进简历,
+        // (仍可在卡片上改或撤;占位符待用户补真实数字)
+        initialDecisions[e.id] = "accept";
       }
     }
     setDecisions(initialDecisions);
@@ -1990,6 +1994,27 @@ function ResumePreview({
   // 同一 edit.suggested_text 被多个 bullet 重复显示)
   const usedEditIds = new Set<string>();
 
+  // 已采纳的「补经历」新增建议,按落点内联进预览对应区块(项目/技能/自我评价)
+  const acceptedNew = edits
+    .filter((e) => e.target?.startsWith("new:") && decisions[e.id] === "accept")
+    .map((e) => ({ ...e, suggested_text: rewritten[e.id] ?? e.suggested_text }));
+  const newSkillEdits = acceptedNew.filter((e) =>
+    e.target.startsWith("new:skills"),
+  );
+  const newSelfEvalEdits = acceptedNew.filter((e) =>
+    e.target.startsWith("new:self_eval"),
+  );
+  const newProjectEdits = acceptedNew.filter(
+    (e) =>
+      !e.target.startsWith("new:skills") &&
+      !e.target.startsWith("new:self_eval"),
+  );
+  const NewTag = () => (
+    <span className="ml-1.5 align-middle text-[10px] px-1.5 py-0.5 rounded-full bg-esther-blue/15 text-esther-blue font-medium">
+      补经历新增
+    </span>
+  );
+
   function lookupEdit(
     section: "experience" | "projects" | "activities" | "self_eval",
     sectionIdx: number,
@@ -2224,7 +2249,8 @@ function ResumePreview({
       {(() => {
         const groups = skillGroupsOf(parsedResume);
         const hasFills = Object.values(keywordFills ?? {}).some((f) => f.accepted);
-        if (groups.length === 0 && !hasFills) return null;
+        if (groups.length === 0 && !hasFills && newSkillEdits.length === 0)
+          return null;
         const ss = skillsSummary ?? null;
         return (
           <Section title="核心技能">
@@ -2241,6 +2267,16 @@ function ResumePreview({
               </ul>
             ) : (
               <CoreSkillsList groups={groups} />
+            )}
+            {newSkillEdits.length > 0 && (
+              <ul className="list-disc pl-5 space-y-1.5 mt-1.5">
+                {newSkillEdits.map((e) => (
+                  <li key={e.id} className="text-sm text-ink leading-relaxed">
+                    {e.suggested_text}
+                    <NewTag />
+                  </li>
+                ))}
+              </ul>
             )}
           </Section>
         );
@@ -2268,8 +2304,9 @@ function ResumePreview({
         </Section>
       )}
 
-      {/* ========= 项目经验 ========= */}
-      {(parsedResume.projects ?? []).length > 0 && (
+      {/* ========= 项目经验(含补经历带来的项目型新增,STAR)========= */}
+      {((parsedResume.projects ?? []).length > 0 ||
+        newProjectEdits.length > 0) && (
         <Section title="项目经验">
           {(parsedResume.projects ?? []).map((p, sIdx) => (
             <div key={sIdx} className="mb-3">
@@ -2292,6 +2329,21 @@ function ResumePreview({
               <ul>{renderBulletList("projects", [p])[0]}</ul>
             </div>
           ))}
+          {newProjectEdits.length > 0 && (
+            <div className="mb-3">
+              <p className="text-sm font-semibold text-ink mb-1">
+                补充项目经历
+                <NewTag />
+              </p>
+              <ul className="list-disc pl-5 space-y-1.5">
+                {newProjectEdits.map((e) => (
+                  <li key={e.id} className="text-sm text-ink leading-relaxed">
+                    {e.suggested_text}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </Section>
       )}
 
@@ -2315,13 +2367,25 @@ function ResumePreview({
         </Section>
       )}
 
-      {/* ========= 自我评价(复用 bullet 改写机制,支持 AI 改写 live preview) ========= */}
-      {(parsedResume.self_eval ?? []).length > 0 &&
-        (parsedResume.self_eval ?? []).some((s) => (s.bullets ?? []).length > 0) && (
-          <Section title="自我评价">
-            <ul>{renderBulletList("self_eval", parsedResume.self_eval ?? [])[0]}</ul>
-          </Section>
-        )}
+      {/* ========= 自我评价(复用 bullet 改写机制 + 补经历学习型新增)========= */}
+      {(((parsedResume.self_eval ?? []).some((s) => (s.bullets ?? []).length > 0)) ||
+        newSelfEvalEdits.length > 0) && (
+        <Section title="自我评价">
+          {(parsedResume.self_eval ?? []).some(
+            (s) => (s.bullets ?? []).length > 0,
+          ) && <ul>{renderBulletList("self_eval", parsedResume.self_eval ?? [])[0]}</ul>}
+          {newSelfEvalEdits.length > 0 && (
+            <ul className="list-disc pl-5 space-y-1.5 mt-1">
+              {newSelfEvalEdits.map((e) => (
+                <li key={e.id} className="text-sm text-ink leading-relaxed">
+                  {e.suggested_text}
+                  <NewTag />
+                </li>
+              ))}
+            </ul>
+          )}
+        </Section>
+      )}
 
       {/* ========= 教育背景(放最后,对齐 Skill) ========= */}
       {educationItems.length > 0 && (
@@ -2835,7 +2899,7 @@ function KeywordGapRow({
       {resp === "no" && (
         <p className="text-sm text-ink-soft mt-2">
           这是真缺口 —— 不替你硬写。建议去
-          <Link href={`/m4${convQs.replace("?c=", "?fromm3=")}`} className="text-esther-blue hover:underline mx-1">
+          <Link href={`/m4?gap=${encodeURIComponent(kw)}${convQs.replace("?c=", "&fromm3=")}`} className="text-esther-blue hover:underline mx-1">
             「补项目」
           </Link>
           做一段能体现「{kw}」的经历,再回来补进简历。

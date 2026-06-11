@@ -51,6 +51,12 @@ type PositiveItem = {
    * 老数据无此字段时按 "needs_project" 兜底(中立分组,不进入"应届可投"也不进入"长期")。
    */
   employability_level?: Employability;
+  /** 仅 long_term 携带:诚实提示(代价 + 验证第一步)。长期方向不进补经历漏斗,
+   *  在结果卡内联展示,帮用户决定要不要赌上数年,而非教他补简历。 */
+  long_term_note?: {
+    realistic_cost: string;
+    first_validation: string;
+  };
 };
 
 const EMPLOYABILITY_LABEL: Record<Employability, { tag: string; color: string; section: string; hint: string }> = {
@@ -130,6 +136,11 @@ type TargetRole = {
   industry: string;
   employability_level: Employability;
   saved_at: string;
+  // ── m1→m4 富载荷(R2):把测评算出的个性化信号带给补经历,治「千人一面」──
+  why_fit?: string;          // 含种子缺口提示，如"需补游戏设计文档和玩法原型"
+  match_percentage?: number;
+  riasec_code?: string;      // 如 "AIE"
+  evidence_summary?: string; // 测评时若上传过简历的摘要
 };
 
 type FallbackKind = "no-data" | "api-error" | null;
@@ -144,10 +155,19 @@ export default function Module1ResultPage() {
   const [refineError, setRefineError] = useState<string | null>(null);
   const [retrying, setRetrying] = useState(false);
 
-  // M1→M4 直通：保存目标岗位到 localStorage + DB，然后跳转
+  // M1→M4 直通：保存目标岗位(含测评个性化信号)到 localStorage + DB，然后跳转
   const handleGoToM4 = useCallback(async (role: TargetRole) => {
+    // 卡片层只带了 role 级信号，这里补全页面级信号(RIASEC code、测评简历摘要)
+    const enriched: TargetRole = {
+      ...role,
+      riasec_code: result?.code ?? role.riasec_code,
+      evidence_summary:
+        result?.evidence?.source === "resume"
+          ? result.evidence.summary ?? role.evidence_summary
+          : role.evidence_summary,
+    };
     try {
-      window.localStorage.setItem("m1_target_role", JSON.stringify(role));
+      window.localStorage.setItem("m1_target_role", JSON.stringify(enriched));
     } catch { /* ignore */ }
     // 登录用户同步到 DB
     try {
@@ -155,12 +175,12 @@ export default function Module1ResultPage() {
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
         await supabase.from("m1_assessments")
-          .update({ target_role_json: role })
+          .update({ target_role_json: enriched })
           .eq("user_id", user.id);
       }
     } catch { /* ignore, 不阻塞跳转 */ }
     router.push("/m4?from=m1");
-  }, [router]);
+  }, [router, result]);
 
   // hydrate from localStorage → DB fallback → sample
   useEffect(() => {
@@ -591,7 +611,8 @@ export default function Module1ResultPage() {
                   hint={meta.hint}
                   items={inLevel}
                   defaultCollapsed={isLongTerm}
-                  showGoToM4={employ === "needs_project" || employ === "long_term"}
+                  showGoToM4={employ === "needs_project"}
+                  longTermMode={isLongTerm}
                   onGoToM4={handleGoToM4}
                 />
               );
@@ -765,6 +786,7 @@ function PositiveLevelGroup({
   items,
   defaultCollapsed,
   showGoToM4 = false,
+  longTermMode = false,
   onGoToM4,
 }: {
   label: string;
@@ -772,6 +794,7 @@ function PositiveLevelGroup({
   items: PositiveItem[];
   defaultCollapsed: boolean;
   showGoToM4?: boolean;
+  longTermMode?: boolean;
   onGoToM4?: (role: TargetRole) => void;
 }) {
   const [collapsed, setCollapsed] = useState(defaultCollapsed);
@@ -844,7 +867,24 @@ function PositiveLevelGroup({
                         </span>
                         <p className="text-sm text-ink leading-relaxed">{r.why_fit}</p>
                       </div>
-                      {showGoToM4 && onGoToM4 && (
+                      {longTermMode && r.long_term_note ? (
+                        <div className="mt-3 space-y-2">
+                          <div className="flex items-start gap-2 p-3 rounded-lg bg-warm-bg-deep/40 border border-border">
+                            <span className="text-sm flex-shrink-0">⏳</span>
+                            <div className="min-w-0">
+                              <p className="text-[11px] font-semibold text-ink-soft mb-0.5">这是长期方向，诚实说说代价</p>
+                              <p className="text-xs text-ink leading-relaxed">{r.long_term_note.realistic_cost}</p>
+                            </div>
+                          </div>
+                          <div className="flex items-start gap-2 p-3 rounded-lg bg-esther-blue/5 border border-esther-blue/20">
+                            <span className="text-sm flex-shrink-0">🧭</span>
+                            <div className="min-w-0">
+                              <p className="text-[11px] font-semibold text-esther-blue mb-0.5">想认真考虑？先低成本验证一步</p>
+                              <p className="text-xs text-ink leading-relaxed">{r.long_term_note.first_validation}</p>
+                            </div>
+                          </div>
+                        </div>
+                      ) : showGoToM4 && onGoToM4 ? (
                         <div className="mt-3 flex justify-end">
                           <button
                             type="button"
@@ -852,6 +892,8 @@ function PositiveLevelGroup({
                               role_type: r.role_type,
                               industry: r.industry,
                               employability_level: r.employability_level ?? "needs_project",
+                              why_fit: r.why_fit,
+                              match_percentage: r.match_percentage,
                               saved_at: new Date().toISOString(),
                             })}
                             className="text-xs font-medium text-esther-blue hover:underline transition-colors"
@@ -859,7 +901,7 @@ function PositiveLevelGroup({
                             → 我需要补什么经历才能做这个？
                           </button>
                         </div>
-                      )}
+                      ) : null}
                     </Card>
                   );
                 })}

@@ -77,6 +77,19 @@ const PROMPT_MAIN = `你是「Offer 捕手」模块 3 简历整理 Phase 5 改�
    - 不允许从 JD requirement 凭空补简历缺的(eg "你没做过用户访谈但 JD 要,加一条" ❌)
    - 凭空补的内容,reason 里**必须明示 ⚠️ 这是你想要的方向,但你没真做过,不建议写**,并 priority=low
 
+   ★★★【hidden-experience-add 落点分流 —— 必须先分类再定 target】★★★
+   对每条 hidden_experiences[i],先判断它是「真做了项目」还是「只是学习/入门」:
+   - **信号**:topic_name 以「补项目·」开头、raw_user_material 有真实成果/产出物 → **项目类**;
+     以「补能力·」开头、anti_fab_note 或 honest_use 含"了解/入门/轻量产出"、只有概念没产出 → **学习类**。
+   - **项目类** → target = "new:projects[N].bullets";suggested_text 用 **STAR** 组织成一条经历
+     (情境→任务→行动→结果一句话讲清)。**结果只用素材里的真实数字,没有就用内联量化占位符,绝不编造。**
+   - **学习类**(关键:绝不写成项目!)→ 二选一或都给(各一条 edit):
+     · target = "new:skills.tools"(或 .frameworks / .domain):suggested_text = 学到的具体工具/技能/概念词,
+       逗号分隔,**只写素材里真出现的**(eg "A/B 测试, 假设检验基础")。
+     · target = "new:self_eval.bullets":suggested_text = 一句诚实自我评价
+       (eg "系统自学过 X,具备入门级理解,能独立完成基础任务")。
+   - **介于之间就低不就高**:拿不准是不是真项目 → 落技能 / 自我评价,不要灌水成项目经历。
+
 5. **ATS 关键词补充(category="ats-keyword")的特殊规则**:
    - **只能改写原文 bullet,在已有动作上加 JD 关键词**(eg 把"分析数据"改成"用 Pandas 做用户行为数据分析")
    - **绝不允许新建 bullet 加 ATS 关键词**(eg "SQL(基础查询,学习中)" ❌ — 用户没说过 SQL)
@@ -162,7 +175,7 @@ const PROMPT_MAIN = `你是「Offer 捕手」模块 3 简历整理 Phase 5 改�
   "edits": [
     {
       "id": "edit-001",
-      "target": "experience[0].bullets[0]" 或 "projects[1].bullets[2]" 或 "new:projects[2].bullets" (hidden-experience-add) 或 "alert:jd_gap_0" (gap-alert),
+      "target": "experience[0].bullets[0]" 或 "projects[1].bullets[2]" 或 "new:projects[2].bullets"(项目类补经历,STAR) 或 "new:skills.tools"/"new:self_eval.bullets"(学习类补经历) 或 "alert:jd_gap_0" (gap-alert),
       "original_text": "用户简历里的原文(target = new: / alert: 时 = '(新增)' / '(JD 缺口)')",
       "suggested_text": "改后的文本 / gap 简短描述",
       "evidence_source": "parsed_resume.experience[0].bullets[0]" 或 "hidden_experiences[2]" 或 "parsed_resume.skills.tools" 或 "jd_context.gaps[0]" (仅 gap-alert),
@@ -424,13 +437,8 @@ ${JSON.stringify(scopedResumeFor(keep), null, 2)}
 jd_context(JD 拆解;null 表示快速模式):
 ${JSON.stringify(jdContext ?? null, null, 2)}
 
-hidden_experience_candidates:
-${JSON.stringify(hiddenExperiences ?? [], null, 2)}
-
-from_debrief_highlight:
-${JSON.stringify(fromDebriefHighlight ?? null, null, 2)}
-
-【本次任务】只为「${SECTION_CN[keep] ?? keep}」板块产 edits[](target 必须是 ${keep}[i].bullets[j]);**把该板块每条值得改的 bullet 都改到,一条都不要漏**。不要产 original_issues / optimization_directions / gap-alert。${keep === "self_eval" ? SELF_EVAL_RULE : ""}
+【本次任务】只**改写**「${SECTION_CN[keep] ?? keep}」板块里【已有的】 bullet(target 必须是 ${keep}[i].bullets[j]);**把该板块每条值得改的 bullet 都改到,一条都不要漏**。
+**不要新增 bullet、不要把外部素材塞进已有 bullet**(补经历/挖经历/面试带来的新素材由专门步骤处理,不在本板块)。不要产 original_issues / optimization_directions / gap-alert。${keep === "self_eval" ? SELF_EVAL_RULE : ""}
 返 JSON。`;
       try {
         const raw = await callLlm({ sys: systemPrompt, usr, max: 8000 });
@@ -443,6 +451,42 @@ ${JSON.stringify(fromDebriefHighlight ?? null, null, 2)}
         return p && Array.isArray(p.edits) ? (p.edits as Record<string, unknown>[]) : [];
       } catch (err) {
         console.error(`[suggest-edits] bucket ${keep} 失败:`, err);
+        return [];
+      }
+    }
+
+    // 专用桶:把补经历/挖经历/面试带来的 hidden_experience 整理成「new: 新增」落点建议
+    // (项目类→new:projects STAR / 学习类→new:skills/new:self_eval)。
+    // 与板块桶分离 → 不再被塞进无关的已有 bullet,也不会因相关板块为空而丢失。
+    async function callHiddenBucket(): Promise<Record<string, unknown>[]> {
+      if (!Array.isArray(hiddenExperiences) || hiddenExperiences.length === 0)
+        return [];
+      const usr = `parsed_resume(全简历,仅作上下文 + 去重依据;**本次绝不改这里的已有 bullet**):
+${JSON.stringify(parsedResume, null, 2)}
+
+jd_context(JD 拆解;null 表示快速模式):
+${JSON.stringify(jdContext ?? null, null, 2)}
+
+hidden_experience_candidates(来自补经历 / 挖经历 / 面试回流 —— **本次只处理这些**):
+${JSON.stringify(hiddenExperiences, null, 2)}
+
+【本次任务】只为上面 hidden_experience_candidates 里**每一条**产出 hidden-experience-add 类 edit,按【hidden-experience-add 落点分流】规则:
+- 项目类(topic_name 以「补项目·」、有真实成果/产出物)→ target="new:projects[N].bullets",suggested_text 用 STAR 组织,结果只用素材里的真实数字、没有就用内联占位符,绝不编造。
+- 学习类(topic_name 以「补能力·」、anti_fab_note/honest_use 含"了解/入门")→ target="new:skills.tools"(或 .frameworks/.domain,只写素材真出现的技能)和/或 target="new:self_eval.bullets"(一句诚实自我评价)。
+- 每条 edit 必填:category="hidden-experience-add"、evidence_source="hidden_experiences[N]"、original_text="(新增)"。
+- **不要改任何已有 bullet,不要产 gap-alert / original_issues / optimization_directions。**
+返 JSON。`;
+      try {
+        const raw = await callLlm({ sys: systemPrompt, usr, max: 4000 });
+        let p: Record<string, unknown> | null = null;
+        try {
+          p = JSON.parse(raw);
+        } catch {
+          p = rescueEdits(raw);
+        }
+        return p && Array.isArray(p.edits) ? (p.edits as Record<string, unknown>[]) : [];
+      } catch (err) {
+        console.error("[suggest-edits] hidden bucket 失败:", err);
         return [];
       }
     }
@@ -476,12 +520,13 @@ ${JSON.stringify(jdContext ?? null, null, 2)}
     let parsed: Record<string, unknown> | null = null;
     const rescued = false;
 
-    const [bucketEditArrays, diag] = await Promise.all([
+    const [bucketEditArrays, hiddenEdits, diag] = await Promise.all([
       Promise.all(activeBuckets.map((s) => callBucket(s))),
+      callHiddenBucket(),
       callDiagnostics(),
     ]);
 
-    const mergedEdits = bucketEditArrays.flat();
+    const mergedEdits = [...bucketEditArrays.flat(), ...hiddenEdits];
     mergedEdits.forEach((e, i) => {
       e.id = `edit-${String(i + 1).padStart(3, "0")}`; // 跨板块统一重编号,不撞 id
     });

@@ -1,113 +1,143 @@
 "use client";
 
 /**
- * useM4Projects — M4 项目列表双写 hook（localStorage + DB）
+ * useM4Projects — M4 项目列表 hook，按会话隔离（仿 m3 useM3Data）
  *
- * 游客：只写 localStorage（同原来行为）
- * 登录：localStorage 优先；异步 upsert 到 m4_projects.learning_cards_json
+ * 游客：单轨 localStorage(key=m4_projects)，全站约定不支持多会话
+ * 登录 + convId：从 m4_projects 表按 conversation_id 读/写该会话独占的一行
+ * 登录 + 无 convId：返回空（由 m4 page 的编排 effect 负责建/选会话）
  *
- * 关键设计：
- * - DB 用一个"主项目会话"（M4 master conv）保存整个 M4Project[] JSON
- * - convId 缓存在 localStorage（m4_master_conv_id）避免重复创建
- * - localStorage 为空时从 DB 反查（跨设备恢复）
+ * 关键修复（2026-06-11）：旧版用「单一 master 会话」把所有卡堆在一起，
+ * 切会话/从测评带新目标进来都看到同一堆卡。现在每个会话独占一行，真正隔离。
  */
 
-import { useCallback, useEffect, useState } from "react";
-import { STORAGE_KEYS, useLocalState } from "@/lib/use-local-state";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { STORAGE_KEYS } from "@/lib/use-local-state";
 import { useUser } from "@/lib/auth/useUser";
 import { createClient } from "@/lib/supabase/client";
-import { listConversations, createConversation } from "@/lib/conversations";
 import type { M4Project } from "@/lib/m4-types";
 
-const CONV_CACHE_KEY = "m4_master_conv_id";
+function readGuestLocal(): M4Project[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(STORAGE_KEYS.M4_PROJECTS);
+    const arr = raw ? JSON.parse(raw) : [];
+    return Array.isArray(arr) ? (arr as M4Project[]) : [];
+  } catch {
+    return [];
+  }
+}
 
-export function useM4Projects(): [
+export type SaveCloudResult = { ok: boolean; guest: boolean; error?: string };
+
+export function useM4Projects(convId: string | null): [
   M4Project[],
   (updater: M4Project[] | ((prev: M4Project[]) => M4Project[])) => void,
+  { loading: boolean; saveToCloud: () => Promise<SaveCloudResult> },
 ] {
-  const { user } = useUser();
-  const [projects, setProjectsLocal] = useLocalState<M4Project[]>(
-    STORAGE_KEYS.M4_PROJECTS,
-    [],
-  );
-  const [masterConvId, setMasterConvId] = useState<string | null>(null);
-
-  // Step 1: 找或创建"主 M4 会话"（只在登录态执行）
+  const { user, loading: userLoading } = useUser();
+  const [projects, setProjectsState] = useState<M4Project[]>([]);
+  const [loading, setLoading] = useState(true);
+  // 显式「保存到云端」用:始终拿到最新 projects(避免 useCallback 闭包旧值)
+  const projectsRef = useRef<M4Project[]>([]);
   useEffect(() => {
-    if (!user) return;
-    const cached =
-      typeof window !== "undefined"
-        ? window.localStorage.getItem(CONV_CACHE_KEY)
-        : null;
-    if (cached) {
-      setMasterConvId(cached);
-      return;
-    }
-    listConversations("m4").then((convs) => {
-      if (convs.length > 0) {
-        const id = convs[0].id;
-        window.localStorage.setItem(CONV_CACHE_KEY, id);
-        setMasterConvId(id);
-      } else {
-        createConversation("m4", "我的项目陪练").then((id) => {
-          if (id) {
-            window.localStorage.setItem(CONV_CACHE_KEY, id);
-            setMasterConvId(id);
-          }
-        });
+    projectsRef.current = projects;
+  }, [projects]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (userLoading) return;
+
+    // 游客：单轨 localStorage
+    if (!user) {
+      if (!cancelled) {
+        setProjectsState(readGuestLocal());
+        setLoading(false);
       }
-    });
-  }, [user]);
+      return () => {
+        cancelled = true;
+      };
+    }
 
-  // Step 2: localStorage 为空时从 DB 恢复（跨设备场景）
-  useEffect(() => {
-    if (!user || !masterConvId || projects.length > 0) return;
+    // 登录无会话：空（编排 effect 会建/选会话后带上 convId 再来）
+    if (!convId) {
+      if (!cancelled) {
+        setProjectsState([]);
+        setLoading(false);
+      }
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    // 登录 + convId：从 DB 按会话读
+    setLoading(true);
     createClient()
       .from("m4_projects")
       .select("learning_cards_json")
-      .eq("conversation_id", masterConvId)
+      .eq("conversation_id", convId)
       .maybeSingle()
       .then(({ data }) => {
-        if (
-          data?.learning_cards_json &&
-          Array.isArray(data.learning_cards_json) &&
-          data.learning_cards_json.length > 0
-        ) {
-          setProjectsLocal(data.learning_cards_json as M4Project[]);
-        }
+        if (cancelled) return;
+        const arr = data?.learning_cards_json;
+        setProjectsState(Array.isArray(arr) ? (arr as M4Project[]) : []);
+        setLoading(false);
       });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user, masterConvId]);
 
-  // DB 同步 — upsert 保证行存在时更新、不存在时插入
-  const syncToDb = useCallback(
-    async (next: M4Project[]) => {
-      if (!user || !masterConvId) return;
-      try {
-        await createClient()
-          .from("m4_projects")
-          .upsert(
-            { conversation_id: masterConvId, learning_cards_json: next },
-            { onConflict: "conversation_id" },
-          );
-      } catch (err) {
-        console.warn("[useM4Projects] DB sync failed:", err);
-      }
-    },
-    [user, masterConvId],
-  );
+    return () => {
+      cancelled = true;
+    };
+  }, [user, userLoading, convId]);
 
   const setProjects = useCallback(
     (updater: M4Project[] | ((prev: M4Project[]) => M4Project[])) => {
-      setProjectsLocal((prev: M4Project[]) => {
-        const next =
-          typeof updater === "function" ? updater(prev) : updater;
-        void syncToDb(next);
+      setProjectsState((prev) => {
+        const next = typeof updater === "function" ? updater(prev) : updater;
+        if (typeof window !== "undefined") {
+          if (!user) {
+            try {
+              window.localStorage.setItem(
+                STORAGE_KEYS.M4_PROJECTS,
+                JSON.stringify(next),
+              );
+            } catch {
+              /* ignore */
+            }
+          } else if (convId) {
+            void createClient()
+              .from("m4_projects")
+              .upsert(
+                { conversation_id: convId, learning_cards_json: next },
+                { onConflict: "conversation_id" },
+              )
+              .then(({ error }) => {
+                if (error) console.warn("[useM4Projects] DB sync failed:", error);
+              });
+          }
+        }
         return next;
       });
     },
-    [setProjectsLocal, syncToDb],
+    [user, convId],
   );
 
-  return [projects, setProjects];
+  // 显式保存到云端(登录态):把当前会话的所有卡 upsert 到 DB
+  const saveToCloud = useCallback(async (): Promise<SaveCloudResult> => {
+    if (!user) return { ok: false, guest: true };
+    if (!convId) return { ok: false, guest: false, error: "当前没有会话,无法保存到云端" };
+    try {
+      const { error } = await createClient()
+        .from("m4_projects")
+        .upsert(
+          { conversation_id: convId, learning_cards_json: projectsRef.current },
+          { onConflict: "conversation_id" },
+        );
+      if (error) return { ok: false, guest: false, error: error.message };
+      return { ok: true, guest: false };
+    } catch (e) {
+      return { ok: false, guest: false, error: e instanceof Error ? e.message : "保存失败" };
+    }
+  }, [user, convId]);
+
+  return [projects, setProjects, { loading, saveToCloud }];
 }

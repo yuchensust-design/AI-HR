@@ -92,6 +92,18 @@ export async function POST(request: NextRequest) {
       if (e.target.startsWith("new:")) newSectionEdits.push(e);
       else editByTarget.set(e.target, e);
     }
+    // 新增素材按落点分流(补经历飞轮:项目→STAR项目经历 / 纯学习→技能 / 自我评价)
+    const newSkills = newSectionEdits.filter((e) =>
+      e.target.startsWith("new:skills"),
+    );
+    const newSelfEval = newSectionEdits.filter((e) =>
+      e.target.startsWith("new:self_eval"),
+    );
+    const newProjectBullets = newSectionEdits.filter(
+      (e) =>
+        !e.target.startsWith("new:skills") &&
+        !e.target.startsWith("new:self_eval"),
+    );
 
     // Apply per-target edits
     type Section = "experience" | "projects" | "activities" | "self_eval";
@@ -134,10 +146,14 @@ export async function POST(request: NextRequest) {
     }
 
     const skillGroups = skillGroupsOf(finalResume);
-    if (skillGroups.length > 0) {
+    if (skillGroups.length > 0 || newSkills.length > 0) {
       lines.push("## 核心技能");
       for (const g of skillGroups) {
         lines.push(`- ${g.category}: ${g.items.join(" / ")}`);
+      }
+      // 补经历(学习型)带来的技能
+      for (const ne of newSkills) {
+        lines.push(`- ${ne.suggested_text}`);
       }
       lines.push("");
     }
@@ -173,9 +189,13 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Append new section edits as projects
-    if (newSectionEdits.length > 0) {
-      for (const ne of newSectionEdits) {
+    // 补经历(项目型)带来的新经历:作为项目经历补充(STAR 由 suggested_text 承载)
+    if (newProjectBullets.length > 0) {
+      if (!finalResume.projects || finalResume.projects.length === 0) {
+        lines.push("## 项目经验");
+      }
+      lines.push("**补充项目经历**");
+      for (const ne of newProjectBullets) {
         lines.push(`- ${ne.suggested_text}`);
       }
       lines.push("");
@@ -195,13 +215,18 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // 自我评价
-    if (finalResume.self_eval && finalResume.self_eval.length > 0) {
-      const selfBullets = finalResume.self_eval.flatMap((s) => s.bullets ?? []);
-      if (selfBullets.length > 0) {
+    // 自我评价(含补经历学习型带来的一句诚实评价)
+    {
+      const selfBullets = (finalResume.self_eval ?? []).flatMap(
+        (s) => s.bullets ?? [],
+      );
+      if (selfBullets.length > 0 || newSelfEval.length > 0) {
         lines.push("## 自我评价");
         for (const bul of selfBullets) {
           lines.push(`- ${bulletText(bul)}`);
+        }
+        for (const ne of newSelfEval) {
+          lines.push(`- ${ne.suggested_text}`);
         }
         lines.push("");
       }

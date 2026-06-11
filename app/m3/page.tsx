@@ -22,6 +22,7 @@ import { Nav } from "@/components/Nav";
 import { BuerFloatingButton } from "@/components/BuerFloatingButton";
 import ConversationSwitcher from "@/components/conversations/ConversationSwitcher";
 import { useM3Data, type ParsedResume, type JdCtx } from "@/lib/sync/useM3Data";
+import type { HiddenExperience } from "@/lib/sync/hidden-experience";
 import { useUser } from "@/lib/auth/useUser";
 import { useLocalState, STORAGE_KEYS } from "@/lib/use-local-state";
 import { createClient } from "@/lib/supabase/client";
@@ -166,6 +167,30 @@ function Module3Content() {
   useEffect(() => {
     setLocalJdRaw(data.jd ?? null);
   }, [data.jd, convId]);
+
+  // 从补经历(m4)/面试(m5)带来的素材:本地副本 + 双轨保存,setup 页可见可编辑
+  const [localHidden, setLocalHidden] = useState<HiddenExperience[]>([]);
+  useEffect(() => {
+    setLocalHidden(
+      Array.isArray(data.hidden) ? (data.hidden as HiddenExperience[]) : [],
+    );
+  }, [data.hidden, convId]);
+
+  async function persistHidden(next: HiddenExperience[]) {
+    setLocalHidden(next);
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(
+        STORAGE_KEYS.HIDDEN_EXPERIENCES,
+        JSON.stringify(next),
+      );
+    }
+    if (user && convId) {
+      await createClient()
+        .from("m3_resumes")
+        .update({ hidden_experience_json: next })
+        .eq("conversation_id", convId);
+    }
+  }
 
   const effectiveParsed = localParsed ?? parsedResume;
   const effectiveJd = localJd ?? jdContext;
@@ -558,6 +583,39 @@ function Module3Content() {
                         : " 你在补项目里用的简历 + 目标岗位,以及刚标记完成的那条补强素材都已带上。"}
                       {" 下面确认无误后点「开始优化」,AI 会把它揉进简历。"}
                     </p>
+
+                    {/* 带来的素材:显出来 + 可编辑(呼应反编造:落地即可确认/改真实成果)*/}
+                    {localHidden.length > 0 && (
+                      <div className="mt-3 space-y-3">
+                        {localHidden.map((he, i) => (
+                          <div
+                            key={he.question_id ?? i}
+                            className="rounded-xl border border-esther-blue/25 bg-white/70 p-3"
+                          >
+                            <p className="text-xs font-semibold text-esther-blue mb-1">
+                              📎 {he.topic_name || `带来的素材 ${i + 1}`}
+                            </p>
+                            <textarea
+                              value={he.raw_user_material ?? ""}
+                              onChange={(e) => {
+                                const next = localHidden.map((h, idx) =>
+                                  idx === i
+                                    ? { ...h, raw_user_material: e.target.value }
+                                    : h,
+                                );
+                                setLocalHidden(next);
+                              }}
+                              onBlur={() => void persistHidden(localHidden)}
+                              rows={4}
+                              className="w-full px-3 py-2 rounded-lg border border-border bg-card text-xs text-ink leading-relaxed focus:outline-none focus:border-esther-blue resize-y"
+                            />
+                            <p className="text-[11px] text-ink-muted mt-1">
+                              可在此把成果改成你的真实数字 / 产出,优化时 AI 会按这里的内容来,不编造。
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </section>
               )}

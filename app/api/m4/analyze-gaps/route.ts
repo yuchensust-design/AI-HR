@@ -27,11 +27,77 @@ export const maxDuration = 60;
 
 const MAX_JD_LEN = 8000;
 
-function buildSystemPrompt(mode: "full" | "role"): string {
+// —— C:真 JD grounding —— 无 JD(role 模式)时,拉几条真实在招岗位当「市场要求样本」,
+// 把 LLM 的"拍脑袋通用推断"升级成"真实市场要求"。隧道断/超时 → 返回 null,静默回退现状 generic。
+const CRAWLER_BASE_URL = process.env.CRAWLER_BASE_URL ?? "http://localhost:3030";
+const CRAWLER_API_KEY = process.env.CRAWLER_API_KEY ?? "dev-secret-change-me";
+
+type CrawlerJob = {
+  title?: string;
+  company?: string;
+  companyType?: string;
+  city?: string;
+  experience?: string;
+  salary?: string;
+  tags?: string[];
+  jdSummary?: string;
+  description?: string;
+};
+
+/**
+ * 拉 3-5 条真实在招岗位,拼成市场样本文本。
+ * 只用真爬虫结果;mock/失败/超时一律返回 null(绝不拿 mock 冒充真实市场)。
+ */
+async function fetchMarketJDSample(
+  roleName: string,
+  city: string | undefined,
+): Promise<string | null> {
+  try {
+    const upstream = await fetch(`${CRAWLER_BASE_URL}/search`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-API-Key": CRAWLER_API_KEY,
+      },
+      body: JSON.stringify({
+        role: roleName,
+        city: city || "上海",
+        page: 1,
+        limit: 6,
+      }),
+      // 给 grounding 留 ~12s,留足时间给后面的 LLM 分析(总预算 60s)
+      signal: AbortSignal.timeout(12_000),
+    });
+    if (!upstream.ok) return null;
+    const data = (await upstream.json()) as {
+      jobs?: CrawlerJob[];
+      isMock?: boolean;
+    };
+    if (data.isMock) return null; // mock 不算真实市场样本
+    const jobs = Array.isArray(data.jobs) ? data.jobs.slice(0, 5) : [];
+    if (jobs.length === 0) return null;
+    const lines = jobs.map((j, idx) => {
+      const meta = [j.companyType || j.company, j.experience, j.salary]
+        .filter(Boolean)
+        .join(" / ");
+      const body =
+        (j.jdSummary || j.description || "").trim() ||
+        (Array.isArray(j.tags) ? j.tags.join("、") : "");
+      return `${idx + 1}. ${j.title ?? "(岗位)"}${meta ? `（${meta}）` : ""}：${body}`;
+    });
+    return lines.join("\n");
+  } catch {
+    return null; // 隧道不可达 / 超时 → 回退现状
+  }
+}
+
+function buildSystemPrompt(mode: "full" | "role", hasMarketSample = false): string {
   const modeNote =
     mode === "full"
       ? "用户提供了完整 JD 文本,高保真拆解;confidence 视为 high。"
-      : "用户只给了岗位名(可能含公司名),用行业通用知识推断该岗位常见要求,**明示这是 generic / 非 JD-specific**。";
+      : hasMarketSample
+        ? "用户没给 JD,但已附上该岗位**真实在招样本**(实时招聘数据)。请优先据此拆解关键能力要求,比通用推断更贴近市场。"
+        : "用户只给了岗位名(可能含公司名),用行业通用知识推断该岗位常见要求,**明示这是 generic / 非 JD-specific**。";
 
   return `你是「Offer 捕手」模块 4 的能力差距分析师。你的任务:把用户简历和目标岗位逐条对照,产出一份**诚实、可解释**的差距报告,供后续按时间预算设计补强方案。
 
@@ -78,12 +144,23 @@ ${modeNote}
 返 JSON。`;
 }
 
-function buildUserPromptFull(jdText: string, parsedResume: unknown): string {
+// 用户从「改简历」的某个 JD 关键词缺口点「补项目」进来时,带着这个关键词 —— 差距报告必须优先覆盖它
+function focusBlock(focusGap: string): string {
+  if (!focusGap) return "";
+  return `\n用户是专门为补强「${focusGap}」这项能力而来(从改简历里识别出的真实缺口)。
+请确保差距报告里**包含「${focusGap}」相关的缺口项,并放在最前面**;围绕它给出可落地的补强方向。\n`;
+}
+
+function buildUserPromptFull(
+  jdText: string,
+  parsedResume: unknown,
+  focusGap: string,
+): string {
   return `目标 JD 文本:
 ---JD 开始---
 ${jdText}
 ---JD 结束---
-
+${focusBlock(focusGap)}
 用户简历(结构化):
 ${JSON.stringify(parsedResume, null, 2)}
 
@@ -94,13 +171,22 @@ function buildUserPromptRole(
   roleName: string,
   company: string | undefined,
   parsedResume: unknown,
+  marketSample: string | null,
+  focusGap: string,
 ): string {
+  const marketBlock = marketSample
+    ? `\n以下是该岗位**当前真实在招的样本**(来自实时招聘数据,已脱敏公司名),请优先据此拆解关键能力要求,比通用推断更贴近市场:
+---真实在招样本开始---
+${marketSample}
+---真实在招样本结束---
+`
+    : "\n(暂无真实在招样本,请基于行业通用知识推断该岗位常见要求,明示 generic、非 JD-specific。)";
+
   return `用户没给完整 JD,只说目标岗位:
 - 岗位名: ${roleName}
 ${company ? `- 公司: ${company}` : "- 公司: (未指定)"}
-
-请基于行业通用知识推断该岗位的关键能力要求(明示 generic,非 JD-specific)。
-
+${marketBlock}
+${focusBlock(focusGap)}
 用户简历(结构化):
 ${JSON.stringify(parsedResume, null, 2)}
 
@@ -164,7 +250,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const focusGap = String(body.focusGap ?? "").trim().slice(0, 60);
+
     let userPrompt: string;
+    let hasMarketSample = false;
     if (mode === "full") {
       const jdText = String(body.jdText ?? "").trim();
       if (!jdText) {
@@ -179,7 +268,7 @@ export async function POST(request: NextRequest) {
           { status: 400 },
         );
       }
-      userPrompt = buildUserPromptFull(jdText, parsedResume);
+      userPrompt = buildUserPromptFull(jdText, parsedResume, focusGap);
     } else {
       const roleName = String(body.roleName ?? "").trim();
       if (!roleName) {
@@ -189,12 +278,24 @@ export async function POST(request: NextRequest) {
         );
       }
       const company = body.company ? String(body.company).trim() : undefined;
-      userPrompt = buildUserPromptRole(roleName, company, parsedResume);
+      const city = body.city ? String(body.city).trim() : undefined;
+      // grounding 策略:
+      //  - focusGap(从改简历缺口带来)→ 专注、对齐改简历口径,不搜真岗(避免岗位无关噪声)
+      //  - skipMarketSearch(用户在补项目里显式选「AI 按岗位知识推断」)→ 不搜真岗
+      //  - 其余(老路径/未指定)→ 拉真实在招样本 grounding(失败静默回退通用推断)
+      //  注:用户若选「用真实在招岗位」,前端会让其挑一条岗位、以 mode=full 传该岗 JD,不走这里。
+      const skipMarketSearch = body.skipMarketSearch === true;
+      const marketSample =
+        focusGap || skipMarketSearch
+          ? null
+          : await fetchMarketJDSample(roleName, city);
+      hasMarketSample = !!marketSample;
+      userPrompt = buildUserPromptRole(roleName, company, parsedResume, marketSample, focusGap);
     }
 
     const raw = await chat(
       [
-        { role: "system", content: buildSystemPrompt(mode) },
+        { role: "system", content: buildSystemPrompt(mode, hasMarketSample) },
         { role: "user", content: userPrompt },
       ],
       { model: "chat", temperature: 0.3, max_tokens: 3000, jsonMode: true },
