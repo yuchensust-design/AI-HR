@@ -108,7 +108,7 @@ async function runSplitter(
 }
 
 // ============ 调爬虫(失败兜底本地 mock,§8.28) ============
-async function fetchCrawler(role: string, city: string, limit = 10): Promise<{
+async function fetchCrawler(role: string, city: string, limit = 10, page = 1): Promise<{
   jobs: Job[];
   blockedPlatforms: string[];
   isMock?: boolean;
@@ -119,7 +119,7 @@ async function fetchCrawler(role: string, city: string, limit = 10): Promise<{
       "Content-Type": "application/json",
       "X-API-Key": CRAWLER_API_KEY,
     },
-    body: JSON.stringify({ role, city, page: 1, limit }),
+    body: JSON.stringify({ role, city, page, limit }),
     signal: AbortSignal.timeout(55_000),
   }).catch((err) => {
     console.warn(
@@ -334,6 +334,17 @@ export async function POST(request: NextRequest) {
       typeof body.optimizedResume === "string" && body.optimizedResume.trim().length > 20
         ? body.optimizedResume
         : undefined;
+    // 加载更多:翻页 + 复用上次关键词/城市(跳过 Splitter,省一次 LLM)
+    const page =
+      Number.isFinite(Number(body.page)) && Number(body.page) > 0
+        ? Math.floor(Number(body.page))
+        : 1;
+    const reuseKeywords = Array.isArray(body.keywords)
+      ? (body.keywords as unknown[])
+          .filter((k): k is string => typeof k === "string" && k.trim().length > 0)
+          .slice(0, 3)
+      : null;
+    const reuseCity = typeof body.city === "string" && body.city.trim() ? body.city.trim() : undefined;
 
     if (!parsedResume) {
       return NextResponse.json(
@@ -342,12 +353,15 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Stage 1: Splitter
-    const split = await runSplitter(parsedResume, cityOverride, optimizedResume);
+    // Stage 1: Splitter(加载更多时复用上次关键词,不重跑)
+    const split =
+      reuseKeywords && reuseKeywords.length > 0
+        ? { keywords: reuseKeywords, city: reuseCity || cityOverride || "全国", reasoning: "" }
+        : await runSplitter(parsedResume, cityOverride, optimizedResume);
 
-    // Stage 2: 并行调爬虫
+    // Stage 2: 并行调爬虫(按 page 翻页)
     const crawlerResults = await Promise.all(
-      split.keywords.map((kw) => fetchCrawler(kw, split.city, 10))
+      split.keywords.map((kw) => fetchCrawler(kw, split.city, 10, page))
     );
     // 方案 D:不显示 51job(列表卡能拿,但 jdUrl 落搜索页、JD 详情抓不到)
     const allJobs = crawlerResults
