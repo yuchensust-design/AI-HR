@@ -99,7 +99,7 @@ export default function Module1EntryPage() {
         {/* ==========================================================
             Section 1: Hero / 测评入口
             ========================================================== */}
-        <section className="border-b border-border">
+        <section>
           <div className="max-w-[1300px] mx-auto px-6 py-12">
             <Link
               href="/"
@@ -131,45 +131,49 @@ export default function Module1EntryPage() {
                 </a>
               </div>
 
-              {/* 右:两张版本卡 */}
-              <div className="space-y-4">
+              {/* 右:两张版本卡(紧凑横排,一屏内可见) */}
+              <div className="space-y-3">
                 <p className="text-xs font-display italic text-ink-muted">
                   选一个版本开始 ——
                 </p>
                 {/* 快速版(推荐先做) */}
                 <Link
                   href="/m1/quiz"
-                  className="group block rounded-2xl border-2 border-esther-blue bg-esther-blue text-white p-5 shadow-md hover:shadow-xl hover:-translate-y-0.5 transition-all"
+                  className="group flex items-center justify-between gap-3 rounded-2xl border-2 border-esther-blue bg-esther-blue text-white p-4 shadow-md hover:shadow-xl hover:-translate-y-0.5 transition-all"
                 >
-                  <div className="flex items-center justify-between mb-1.5">
-                    <span className="text-lg font-bold">⚡ 快速测评</span>
-                    <span className="text-[11px] bg-white/25 rounded-full px-2.5 py-0.5">
-                      推荐先做
-                    </span>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-base font-bold">⚡ 快速测评</span>
+                      <span className="text-[10px] bg-white/25 rounded-full px-2 py-0.5 flex-shrink-0">
+                        推荐先做
+                      </span>
+                    </div>
+                    <p className="text-xs text-white/85 leading-relaxed">
+                      18 题 · 约 3 分钟 · 基于 18REST-2 学生大样本量表
+                    </p>
                   </div>
-                  <p className="text-sm text-white/85 leading-relaxed mb-3">
-                    18 题 · 约 3 分钟，先快速看清大方向
-                  </p>
-                  <span className="inline-flex items-center gap-1 text-sm font-semibold group-hover:gap-2 transition-all">
-                    开始 →
+                  <span className="text-xl font-semibold flex-shrink-0 group-hover:translate-x-0.5 transition-transform">
+                    →
                   </span>
                 </Link>
                 {/* 完整版(更准) */}
                 <Link
                   href="/m1/quiz?v=full"
-                  className="group block rounded-2xl border-2 border-esther-blue/30 bg-card p-5 hover:border-esther-blue hover:shadow-xl hover:-translate-y-0.5 transition-all"
+                  className="group flex items-center justify-between gap-3 rounded-2xl border-2 border-esther-blue/30 bg-card p-4 hover:border-esther-blue hover:shadow-xl hover:-translate-y-0.5 transition-all"
                 >
-                  <div className="flex items-center justify-between mb-1.5">
-                    <span className="text-lg font-bold text-ink">🎯 完整版</span>
-                    <span className="text-[11px] text-esther-blue bg-esther-blue/10 rounded-full px-2.5 py-0.5">
-                      结果更准
-                    </span>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-base font-bold text-ink">🎯 完整版</span>
+                      <span className="text-[10px] text-esther-blue bg-esther-blue/10 rounded-full px-2 py-0.5 flex-shrink-0">
+                        结果更准
+                      </span>
+                    </div>
+                    <p className="text-xs text-ink-soft leading-relaxed">
+                      60 题 · 约 8 分钟 · 基于 O*NET 权威量表，更细更稳
+                    </p>
                   </div>
-                  <p className="text-sm text-ink-soft leading-relaxed mb-3">
-                    60 题 · 约 8 分钟 · 基于 O*NET 权威量表，题量 ×3，结果更稳
-                  </p>
-                  <span className="inline-flex items-center gap-1 text-sm font-semibold text-esther-blue group-hover:gap-2 transition-all">
-                    开始 →
+                  <span className="text-xl font-semibold text-esther-blue flex-shrink-0 group-hover:translate-x-0.5 transition-transform">
+                    →
                   </span>
                 </Link>
               </div>

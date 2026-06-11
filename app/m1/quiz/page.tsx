@@ -391,7 +391,7 @@ function QuizContent() {
         <div className="max-w-[800px] mx-auto px-6 py-8">
           <Card className="p-8 md:p-10 border-2 border-border">
             <p className="font-display italic text-xs text-esther-blue mb-3">
-              Question {q.no}
+              第 {safeIndex + 1} 题 / 共 {ALL_QUESTIONS.length} 题
             </p>
             <h2 className="text-xl md:text-2xl font-bold text-ink mb-8 leading-snug">
               {q.text}
