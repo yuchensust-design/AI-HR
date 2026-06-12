@@ -20,8 +20,8 @@ const PRIVACY_PILLARS = [
   {
     glyph: "隐",
     label: "数据边界",
-    title: "本地优先 · 不做账号级持久化",
-    desc: "游客模式 — 简历草稿 / 测评结果 / 投递记录 / 日记默认存浏览器 localStorage。涉及 AI 分析的文本会发送到国产大模型接口处理,但不做账号级持久化,也不与第三方做画像 / 二次训练。",
+    title: "游客本地优先 · 登录后加密存云",
+    desc: "游客模式 — 简历草稿 / 测评结果 / 投递记录 / 日记默认存浏览器 localStorage;登录后数据加密存云、可随时导出或删除。涉及 AI 分析的文本会发送到国产大模型接口处理,均不与第三方做画像 / 二次训练。",
     badgeBg: "bg-esther-red",
     badgeText: "text-white",
   },
@@ -157,7 +157,7 @@ export default function Home() {
               </h1>
               {/* Subtitle — 产品定位长句 */}
               <p className="text-base text-ink-soft leading-relaxed mb-3 max-w-xl">
-                从岗位定位、经历挖掘、简历优化到模拟面试,陪你把学生时代的积累,变成{" "}
+                从认识自己、匹配真实岗位、看清能力缺口、补足经历到模拟面试,陪你把学生时代的积累,变成{" "}
                 <span
                   className="bg-esther-yellow/40 font-medium text-ink"
                   style={{ padding: "0 0.15em" }}
@@ -166,8 +166,8 @@ export default function Home() {
                 </span>
               </p>
               <p className="text-sm text-ink-soft leading-relaxed mb-6 max-w-xl">
-                用测评、JD 解析、结构化追问和复盘指标,把求职从感觉判断变成{" "}
-                <span className="text-esther-blue font-medium">可分析、可优化的路径</span>
+                用职业测评找准方向,用真实岗位看清差距,用简历优化和面试复盘持续迭代,把求职从凭感觉碰运气,变成一条{" "}
+                <span className="text-esther-blue font-medium">可分析、可优化的成长路径</span>
               </p>
 
               <div className="flex flex-wrap items-center gap-4">
@@ -503,7 +503,7 @@ export default function Home() {
                   隐私
                 </p>
                 <p className="text-xs text-ink-soft leading-relaxed mb-3">
-                  v1 游客模式 · 数据(除「不二」临时会话外)都在浏览器本地 ·
+                  游客模式数据存浏览器本地;登录后加密存云 ·
                   视频流绝不上传服务器 · 音频流由火山 STT 处理且默认不存
                 </p>
                 <p className="text-xs text-ink-muted leading-relaxed italic">
@@ -513,7 +513,7 @@ export default function Home() {
             </div>
             <div className="border-t border-border pt-6 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
               <p className="text-xs text-ink-muted">
-                © 2026 Offer 捕手 · 基于 esther-design-system · 比赛 demo 项目
+                © 2026 Offer 捕手 · 比赛 demo 项目
               </p>
               <p className="text-xs text-ink-muted font-display italic">
                 测评仅供参考,愿你的热爱与擅长终在某处相逢

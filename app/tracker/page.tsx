@@ -173,7 +173,7 @@ export default function TrackerPage() {
         <header className="flex items-start justify-between gap-4">
           <div>
             <h1 className="text-3xl md:text-5xl font-bold text-ink leading-tight mb-3">
-              你卡在投递、面试，还是方向？
+              你卡在投递、面试,还是方向?
             </h1>
             <p className="text-base text-ink-soft leading-relaxed">
               记录每次投递的真实结果，积累够了 AI 帮你找到卡点，告诉你该去改简历还是练面试。

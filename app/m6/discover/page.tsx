@@ -334,7 +334,7 @@ function DiscoverPageInner() {
     // 模拟分阶段进度更新(实际后端一次性返回,前端用 timer 演示流水线)
     setAgentSteps({
       splitter: { step: "splitter", status: "running", label: "Agent 1 — Splitter:从简历提取搜索关键词" },
-      scraper: { step: "scraper", status: "pending", label: "Crawler:并行抓取前程无忧 / 猎聘 / 智联真实岗位" },
+      scraper: { step: "scraper", status: "pending", label: "Crawler:并行抓取猎聘 / 智联等真实岗位" },
       scorer: { step: "scorer", status: "pending", label: "Agent 2 — Scorer:4 维度评分(批量)" },
       formatter: { step: "formatter", status: "pending", label: "Agent 4 — Formatter:生成个性化推荐说明" },
     });
@@ -397,7 +397,7 @@ function DiscoverPageInner() {
 
       setAgentSteps({
         splitter: { step: "splitter", status: "done", label: `Agent 1 — Splitter:抽取 ${data.keywords.length} 个关键词`, detail: data.keywords.join(" / ") },
-        scraper: { step: "scraper", status: "done", label: `Crawler:抓到 ${data.stats.scraped} 个原始岗位`, detail: data.stats.blockedPlatforms.length ? `平台兜底生效,${data.stats.blockedPlatforms.join("/")} 暂不可用,已切换备用平台` : "前程无忧 / 猎聘 / 智联多平台数据齐全" },
+        scraper: { step: "scraper", status: "done", label: `Crawler:抓到 ${data.stats.scraped} 个原始岗位`, detail: data.stats.blockedPlatforms.length ? `平台兜底生效,${data.stats.blockedPlatforms.join("/")} 暂不可用,已切换备用平台` : "猎聘 / 智联多平台数据齐全" },
         scorer: { step: "scorer", status: "done", label: `Agent 2 — Scorer:评分 ${data.stats.scored} 个岗位` },
         formatter: { step: "formatter", status: "done", label: `Agent 4 — Formatter:推荐 ${data.stats.recommended} 个(80 分放行 + Fallback 保底)` },
       });
@@ -844,7 +844,7 @@ function SearchTab({
       {loading && (
         <p className="text-xs text-ink-soft mt-3 flex items-center gap-2">
           <span className="inline-block w-3 h-3 border-2 border-esther-blue border-t-transparent rounded-full animate-spin" />
-          正在从前程无忧 / 猎聘 / 智联抓取真实岗位...(20-30s)
+          正在从猎聘 / 智联抓取真实岗位...(20-30s)
         </p>
       )}
       {error && (

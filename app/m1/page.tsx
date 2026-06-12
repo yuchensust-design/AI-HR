@@ -21,7 +21,7 @@ import { RIASECRadar } from "@/components/RIASECRadar";
 const FEATURES = [
   {
     emoji: "🧭",
-    title: "霍兰德 RIASEC · 50 年学术理论",
+    title: "霍兰德 RIASEC · 经典职业兴趣理论",
     desc: "由美国心理学家 Holland 于 1959 年提出,被 O*NET 等国际职业指导系统采用至今 · 6 维度(实用/研究/艺术/社交/企业/常规)从职业兴趣偏好层面拆解你",
   },
   {
@@ -40,28 +40,51 @@ const FEATURES = [
 const SAMPLE = {
   background: "CS 大四 · 1 段字节实习 · 做过 AI 学习助手项目",
   emoji: "💻",
-  riasec: [5, 8, 4, 6, 9, 5] as [number, number, number, number, number, number],
-  riasecCode: "E9 I8 S6 R5 C5 A4",
+  // 6 维顺序 [R, I, A, S, E, C] · 每维 3-15 分 · 与 m1/result 的 sample 保持一致
+  riasec: [5, 13, 8, 10, 14, 6] as [number, number, number, number, number, number],
+  riasecCode: "E14 I13 S10 A8 C6 R5",
 };
 
-const SAMPLE_RECOMMENDATIONS = [
+// 真实结果是「三档分级」:现在可以投 / 值得去探索(最有价值)/ 长期可培养
+const SAMPLE_TIERS = [
   {
-    no: "01",
-    direction: "AI / 互联网 产品经理",
-    why: "E 9 + I 8 → 你既爱推动事情发生(企业型),又重逻辑分析(研究型);加上字节实习 + AI 项目,跟 AI PM 重合度高",
-    chips: ["E 主导", "技术理解", "数据驱动"],
+    tier: "现在可以投",
+    badge: "",
+    color: "bg-esther-blue/15 text-esther-blue",
+    hint: "简历经历直接对口,现在就可以开始准备投递",
+    items: [
+      {
+        direction: "用户增长 / 数据分析",
+        why: "字节用户增长实习 + Python 数据基础 → 经历直接对口,现在就能投这类增长 / 数据角色",
+        chips: ["I 主导", "数据", "经历对口"],
+      },
+    ],
   },
   {
-    no: "02",
-    direction: "数据分析 / 增长策略",
-    why: "I 8 + Python 数据基础 → 你重数据推理,适合面向产品的数据角色",
-    chips: ["I 主导", "数据"],
+    tier: "值得去探索",
+    badge: "最有价值",
+    color: "bg-esther-yellow/40 text-ink",
+    hint: "已有经历与方向有交叉,补强一段项目或实习后可以投递",
+    items: [
+      {
+        direction: "AI / 互联网 产品经理",
+        why: "E 14 + I 13 → 既爱推动事情发生,又重逻辑分析;字节实习 + AI 项目有交叉,补一段完整 PM 项目后可投",
+        chips: ["E 主导", "技术理解", "需补 PM 方法论"],
+      },
+    ],
   },
   {
-    no: "03",
-    direction: "互联网 / AI 创业方向",
-    why: "E 9(企业型最高)+ 你已经在做 0→1(AI 学习助手 30+ 用户) → 适合早期项目",
-    chips: ["E 极高", "0→1 经历"],
+    tier: "长期可培养",
+    badge: "",
+    color: "bg-warm-bg-deep text-ink-soft",
+    hint: "需要补能力、但跟你性格匹配的方向",
+    items: [
+      {
+        direction: "0→1 AI 产品 / 独立开发",
+        why: "E 14(企业型最高)+ 已在做 0→1(AI 学习助手 30+ 用户)→ 性格契合,长期积累后可冲",
+        chips: ["E 极高", "0→1 经历"],
+      },
+    ],
   },
 ];
 
@@ -149,7 +172,7 @@ export default function Module1EntryPage() {
                       </span>
                     </div>
                     <p className="text-xs text-white/85 leading-relaxed">
-                      18 题 · 约 3 分钟 · 基于 18REST-2 学生大样本量表
+                      18 题 · 约 3-4 分钟 · 基于 18REST-2 量表
                     </p>
                   </div>
                   <span className="text-xl font-semibold flex-shrink-0 group-hover:translate-x-0.5 transition-transform">
@@ -169,7 +192,7 @@ export default function Module1EntryPage() {
                       </span>
                     </div>
                     <p className="text-xs text-ink-soft leading-relaxed">
-                      60 题 · 约 8 分钟 · 基于 O*NET 权威量表，更细更稳
+                      60 题 · 约 8 分钟 · 基于 O*NET 兴趣量表
                     </p>
                   </div>
                   <span className="text-xl font-semibold text-esther-blue flex-shrink-0 group-hover:translate-x-0.5 transition-transform">
@@ -258,7 +281,7 @@ export default function Module1EntryPage() {
                       📊 测评层
                     </p>
                     <p className="text-xs text-ink-soft leading-relaxed">
-                      RIASEC 编码主导 <strong className="text-esther-blue">E 9 + I 8</strong>(企业型 + 研究型)
+                      RIASEC 编码主导 <strong className="text-esther-blue">E 14 + I 13</strong>(企业型 + 研究型)
                     </p>
                   </div>
                   <div className="p-4 rounded-xl bg-warm-bg-deep/50 border border-border">
@@ -270,43 +293,57 @@ export default function Module1EntryPage() {
                     </p>
                   </div>
                   <p className="text-[11px] text-ink-muted font-display italic">
-                    ↓ 两个信号交叉,得出下面 3 个方向
+                    ↓ 两个信号交叉,按「现在可投 / 值得探索 / 长期培养」分三档
                   </p>
                 </div>
               </div>
             </div>
 
-            {/* 3 推荐方向(简化) */}
-            <div className="space-y-3">
-              {SAMPLE_RECOMMENDATIONS.map((r) => (
-                <Card
-                  key={r.no}
-                  className="p-5 border-2 border-border bg-card"
-                >
-                  <div className="flex items-start gap-4">
-                    <span className="font-display italic text-3xl font-bold text-esther-blue/40 leading-none flex-shrink-0">
-                      {r.no}
+            {/* 推荐方向 · 三档分级(跟真实结果同构) */}
+            <div className="space-y-5">
+              {SAMPLE_TIERS.map((t) => (
+                <div key={t.tier}>
+                  <div className="flex items-center flex-wrap gap-2 mb-2">
+                    <span
+                      className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${t.color}`}
+                    >
+                      {t.tier}
                     </span>
-                    <div className="flex-1 min-w-0">
-                      <h3 className="text-base font-bold text-ink mb-1.5 leading-snug">
-                        🎯 {r.direction}
-                      </h3>
-                      <p className="text-xs text-ink-soft leading-relaxed mb-2">
-                        {r.why}
-                      </p>
-                      <div className="flex flex-wrap gap-2">
-                        {r.chips.map((c) => (
-                          <span
-                            key={c}
-                            className="inline-flex items-center px-2 py-0.5 rounded-md bg-esther-blue/10 text-esther-blue text-[11px] font-medium"
-                          >
-                            {c}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
+                    {t.badge && (
+                      <span className="text-[11px] text-esther-red font-medium">
+                        · {t.badge}
+                      </span>
+                    )}
+                    <span className="text-[11px] text-ink-muted">{t.hint}</span>
                   </div>
-                </Card>
+                  <div className="space-y-3">
+                    {t.items.map((r) => (
+                      <Card
+                        key={r.direction}
+                        className="p-5 border-2 border-border bg-card"
+                      >
+                        <div className="flex-1 min-w-0">
+                          <h3 className="text-base font-bold text-ink mb-1.5 leading-snug">
+                            🎯 {r.direction}
+                          </h3>
+                          <p className="text-xs text-ink-soft leading-relaxed mb-2">
+                            {r.why}
+                          </p>
+                          <div className="flex flex-wrap gap-2">
+                            {r.chips.map((c) => (
+                              <span
+                                key={c}
+                                className="inline-flex items-center px-2 py-0.5 rounded-md bg-esther-blue/10 text-esther-blue text-[11px] font-medium"
+                              >
+                                {c}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      </Card>
+                    ))}
+                  </div>
+                </div>
               ))}
             </div>
 
@@ -342,7 +379,7 @@ export default function Module1EntryPage() {
                 href="/m1/quiz?v=full"
                 className="inline-flex items-center justify-center rounded-full border-2 border-esther-blue text-esther-blue px-8 py-4 text-base font-medium hover:bg-esther-blue/5 transition-colors"
               >
-                完整版(60 题·更准)→
+                完整测评(60 题·更全面)→
               </Link>
             </div>
           </div>
@@ -375,7 +412,7 @@ function FusionDiagram() {
             <div className="flex items-center gap-3 mb-2 pl-2">
               <span className="text-2xl">🧭</span>
               <p className="text-sm font-semibold text-ink leading-snug">
-                信号 A · 霍兰德 RIASEC · 50 年学术理论
+                信号 A · 霍兰德 RIASEC · 经典职业兴趣理论
               </p>
             </div>
             <p className="text-xs text-ink-soft leading-relaxed pl-2">
@@ -508,7 +545,7 @@ function FusionDiagram() {
             <span className="text-xl">🧭</span>
             <p className="text-sm font-semibold text-ink">信号 A · RIASEC 测评</p>
           </div>
-          <p className="text-xs text-ink-soft">19 题量化职业兴趣 → 6 维分布</p>
+          <p className="text-xs text-ink-soft">18 题量化职业兴趣 → 6 维分布</p>
         </div>
         <p className="text-center text-esther-blue/60 text-xl leading-none">+</p>
         <div className="rounded-2xl border-2 border-esther-yellow/60 bg-esther-yellow/[0.12] p-4">

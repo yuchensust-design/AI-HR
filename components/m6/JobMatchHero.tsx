@@ -52,7 +52,7 @@ export function JobMatchHero() {
             🎯 看真实岗位 + AI 推荐最匹配的机会
           </h2>
           <p className="text-ink-soft text-sm max-w-2xl mx-auto">
-            从前程无忧、猎聘、智联招聘实时抓取在招岗位,AI 帮你按简历打分、推荐、解释为什么适合
+            从猎聘、智联等主流招聘站实时抓取在招岗位,AI 帮你按简历打分、推荐、解释为什么适合
           </p>
         </div>
 

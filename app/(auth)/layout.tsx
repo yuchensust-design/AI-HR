@@ -21,7 +21,7 @@ export default function AuthLayout({
         {children}
       </div>
       <p className="mt-6 text-xs text-ink-muted text-center max-w-md">
-        测评仅供参考,愿你的热爱与擅长终在某处相逢
+        认识自己,踏实成长,从容求职
       </p>
     </main>
   );

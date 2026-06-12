@@ -56,7 +56,12 @@ export function JobCard({
   showMatch = false,
   busy = false,
 }: JobCardProps) {
-  const platform = PLATFORM_LABEL[job.platform] ?? PLATFORM_LABEL["51job"]!;
+  const platform =
+    PLATFORM_LABEL[job.platform] ?? {
+      label: "招聘平台",
+      color: "bg-warm-bg-deep text-ink-soft border-ink-soft/30",
+      site: "",
+    };
   // 演示数据(mock 兜底)没有真实外链 → jdUrl 为空。此时不渲染会撞 404 的外链。
   const hasUrl = Boolean(job.jdUrl);
 

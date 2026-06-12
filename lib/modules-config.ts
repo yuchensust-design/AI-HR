@@ -55,7 +55,7 @@ export const STEP_MODULES: StepModule[] = [
       "经历缺口标记(哪些方向需要补什么)",
     ],
     capabilities: [
-      { label: "RIASEC 6 维分布", source: "来自 18 道测评" },
+      { label: "RIASEC 6 维分布", source: "来自 18 道量表题" },
       { label: "兴趣 chip", source: "来自岗位 tag 池" },
       { label: "经历交叉信号", source: "来自经历挖掘" },
       { label: "推荐置信度", source: "来自三段融合算法" },
