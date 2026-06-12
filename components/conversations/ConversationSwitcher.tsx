@@ -62,6 +62,7 @@ export default function ConversationSwitcher({
   const [list, setList] = useState<Conversation[]>(() => listCache[module] ?? []);
   const [loading, setLoading] = useState(() => !listCache[module]);
   const [creating, setCreating] = useState(false);
+  const creatingRef = useRef(false); // 同步守卫:防同一 tick 连点在 state 更新前重入(state 守卫有闭包滞后)
   const [renameId, setRenameId] = useState<string | null>(null);
   const [renameText, setRenameText] = useState("");
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
@@ -116,7 +117,8 @@ export default function ConversationSwitcher({
   }, [menuOpenId, renameId, confirmDeleteId]);
 
   async function onNew() {
-    if (creating) return; // 防连点重复建会话(用户反馈:无反馈→狂点→建出十几个)
+    if (creatingRef.current) return; // 防连点重复建会话(用户反馈:无反馈→狂点→建出十几个)
+    creatingRef.current = true;
     setCreating(true);
     try {
       const id = await createConversation(module, `${defaultTitle} ${list.length + 1}`);
@@ -130,6 +132,7 @@ export default function ConversationSwitcher({
         });
       }
     } finally {
+      creatingRef.current = false;
       setCreating(false);
     }
   }

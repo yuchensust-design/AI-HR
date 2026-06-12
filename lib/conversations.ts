@@ -82,6 +82,33 @@ export async function createConversation(
   return data.id as string;
 }
 
+// 自动建会话去重 —— 同一 module 的"找或建"并发/重入只跑一次,共享同一个 Promise。
+// 防:① React StrictMode(dev)effect 双触发 ② 网络慢时多次渲染各建一条 → 建出重复会话。
+const autoCreateInFlight: Partial<Record<ConversationModule, Promise<string | null>>> = {};
+
+/**
+ * 找到该 module 最近的会话;没有就新建一条。并发调用共享同一 Promise(只建一条)。
+ * 用于 m2 的"进页面自动落到一个会话"场景。
+ */
+export async function getOrCreateConversation(
+  module: ConversationModule,
+  defaultTitle: string,
+  c?: SupabaseClient,
+): Promise<string | null> {
+  const inflight = autoCreateInFlight[module];
+  if (inflight) return inflight;
+  const p = (async () => {
+    const existing = await listConversations(module, c);
+    if (existing.length > 0) return existing[0].id;
+    return await createConversation(module, defaultTitle, c);
+  })();
+  autoCreateInFlight[module] = p;
+  void p.finally(() => {
+    if (autoCreateInFlight[module] === p) delete autoCreateInFlight[module];
+  });
+  return p;
+}
+
 /** 改名 */
 export async function renameConversation(
   id: string,

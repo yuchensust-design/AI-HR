@@ -180,6 +180,7 @@ function Module5ConfigContent() {
   const [cameraOn, setCameraOn] = useState(true);
   const [recordSession, setRecordSession] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const submittingRef = useRef(false); // 同步守卫:防同一 tick 双击在 state 更新前重复进 handleSubmit
 
   // M3→M5:按 ?fromm3=<m3会话id> 读「你在改简历里看的那份」简历+JD,作最高优先
   // (修跨模块串简历:登录多会话时不再默认套账号最新那份)。探针 m3Loaded 让它先于 latest 决定。
@@ -374,7 +375,8 @@ function Module5ConfigContent() {
     !submitting;
 
   async function handleSubmit() {
-    if (!canSubmit) return;
+    if (!canSubmit || submittingRef.current) return;
+    submittingRef.current = true;
     setSubmitting(true);
     const config: InterviewSessionConfig = {
       resume_text: resumeText,
@@ -414,6 +416,7 @@ function Module5ConfigContent() {
     } catch (err) {
       console.error("[m5/config] save failed", err);
       alert("浏览器存储不可用,无法开始面试");
+      submittingRef.current = false;
       setSubmitting(false);
     }
   }

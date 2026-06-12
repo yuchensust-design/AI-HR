@@ -14,7 +14,7 @@ import { Nav } from "@/components/Nav";
 import { BuerFloatingButton } from "@/components/BuerFloatingButton";
 import { useLocalState, STORAGE_KEYS } from "@/lib/use-local-state";
 import { useUser } from "@/lib/auth/useUser";
-import { listConversations, createConversation } from "@/lib/conversations";
+import { getOrCreateConversation } from "@/lib/conversations";
 import ConversationSwitcher from "@/components/conversations/ConversationSwitcher";
 import { useM2DBSync } from "@/lib/sync/useM2DBSync";
 import { createClient } from "@/lib/supabase/client";
@@ -279,13 +279,8 @@ function M2Outer() {
     if (userLoading || !user || convId) return;
     let cancelled = false;
     (async () => {
-      const convs = await listConversations("m2");
-      if (cancelled) return;
-      if (convs.length > 0) {
-        router.replace(`/m2?c=${convs[0].id}`);
-        return;
-      }
-      const id = await createConversation("m2", "我的挖经历");
+      // getOrCreateConversation 内部对并发/StrictMode 双触发去重 → 不会建出多条
+      const id = await getOrCreateConversation("m2", "我的挖经历");
       if (id && !cancelled) router.replace(`/m2?c=${id}`);
     })();
     return () => {
