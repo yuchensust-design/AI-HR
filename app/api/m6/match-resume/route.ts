@@ -58,13 +58,13 @@ interface Job {
   matchScore?: number;
   matchHighlights?: string[];
   matchGaps?: string[];
-  matchBreakdown?: { skills: number; experience: number; education: number; industry: number };
+  matchBreakdown?: { skills: number; experience: number; education: number; industry: number; target_alignment: number; employability: number; city: number };
 }
 
 interface ScorerResult {
   jobId: string;
   score: number;
-  breakdown?: { skills: number; experience: number; education: number; industry: number };
+  breakdown?: { skills: number; experience: number; education: number; industry: number; target_alignment: number; employability: number; city: number };
   highlights: string[];
   gaps: string[];
 }

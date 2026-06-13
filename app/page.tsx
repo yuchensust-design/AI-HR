@@ -2,7 +2,6 @@ import Image from "next/image";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Nav } from "@/components/Nav";
-import { SixCapabilities } from "@/components/SixCapabilities";
 import { StepsSection } from "@/components/StepsSection";
 import { BuerFloatingButton } from "@/components/BuerFloatingButton";
 import { JobMatchHero } from "@/components/m6/JobMatchHero";
@@ -202,12 +201,7 @@ export default function Home() {
         </section>
 
         {/* ============================================================
-            5 阶段切换式 step(顶部 nav + 主体大卡片 + 量化 metric bar)
-            ============================================================ */}
-        <StepsSection />
-
-        {/* ============================================================
-            Pain Points — 学生求职 3 大痛点
+            戳痛开场(纯共情)— 先接住情绪,再用下面的闭环给解法
             ============================================================ */}
         <section className="bg-warm-bg-deep border-y border-border">
           <div className="max-w-[1100px] mx-auto px-6 py-16">
@@ -218,10 +212,15 @@ export default function Home() {
               <h2 className="text-3xl md:text-4xl font-bold text-ink mb-3">
                 你是不是也感觉“越准备越没底”?
               </h2>
-              <p className="text-ink-soft text-base">
-                不是你不够努力,很多同学第一次找工作时,都会不断怀疑自己。方向拿不准、简历改不明白、面试完也说不清问题出在哪。</p>
-              <p className="text-ink-soft text-base">
-                如果你也有过那种很想做好、却怎么都找不到节奏的无力感,先别急着否定自己。
+              <p className="text-ink-soft text-base max-w-3xl mx-auto leading-relaxed">
+                不是你不够努力。很多人第一次找工作,都会反复怀疑自己。
+                <br />
+                方向拿不准、简历改不明白、面试完也说不清问题出在哪。
+              </p>
+              <p className="text-ink-soft text-base max-w-3xl mx-auto leading-relaxed mt-2">
+                如果你也有过那种很想做好、却怎么都找不到节奏的无力感 —— 先别急着否定自己。
+                <br />
+                下面这套闭环,就是来帮你把它一步步理顺的。
               </p>
             </div>
 
@@ -229,21 +228,18 @@ export default function Home() {
               {[
                 {
                   no: "01",
-                  title: "投递很多,却始终没有回应",
-                  desc: "不知道是岗位方向不合适、简历匹配度不够,还是经历表达不够清晰。问题没有被解决,投递就很难持续优化。",
-                  diagnose: ["JD 关键词覆盖", "简历匹配度", "JD gaps"],
+                  title: "投出去很多,却始终没有回应",
+                  desc: "不知道是方向不合适、简历不够匹配,还是经历没讲清楚。问题一直没被指出来,投递就只能一次次石沉大海。",
                 },
                 {
                   no: "02",
                   title: "面试没过,却复盘不出问题",
-                  desc: "感觉自己答得一般,却说不清是哪一题失分、哪段经历没讲透、哪种表达不够有说服力,下一次也就很难真正改进。",
-                  diagnose: ["4 维评分", "transcript evidence", "面试官追问点"],
+                  desc: "感觉自己答得一般,却说不清哪一题失了分、哪段经历没讲透、哪种表达不够有说服力 —— 下一次也就很难真的改进。",
                 },
                 {
                   no: "03",
                   title: "想补短板,却不知道该补哪一块",
-                  desc: "要不要换方向、补项目,或重新整理已有经历,这些选择都影响后面的投递效率。没有清晰判断时,准备越多,越容易分散。",
-                  diagnose: ["gap 难度", "时间预算", "项目可交付边界"],
+                  desc: "换方向、补项目,还是重新整理已有经历?每个选择都牵动后面的投递。没有清晰判断时,准备得越多,反而越分散。",
                 },
               ].map((p) => (
                 <div
@@ -256,25 +252,9 @@ export default function Home() {
                   <h3 className="text-base font-semibold text-ink mb-2 leading-snug">
                     {p.title}
                   </h3>
-                  <p className="text-sm text-ink-soft leading-relaxed mb-4 flex-1">
+                  <p className="text-sm text-ink-soft leading-relaxed flex-1">
                     {p.desc}
                   </p>
-                  {/* 诊断维度 chip — 体现产品如何接住痛点 */}
-                  <div className="pt-3 border-t border-border">
-                    <p className="text-[10px] font-semibold text-ink-muted uppercase tracking-wider mb-2">
-                      产品诊断维度
-                    </p>
-                    <div className="flex flex-wrap gap-1.5">
-                      {p.diagnose.map((d) => (
-                        <span
-                          key={d}
-                          className="inline-flex items-center rounded-full bg-esther-blue/10 border border-esther-blue/30 text-esther-blue text-[11px] px-2 py-0.5"
-                        >
-                          {d}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
                 </div>
               ))}
             </div>
@@ -282,9 +262,9 @@ export default function Home() {
         </section>
 
         {/* ============================================================
-            六大核心能力(回答「为什么我们能解决」)
+            六个模块 · 一条闭环(三幕环形图 + 三幕卡片 + 模块详情)
             ============================================================ */}
-        <SixCapabilities />
+        <StepsSection />
 
         {/* ============================================================
             M6 Job Match Hero — 看真实岗位 + AI 推荐最匹配的机会

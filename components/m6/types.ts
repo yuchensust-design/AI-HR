@@ -31,6 +31,9 @@ export interface Job {
     experience: number;
     education: number;
     industry: number;
+    target_alignment: number;
+    employability: number;
+    city: number;
   };
 }
 
