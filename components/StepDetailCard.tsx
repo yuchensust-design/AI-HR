@@ -59,13 +59,13 @@ export function StepDetailCard({ step, onSelectStep }: Props) {
   const c = ACCENT[act.accent];
   const shot = DEMO_SHOTS[step.no];
 
-  // 右列视图:有示例图的模块默认先展示「示例输出」(评委一眼看到真实成品),想看架构再切。
-  // 切换模块时按是否有图重置。渲染期对比 prop 调整 state,React 官方模式,避免 effect 里 setState。
-  const [rightView, setRightView] = useState<"flow" | "shot">(shot ? "shot" : "flow");
+  // 视图默认展示「能力架构」(先讲清怎么做到的),想看真实成品再切「示例输出」。
+  // 切换模块时重置为能力架构。渲染期对比 prop 调整 state,React 官方模式,避免 effect 里 setState。
+  const [rightView, setRightView] = useState<"flow" | "shot">("flow");
   const [shownNo, setShownNo] = useState(step.no);
   if (shownNo !== step.no) {
     setShownNo(step.no);
-    setRightView(shot ? "shot" : "flow");
+    setRightView("flow");
   }
 
   return (
