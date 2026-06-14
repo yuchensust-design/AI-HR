@@ -159,8 +159,9 @@ export function DiaryChatPanel({
           const { done, value } = await reader.read();
           if (done) break;
           acc += decoder.decode(value, { stream: true });
-          // v5 §8.23 — streaming 预览时隐藏 <|next|> marker(替换成空格,不让用户看到原始 token)
-          setStreaming(acc.replace(/<\|next\|>/g, "  "));
+          // v5 §8.23 — streaming 预览只显示第 1 段(到首个 <|next|> 为止)。
+          // 后续段由 pendingQueue 逐条延迟揭示 —— 避免「先出长句、再闪一下拆成短句」
+          setStreaming(acc.split(/<\|next\|>/)[0]);
         }
         const tail = decoder.decode();
         if (tail) acc += tail;
