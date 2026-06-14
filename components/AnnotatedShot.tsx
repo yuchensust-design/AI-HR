@@ -3,9 +3,8 @@
 import type { DemoShot } from "@/lib/demo-shots";
 
 /**
- * 带亮点标注的示例输出图:产品截图 + 半透明高亮框(随三幕配色)+ 下方编号图例。
- * boxes 用百分比定位(x/y = 框左上角,w/h = 框宽高),圈住目标区域而非single点 ——
- * 半透明不挡字、框是区域容错率高;编号角标落在框左上角的留白处。
+ * 带亮点标注的示例输出图:产品截图 + 半透明编号圆点(随三幕配色)+ 下方编号图例。
+ * pins 用百分比定位(x/y = 点在目标上),圆盘半透明、尽量不挡内容。
  */
 
 const ACCENT_HEX = {
@@ -38,39 +37,28 @@ export function AnnotatedShot({ shot, accent }: Props) {
           className="absolute inset-0 w-full h-full object-cover object-top"
           loading="lazy"
         />
-        {shot.boxes.map((b, i) => (
-          <div
+        {shot.pins.map((p, i) => (
+          <span
             key={i}
-            className="absolute rounded-md pointer-events-none"
+            className="absolute -translate-x-1/2 -translate-y-1/2 flex items-center justify-center rounded-full text-white text-[12px] font-bold pointer-events-none"
             style={{
-              left: `${b.x}%`,
-              top: `${b.y}%`,
-              width: `${b.w}%`,
-              height: `${b.h}%`,
-              border: `2px solid ${hex}`,
-              backgroundColor: `${hex}1f`,
+              left: `${p.x}%`,
+              top: `${p.y}%`,
+              width: 24,
+              height: 24,
+              backgroundColor: `${hex}cc`,
+              boxShadow: "0 0 0 1.5px rgba(255,255,255,0.7)",
             }}
             aria-hidden="true"
           >
-            <span
-              className="absolute flex items-center justify-center rounded-full text-white text-[12px] font-bold shadow ring-2 ring-white"
-              style={{
-                top: -11,
-                left: -11,
-                width: 24,
-                height: 24,
-                backgroundColor: hex,
-              }}
-            >
-              {i + 1}
-            </span>
-          </div>
+            {i + 1}
+          </span>
         ))}
       </div>
 
       {/* 图例(图片下方,横排) */}
       <ol className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {shot.boxes.map((b, i) => (
+        {shot.pins.map((p, i) => (
           <li key={i} className="flex items-start gap-2.5">
             <span
               className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full text-white text-[12px] font-bold mt-0.5"
@@ -79,8 +67,8 @@ export function AnnotatedShot({ shot, accent }: Props) {
               {i + 1}
             </span>
             <p className="leading-relaxed">
-              <span className="block text-sm font-bold text-ink">{b.title}</span>
-              <span className="block text-[13px] text-ink-muted mt-0.5">{b.sub}</span>
+              <span className="block text-sm font-bold text-ink">{p.title}</span>
+              <span className="block text-[13px] text-ink-muted mt-0.5">{p.sub}</span>
             </p>
           </li>
         ))}
