@@ -441,12 +441,22 @@ function Module5ConfigContent() {
             >
               ← 回首页
             </Link>
-            <h1 className="text-3xl md:text-4xl font-bold text-ink mb-2 leading-tight">
-              先告诉我点信息,然后开始
-            </h1>
-            <p className="text-ink-soft text-sm">
-              填齐下面,我按岗位用你的简历 + JD 出题。面试中会就你的回答追问深挖,结束后给你双层评分复盘
-            </p>
+            <div className="flex items-start justify-between gap-4 flex-wrap">
+              <div className="min-w-0">
+                <h1 className="text-3xl md:text-4xl font-bold text-ink mb-2 leading-tight">
+                  先告诉我点信息,然后开始
+                </h1>
+                <p className="text-ink-soft text-sm">
+                  填齐下面,我按岗位用你的简历 + JD 出题。面试中会就你的回答追问深挖,结束后给你双层评分复盘
+                </p>
+              </div>
+              <Link
+                href="/m5/debrief?demo=1"
+                className="flex-shrink-0 mt-1 text-xs text-ink-muted hover:text-esther-blue border border-border rounded-lg px-3 py-2 whitespace-nowrap transition-colors"
+              >
+                查看示例效果 →
+              </Link>
+            </div>
           </div>
         </section>
 

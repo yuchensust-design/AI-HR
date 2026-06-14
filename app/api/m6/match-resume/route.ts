@@ -163,7 +163,10 @@ async function fetchCrawler(role: string, city: string, limit = 10, page = 1): P
       "Content-Type": "application/json",
       "X-API-Key": CRAWLER_API_KEY,
     },
-    body: JSON.stringify({ role, city, page, limit }),
+    // 只爬猎聘 + 智联:51job 的 JD 详情抓不到(方案 D),爬完也会被下游 filter 丢弃。
+    // 之前不限定平台 → 爬虫每个关键词都白爬 51job,挤占猎聘的串行抓取时间,
+    // 导致猎聘常顶破 55s 超时被标 blocked(线上「搜不到猎聘」的根因)。
+    body: JSON.stringify({ role, city, page, limit, platforms: ["liepin", "zhilian"] }),
     signal: AbortSignal.timeout(55_000),
   }).catch((err) => {
     console.warn(

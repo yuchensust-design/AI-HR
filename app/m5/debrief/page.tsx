@@ -16,6 +16,7 @@ import {
   type InterviewQuestion,
 } from "@/lib/interview-types";
 import { STORAGE_KEYS } from "@/lib/use-local-state";
+import { SAMPLE_INTERVIEW_SESSION, SAMPLE_DEBRIEF } from "@/lib/m5-sample";
 import { useUser } from "@/lib/auth/useUser";
 import { createClient } from "@/lib/supabase/client";
 import { createConversation } from "@/lib/conversations";
@@ -207,6 +208,8 @@ function Module5DebriefContent() {
   const router = useRouter();
   const sp = useSearchParams();
   const convId = sp.get("c");
+  // 评委示例预览:?demo=1 → 跳过 DB/localStorage/LLM,直接喂一份同构 mock 复盘
+  const isDemo = sp.get("demo") === "1";
   const { user, loading: userLoading } = useUser();
   const [session, setSession] = useState<InterviewSession | null>(null);
   const [debrief, setDebrief] = useState<DebriefResult | null>(null);
@@ -221,6 +224,13 @@ function Module5DebriefContent() {
   const [capLoading, setCapLoading] = useState(false);
 
   useEffect(() => {
+    // 示例预览:直接喂 mock,不等 auth、不读 DB/localStorage、不调 LLM
+    if (isDemo) {
+      setSession(SAMPLE_INTERVIEW_SESSION);
+      setDebrief(SAMPLE_DEBRIEF);
+      setLoading(false);
+      return;
+    }
     // 等 auth 状态确定再决定走 DB 还是 localStorage —— 否则登录用户从历史进来时,
     // 挂载瞬间 user 未 resolve → 误走 localStorage / 误报"没有面试记录"(竞态 bug)。
     if (userLoading) return;
@@ -324,12 +334,13 @@ function Module5DebriefContent() {
       })();
     })();
     /* eslint-enable react-hooks/set-state-in-effect */
-  }, [user, userLoading, convId]);
+  }, [user, userLoading, convId, isDemo]);
 
   // 回传"已采纳"态:之前采纳过(写进了简历素材)的亮点,回到复盘显示"已采纳"而不是可点采纳。
   // 登录查 m3_resumes.hidden_experience_json,游客查 localStorage,按 question_id 命中。只跑一次。
   const adoptedHydratedRef = useRef(false);
   useEffect(() => {
+    if (isDemo) return; // 示例模式不读账号素材池
     if (adoptedHydratedRef.current) return;
     if (!session || !debrief) return;
     const candidates = debrief.resumeBackfillCandidates ?? debrief.highlights ?? [];
@@ -461,6 +472,10 @@ function Module5DebriefContent() {
     head: DebriefHighlight,
   ) {
     if (!session || highlights.length === 0 || adopting) return;
+    if (isDemo) {
+      alert("这是示例预览 🌸 退出示例、真打一场面试后,就能把答得好的亮点一键采纳到简历~");
+      return;
+    }
     // 落地页"这句来自面试 Qx"上下文标签
     try {
       const payload: FromDebriefHighlight = {
@@ -649,6 +664,20 @@ function Module5DebriefContent() {
       <Nav />
       <main className="min-h-screen bg-warm-bg" id="top">
         <div className="h-20" />
+
+        {isDemo && (
+          <div className="border-b border-border bg-esther-yellow/15">
+            <div className="max-w-[1100px] mx-auto px-6 py-3 flex items-center justify-between gap-4 text-xs text-ink-muted">
+              <span>📋 示例预览中 — 以下是模拟数据(产品经理实习 · 半结构化),帮你了解复盘效果</span>
+              <Link
+                href="/m5"
+                className="text-esther-blue hover:underline whitespace-nowrap flex-shrink-0 font-medium"
+              >
+                退出示例,开始练我的面试 →
+              </Link>
+            </div>
+          </div>
+        )}
 
         <section className="border-b border-border">
           <div className="max-w-[1100px] mx-auto px-6 py-8">
