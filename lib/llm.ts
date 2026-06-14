@@ -62,6 +62,42 @@ export type ChatMessage = {
 };
 
 /**
+ * 把对话规整成「严格交替、以 user 开头」的序列。
+ *
+ * 腾讯混元等强约束模型要求 messages 必须 user/assistant 交替、以 user 开头。
+ * 但前端会:① 把硬编码欢迎语作为首条 assistant 消息一起发;
+ * ② 多气泡(<|next|>)把一轮回复拆成多条连续 assistant 消息。
+ * 这两种都会破坏交替 → 混元报 400。本函数兜底:
+ *   - 丢掉开头的非 user 消息(欢迎语)
+ *   - 合并连续同角色消息(多气泡 → 合回一条)
+ * system 消息不在此处理(调用方自己 prepend)。对 DeepSeek 等宽容模型也无害。
+ */
+export function toAlternating<T extends { role: string; content: unknown }>(
+  msgs: T[],
+): T[] {
+  const out: T[] = [];
+  for (const m of msgs) {
+    if (out.length === 0) {
+      if (m.role !== "user") continue; // 丢开头的 assistant(欢迎语)
+      out.push(m);
+      continue;
+    }
+    const last = out[out.length - 1]!;
+    if (last.role === m.role) {
+      // 连续同角色 → 合并:都是 string 则拼接,否则保留后者以维持交替
+      if (typeof last.content === "string" && typeof m.content === "string") {
+        (last as { content: string }).content = `${last.content}\n${m.content}`;
+      } else {
+        out[out.length - 1] = m;
+      }
+    } else {
+      out.push(m);
+    }
+  }
+  return out;
+}
+
+/**
  * 通用 chat 调用 — 返回完整 response
  *
  * jsonMode = true 时要求模型返 JSON(prompt 里必须明示要返 JSON,否则 API 报错)

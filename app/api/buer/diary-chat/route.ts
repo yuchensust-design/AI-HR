@@ -19,7 +19,7 @@
  * plan §8.21 §C.5 + §8.22 lock
  */
 import { NextRequest, NextResponse } from "next/server";
-import { chatVisionStream, type VisionMessage } from "@/lib/llm";
+import { chatVisionStream, toAlternating, type VisionMessage } from "@/lib/llm";
 
 // Vercel serverless 函数超时:LLM 调用常 >10s,默认 10s 会 504 → 必须显式拉到 60s(Hobby 上限)
 export const maxDuration = 60;
@@ -197,7 +197,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "messages required" }, { status: 400 });
     }
 
-    const last = messages[messages.length - 1];
+    // 混元强制 user/assistant 严格交替、以 user 开头 —— 规整掉前端的欢迎语首条 +
+    // 多气泡拆出的连续 assistant 消息,否则混元报 400(前端表现为「网络打了个嗗」)
+    const normalized = toAlternating(messages);
+
+    if (normalized.length === 0) {
+      return NextResponse.json({ error: "messages required" }, { status: 400 });
+    }
+
+    const last = normalized[normalized.length - 1];
     if (last.role !== "user") {
       return NextResponse.json(
         { error: "last message must be from user" },
@@ -214,7 +222,7 @@ export async function POST(request: NextRequest) {
 
     // v4 §8.22 — 改用 vision 流式 endpoint
     const stream = await chatVisionStream(
-      [{ role: "system", content: SYSTEM_PROMPT }, ...messages],
+      [{ role: "system", content: SYSTEM_PROMPT }, ...normalized],
       { temperature: 0.7 }
     );
 
