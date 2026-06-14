@@ -168,3 +168,44 @@
     font-family: var(--font-heading-zh);
   }
 }
+
+/* ===== LoopDiagram(首页三幕闭环图)动效 ===== */
+/* 旅程光点:沿外环顺时针流动(pathLength=100 归一化) */
+@keyframes loop-comet {
+  from { stroke-dashoffset: 0; }
+  to { stroke-dashoffset: -100; }
+}
+/* 素材回流:虚线沿 spoke 向终点流动(dasharray 周期 = 3+4=7) */
+@keyframes loop-flow {
+  from { stroke-dashoffset: 7; }
+  to { stroke-dashoffset: 0; }
+}
+/* 三幕弧线进场:从无到有画出来(--arc-len 由组件内联传入) */
+@keyframes loop-arc-draw {
+  from { stroke-dashoffset: var(--arc-len, 180); }
+  to { stroke-dashoffset: 0; }
+}
+/* 中心素材池呼吸 */
+@keyframes loop-hub-pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.035); }
+}
+
+.loop-comet { animation: loop-comet 9s linear infinite; }
+.loop-flow { animation: loop-flow 1.1s linear infinite; }
+.loop-arc-draw {
+  stroke-dasharray: var(--arc-len, 180);
+  animation: loop-arc-draw 1s ease-out both;
+}
+.loop-hub-pulse {
+  animation: loop-hub-pulse 3.6s ease-in-out infinite;
+  transform-origin: center;
+  transform-box: fill-box;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .loop-comet, .loop-flow, .loop-arc-draw, .loop-hub-pulse {
+    animation: none;
+  }
+  .loop-arc-draw { stroke-dasharray: none; }
+}

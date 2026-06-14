@@ -335,7 +335,7 @@ function DiscoverPageInner() {
     setAgentSteps({
       splitter: { step: "splitter", status: "running", label: "Agent 1 — Splitter:从简历提取搜索关键词" },
       scraper: { step: "scraper", status: "pending", label: "Crawler:并行抓取猎聘 / 智联等真实岗位" },
-      scorer: { step: "scorer", status: "pending", label: "Agent 2 — Scorer:4 维度评分(批量)" },
+      scorer: { step: "scorer", status: "pending", label: "Agent 2 — Scorer:7 维度评分(批量)" },
       formatter: { step: "formatter", status: "pending", label: "Agent 4 — Formatter:生成个性化推荐说明" },
     });
 

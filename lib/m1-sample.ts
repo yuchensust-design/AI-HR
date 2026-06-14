@@ -6,6 +6,13 @@ export type SamplePositive = {
   why_fit: string;
   match: string;
   match_percentage?: number;
+  /** 可投性等级:now=现在可投 / needs_project=值得探索(补强后投) / long_term=长期可培养 */
+  employability_level?: "now" | "needs_project" | "long_term";
+  /** 仅 long_term:诚实提示(代价 + 验证第一步) */
+  long_term_note?: {
+    realistic_cost: string;
+    first_validation: string;
+  };
 };
 
 export type SampleNegative = {
@@ -70,6 +77,15 @@ export const M1_SAMPLE: M1SampleResult = {
         "E 14 + I 13 → 你既爱推动事情发生,又重逻辑分析,跟 PM 高度契合",
       match: "高",
       match_percentage: 92,
+      employability_level: "now",
+    },
+    {
+      industry: "互联网",
+      role_type: "数据分析师 / 增长分析",
+      why_fit: "I 13 + C 6 → 你重数据推理,愿意系统化拆解,适合用数字说话的角色",
+      match: "高",
+      match_percentage: 86,
+      employability_level: "now",
     },
     {
       industry: "创业 / 自由职业",
@@ -78,13 +94,7 @@ export const M1_SAMPLE: M1SampleResult = {
         "E 14(企业型最高)+ 已经做过 AI 学习助手 → 你不只是想'打工',更想'主导一件事'",
       match: "高",
       match_percentage: 89,
-    },
-    {
-      industry: "互联网",
-      role_type: "数据分析师 / 增长分析",
-      why_fit: "I 13 + C 6 → 你重数据推理,愿意系统化拆解,适合用数字说话的角色",
-      match: "高",
-      match_percentage: 86,
+      employability_level: "needs_project",
     },
     {
       industry: "互联网",
@@ -92,14 +102,20 @@ export const M1_SAMPLE: M1SampleResult = {
       why_fit: "I 13 + S 10 → 你愿意挖背后原理,又能跟人聊,适合做用户洞察",
       match: "中",
       match_percentage: 78,
+      employability_level: "needs_project",
     },
     {
-      industry: "互联网",
-      role_type: "内容运营",
+      industry: "互联网 / 研究",
+      role_type: "AI 算法研究员 / ML 科学家",
       why_fit:
-        "选了内容创作兴趣 + S 10 → 你能持续表达 + 跟用户互动,适合做内容驱动的运营",
+        "I 13(研究型高)→ 你愿意深挖原理;但这类岗位普遍要读研 + 顶会论文,属长期深造方向",
       match: "中",
-      match_percentage: 71,
+      match_percentage: 74,
+      employability_level: "long_term",
+      long_term_note: {
+        realistic_cost: "通常要读研 + 顶会论文,2-3 年深造投入",
+        first_validation: "先在数据分析 / AI PM 岗位上手,验证你对算法的热情再决定读研",
+      },
     },
   ],
   negative: [

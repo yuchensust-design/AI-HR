@@ -5,7 +5,7 @@ import type { AgentStepState } from "./types";
 const STEPS_DEF: Array<{ step: AgentStepState["step"]; emoji: string; defaultLabel: string }> = [
   { step: "splitter", emoji: "🤖", defaultLabel: "Agent 1 — Splitter:从简历提取搜索关键词" },
   { step: "scraper", emoji: "🌐", defaultLabel: "Crawler:并行抓取猎聘 / 智联等真实岗位" },
-  { step: "scorer", emoji: "🎯", defaultLabel: "Agent 2 — Scorer:4 维度评分(批量)" },
+  { step: "scorer", emoji: "🎯", defaultLabel: "Agent 2 — Scorer:7 维度评分(批量)" },
   { step: "formatter", emoji: "✨", defaultLabel: "Agent 4 — Formatter:生成个性化推荐说明" },
 ];
 
