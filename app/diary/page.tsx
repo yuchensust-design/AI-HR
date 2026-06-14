@@ -11,8 +11,6 @@ import {
   countByPeriod,
   exportDiaryJson,
   getDiaryEntries,
-  hasDiaryConsent,
-  setDiaryConsent,
   WEATHER_OPTIONS,
   WEATHER_LABELS,
   MOOD_OPTIONS,
@@ -24,65 +22,6 @@ import {
 } from "@/lib/diary";
 import { useDiarySync } from "@/lib/useDiarySync";
 import { compressImage } from "@/lib/image-compress";
-import { STORAGE_KEYS } from "@/lib/use-local-state";
-
-/**
- * 把单条日记 entry 写入 M3 素材池(plan offer-1-sparkling-hippo P1)
- * 用与 M5 复盘"一键回写"相同的 HIDDEN_EXPERIENCES schema,统一通道。
- * 不调 LLM(避免延迟),直接用 entry.content 作为 raw_user_material;
- * 用户后续在 M3 里会看到"来自日记"的素材,LLM suggest-edits 会基于此产 source="experience" 的 edit。
- */
-function sendDiaryEntryToM3Pool(entry: DiaryEntry): { ok: boolean; reason?: string } {
-  try {
-    const raw = window.localStorage.getItem(STORAGE_KEYS.HIDDEN_EXPERIENCES);
-    const existing = (() => {
-      try {
-        const arr = raw ? JSON.parse(raw) : [];
-        return Array.isArray(arr) ? arr : [];
-      } catch {
-        return [];
-      }
-    })();
-    const existingIds = new Set(
-      existing.map((x: { question_id?: string }) => x.question_id).filter(Boolean),
-    );
-    const qid = `diary-${entry.id}`;
-    if (existingIds.has(qid)) {
-      return { ok: false, reason: "这条日记已经送过了" };
-    }
-    const date = entry.createdAt.slice(0, 10);
-    const tag =
-      entry.source === "ai-summary"
-        ? "不二整理"
-        : entry.source === "buer-chat"
-          ? "不二记录"
-          : "自己写";
-    const topic = entry.title?.trim() || entry.content.slice(0, 20).replace(/\s+/g, " ");
-    const newHidden = {
-      question_id: qid,
-      topic_name: `日记 · ${tag} · ${topic}… · ${date}`,
-      raw_user_material: entry.content,
-      star_breakdown: null,
-      candidate_bullets: [] as Array<{ text: string; anti_fab_note: string | null }>,
-      skeptical_flags: [`来自日记原文(${tag}),未拆 STAR,M3 会基于 raw_user_material 推断 bullet`],
-    };
-    // ai-summary 的 highlights 数组直接转为 candidate_bullets,让 LLM 有更明确起点
-    if (Array.isArray(entry.highlights)) {
-      entry.highlights.forEach((h: string) => {
-        newHidden.candidate_bullets.push({
-          text: h,
-          anti_fab_note: "来自不二整理日记的亮点摘要,未经核对的数字请你确认",
-        });
-      });
-    }
-    const next = [...existing, newHidden];
-    window.localStorage.setItem(STORAGE_KEYS.HIDDEN_EXPERIENCES, JSON.stringify(next));
-    return { ok: true };
-  } catch (e) {
-    console.error("[diary] send to M3 failed", e);
-    return { ok: false, reason: "存储失败" };
-  }
-}
 
 /**
  * /diary — 「温馨小窝」(plan §8.21 v3)
@@ -134,95 +73,7 @@ export default function DiaryPage() {
     useDiarySync();
   const [entries, setEntries] = useState<DiaryEntry[]>([]);
   const [loaded, setLoaded] = useState(false);
-  const [showConsent, setShowConsent] = useState(false);
   const [mode, setMode] = useState<Mode>("idle");
-  // 已送 M3 素材池 / M2 经历池 的 entry id 集合(plan offer-1-sparkling-hippo P1/P2)
-  const [sentToM3, setSentToM3] = useState<Set<string>>(new Set());
-  const [sentToM2, setSentToM2] = useState<Set<string>>(new Set());
-  // hydrate sentToM3 / sentToM2 from storage
-  useEffect(() => {
-    try {
-      const rawHidden = window.localStorage.getItem(STORAGE_KEYS.HIDDEN_EXPERIENCES);
-      const arr = rawHidden ? JSON.parse(rawHidden) : [];
-      if (Array.isArray(arr)) {
-        const ids = new Set<string>();
-        arr.forEach((h: { question_id?: string }) => {
-          if (h.question_id?.startsWith("diary-")) {
-            ids.add(h.question_id.slice("diary-".length));
-          }
-        });
-        setSentToM3(ids);
-      }
-    } catch {
-      /* ignore */
-    }
-    try {
-      const rawIntake = window.localStorage.getItem("intake_artifact");
-      const obj = rawIntake ? JSON.parse(rawIntake) : null;
-      const stories = obj && Array.isArray(obj.stories) ? obj.stories : [];
-      const ids = new Set<string>();
-      stories.forEach((s: { id?: string }) => {
-        if (s.id?.startsWith("diary-")) ids.add(s.id.slice("diary-".length));
-      });
-      setSentToM2(ids);
-    } catch {
-      /* ignore */
-    }
-  }, [loaded]);
-
-  function handleSendEntryToM3(entry: DiaryEntry) {
-    const r = sendDiaryEntryToM3Pool(entry);
-    if (r.ok) {
-      setSentToM3((s) => new Set(s).add(entry.id));
-    } else if (r.reason) {
-      alert(r.reason);
-    }
-  }
-
-  // 日记 → M2 经历回流(plan offer-1-sparkling-hippo P2)
-  // 把单条日记 entry 转成 IntakeStory 写入 intake_artifact,M2 后续会用它生成 bullet 草稿
-  function handleSendEntryToM2(entry: DiaryEntry) {
-    try {
-      const raw = window.localStorage.getItem("intake_artifact");
-      const existing = (() => {
-        try {
-          const o = raw ? JSON.parse(raw) : null;
-          return o && typeof o === "object" ? o : { roles: [], stories: [] };
-        } catch {
-          return { roles: [], stories: [] };
-        }
-      })();
-      const stories: Array<{ id: string }> = Array.isArray(existing.stories) ? existing.stories : [];
-      const newId = `diary-${entry.id}`;
-      if (stories.some((s) => s.id === newId)) {
-        alert("这条日记已经送过 M2 了");
-        return;
-      }
-      const title = entry.title?.trim() || entry.content.slice(0, 24).replace(/\s+/g, " ");
-      const story = {
-        id: newId,
-        title: `日记 · ${title}`,
-        category: "LearningSprint" as const,
-        strength: 2 as const,
-        star: {
-          situation: "(来自日记记录的真实经历,未拆 STAR;由 M2 在挖掘对话中补全)",
-          task: "",
-          action: entry.content.slice(0, 400),
-          result: entry.highlights?.join("; ") ?? "",
-        },
-      };
-      const next = {
-        ...existing,
-        stories: [...stories, story],
-        roles: Array.isArray(existing.roles) ? existing.roles : [],
-      };
-      window.localStorage.setItem("intake_artifact", JSON.stringify(next));
-      setSentToM2((s) => new Set(s).add(entry.id));
-    } catch (e) {
-      console.error("[diary] send to M2 failed", e);
-      alert("送 M2 失败");
-    }
-  }
 
   // 🖋️ 自己写 form
   const [newContent, setNewContent] = useState("");
@@ -243,7 +94,6 @@ export default function DiaryPage() {
   useEffect(() => {
     setEntries(getDiaryEntries());
     setLoaded(true);
-    if (!hasDiaryConsent()) setShowConsent(true);
   }, []);
 
   // 登录用户:从 DB 回灌日记并进本地(跨设备 / 清缓存恢复)。等 auth 落定再拉,
@@ -337,11 +187,6 @@ export default function DiaryPage() {
     URL.revokeObjectURL(url);
   };
 
-  const handleConsentOk = () => {
-    setDiaryConsent();
-    setShowConsent(false);
-  };
-
   const toggleRawDialog = (id: string) => {
     setRawOpenIds((prev) => {
       const next = new Set(prev);
@@ -359,40 +204,6 @@ export default function DiaryPage() {
       <Nav />
       <main className="min-h-screen bg-warm-bg" id="top">
         <div className="h-20" />
-
-        {/* ====== 首次进 → 隐私同意 modal ====== */}
-        {showConsent && (
-          <div className="fixed inset-0 z-50 bg-ink/30 backdrop-blur-sm flex items-center justify-center px-6">
-            <Card className="max-w-md p-6 border-2 border-esther-blue">
-              <p className="text-2xl mb-3">📔</p>
-              <h2 className="text-lg font-bold text-ink mb-3">先说一下小窝怎么存</h2>
-              <ul className="text-sm text-ink-soft space-y-2 mb-5 leading-relaxed">
-                <li className="flex items-start gap-2">
-                  <span className="text-esther-blue mt-0.5">●</span>
-                  你写的 / 不二帮你整理的日记 都只存在<strong className="text-ink">你浏览器本地</strong>,后端零持久化
-                </li>
-                <li className="flex items-start gap-2">
-                  <span className="text-esther-blue mt-0.5">●</span>
-                  清浏览器缓存 = 日记全部丢失(我们也救不回来)
-                </li>
-                <li className="flex items-start gap-2">
-                  <span className="text-esther-blue mt-0.5">●</span>
-                  m3 简历整理可<strong className="text-ink">明示同意</strong>后读日记,挖可写进简历的素材
-                </li>
-                <li className="flex items-start gap-2">
-                  <span className="text-esther-blue mt-0.5">●</span>
-                  随时可<strong className="text-ink">导出 JSON 备份</strong>或一键清空
-                </li>
-              </ul>
-              <button
-                onClick={handleConsentOk}
-                className="w-full rounded-full bg-esther-blue text-white px-5 py-2.5 text-sm font-medium hover:bg-esther-blue-dark transition-colors"
-              >
-                我知道了,进小窝 →
-              </button>
-            </Card>
-          </div>
-        )}
 
         {/* ====== Hero 温馨小窝 ====== */}
         <section className="relative border-b border-border bg-gradient-to-b from-warm-bg-deep/30 to-warm-bg overflow-hidden">
@@ -449,7 +260,7 @@ export default function DiaryPage() {
                 {/* 隐私 + 统计 */}
                 <div className="mt-6 flex items-center gap-4 flex-wrap">
                   <p className="text-xs text-ink-muted font-display italic">
-                    🔒 仅存浏览器本地 · 后端零持久化
+                    🔒 游客存浏览器本地 · 登录后加密存云
                   </p>
                   {loaded && stats.total > 0 && (
                     <div className="flex gap-3 text-xs text-ink-soft font-display italic">
@@ -870,22 +681,6 @@ export default function DiaryPage() {
                                   </span>
                                   <div className="flex items-center gap-3 ml-auto flex-wrap">
                                     <button
-                                      type="button"
-                                      onClick={() => handleSendEntryToM3(e)}
-                                      disabled={sentToM3.has(e.id)}
-                                      className="text-xs text-esther-blue hover:text-esther-blue-dark transition-colors disabled:text-ink-muted disabled:cursor-not-allowed"
-                                    >
-                                      {sentToM3.has(e.id) ? "✓ 已送 M3" : "📌 送 M3 素材池"}
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => handleSendEntryToM2(e)}
-                                      disabled={sentToM2.has(e.id)}
-                                      className="text-xs text-esther-yellow hover:text-amber-700 transition-colors disabled:text-ink-muted disabled:cursor-not-allowed"
-                                    >
-                                      {sentToM2.has(e.id) ? "✓ 已送 M2" : "🧰 送 M2 经历"}
-                                    </button>
-                                    <button
                                       onClick={() => handleDelete(e.id)}
                                       className="text-xs text-ink-muted hover:text-esther-red transition-colors font-display italic"
                                     >
@@ -913,23 +708,6 @@ export default function DiaryPage() {
                                     )}
                                   </div>
                                   <div className="flex items-center gap-3 flex-wrap">
-                                    {/* 送 M3 素材池 + 送 M2 经历(plan offer-1-sparkling-hippo P1/P2) */}
-                                    <button
-                                      type="button"
-                                      onClick={() => handleSendEntryToM3(e)}
-                                      disabled={sentToM3.has(e.id)}
-                                      className="text-xs text-esther-blue hover:text-esther-blue-dark transition-colors disabled:text-ink-muted disabled:cursor-not-allowed"
-                                    >
-                                      {sentToM3.has(e.id) ? "✓ 已送 M3" : "📌 送 M3 素材池"}
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => handleSendEntryToM2(e)}
-                                      disabled={sentToM2.has(e.id)}
-                                      className="text-xs text-esther-yellow hover:text-amber-700 transition-colors disabled:text-ink-muted disabled:cursor-not-allowed"
-                                    >
-                                      {sentToM2.has(e.id) ? "✓ 已送 M2" : "🧰 送 M2 经历"}
-                                    </button>
                                     <button
                                       onClick={() => handleDelete(e.id)}
                                       className="text-xs text-ink-muted hover:text-esther-red transition-colors font-display italic"
