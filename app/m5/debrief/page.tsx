@@ -23,6 +23,7 @@ import { createConversation } from "@/lib/conversations";
 import {
   type HiddenExperience,
   appendHiddenToLocal,
+  backfillHiddenToLatestResume,
 } from "@/lib/sync/hidden-experience";
 
 /**
@@ -70,11 +71,14 @@ function SkippedTeaching({ session }: { session: InterviewSession }) {
     if (startedRef.current || items.length === 0) return;
     startedRef.current = true;
     const resumeBrief = (session.config?.resume_text ?? "").slice(0, 2000);
+    const ctrl = new AbortController();
     (async () => {
       for (const q of items) {
+        if (ctrl.signal.aborted) return;
         try {
           const res = await fetch("/api/chat", {
             method: "POST",
+            signal: ctrl.signal,
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               messages: [
@@ -109,13 +113,17 @@ function SkippedTeaching({ session }: { session: InterviewSession }) {
           } catch {
             /* 流式直接 text */
           }
+          if (ctrl.signal.aborted) return;
           setTips((m) => ({ ...m, [q.id]: content }));
         } catch (err) {
+          if (ctrl.signal.aborted || (err instanceof Error && err.name === "AbortError")) return;
           const msg = err instanceof Error ? err.message : "生成失败";
           setTips((m) => ({ ...m, [q.id]: `❌ ${msg},稍后重试` }));
         }
       }
     })();
+    // 卸载/依赖变更时中止在途请求,避免卸载后 setState 警告与浪费带宽
+    return () => ctrl.abort();
   }, [items, session.config?.resume_text]);
 
   if (items.length === 0) return null;
@@ -511,28 +519,45 @@ function Module5DebriefContent() {
       const parsed = await parseInterviewResume();
       appendHiddenToLocal(he); // 本地池兜底(游客必需,登录也留一份)
 
-      if (user && parsed) {
+      if (user) {
         try {
           const supabase = createClient();
-          const convId = await createConversation(
-            "m3",
-            `面试回流 · ${(head.question ?? "").slice(0, 12) || "亮点"}`,
-            supabase,
-          );
-          if (convId) {
-            await supabase
-              .from("m3_resumes")
-              .update({
-                parsed_resume_json: parsed,
-                jd_context_json: jdCtx,
-                hidden_experience_json: he,
-              })
-              .eq("conversation_id", convId);
-            router.push(`/m3?c=${convId}&from=debrief&setup=1`);
+          // 优先:把亮点【去重合并】进现有最新简历的素材池,而不是新建空会话——
+          // 否则新会话成了"最新简历行",m2 挖的经历 / m4 补的项目素材读不到了(飞轮数据丢失)。
+          const existingConvId = await backfillHiddenToLatestResume(supabase, he);
+          if (existingConvId) {
+            // JD 回流:写到同一条简历(若带了目标 JD);不动 parsed_resume,保留用户主简历。
+            if (jdCtx) {
+              await supabase
+                .from("m3_resumes")
+                .update({ jd_context_json: jdCtx })
+                .eq("conversation_id", existingConvId);
+            }
+            router.push(`/m3/result?c=${existingConvId}&from=debrief`);
             return;
           }
+          // 用户还没有任何简历会话 → 此时新建不会覆盖任何东西,用面试解析简历兜底建一份。
+          if (parsed) {
+            const convId = await createConversation(
+              "m3",
+              `面试回流 · ${(head.question ?? "").slice(0, 12) || "亮点"}`,
+              supabase,
+            );
+            if (convId) {
+              await supabase
+                .from("m3_resumes")
+                .update({
+                  parsed_resume_json: parsed,
+                  jd_context_json: jdCtx,
+                  hidden_experience_json: he,
+                })
+                .eq("conversation_id", convId);
+              router.push(`/m3?c=${convId}&from=debrief&setup=1`);
+              return;
+            }
+          }
         } catch (err) {
-          console.error("[m5 adopt] seed m3 conversation failed", err);
+          console.error("[m5 adopt] backfill/seed m3 failed", err);
           /* 落游客兜底 */
         }
       }

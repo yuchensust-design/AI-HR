@@ -242,11 +242,25 @@ function Module3Content() {
     if (!normalized || normalized.length < 50) {
       throw new Error("内容太短了,至少粘贴一版较完整的简历文字");
     }
-    const res = await fetch("/api/m3/parse-resume", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ resumeText: normalized }),
-    });
+    // 超时保护:弱网/服务端挂起时,fetch 可能永不返回 → parsingResume 卡死在"解析中"。
+    const ctrl = new AbortController();
+    const timeoutId = setTimeout(() => ctrl.abort(), 45000);
+    let res: Response;
+    try {
+      res = await fetch("/api/m3/parse-resume", {
+        method: "POST",
+        signal: ctrl.signal,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ resumeText: normalized }),
+      });
+    } catch (err) {
+      if (err instanceof Error && err.name === "AbortError") {
+        throw new Error("解析超时,请检查网络后重试");
+      }
+      throw err;
+    } finally {
+      clearTimeout(timeoutId);
+    }
     if (!res.ok) {
       const j = await res.json().catch(() => ({}));
       throw new Error(j.error ?? `解析失败 (${res.status})`);
@@ -326,9 +340,9 @@ function Module3Content() {
 
   async function handlePasteResume() {
     setParsingResume(true);
-    setResumeErr(null);
     try {
       await parseResumeText(pastedResumeText, "paste");
+      setResumeErr(null); // 成功后才清错误——否则自动解析(debounce)重触发时前次错误会一开始就被清掉、闪一下就没
       setShowPasteResume(false);
       setLastAutoParsedPasteText(pastedResumeText.trim());
     } catch (err) {

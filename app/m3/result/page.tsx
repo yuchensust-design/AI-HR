@@ -7,6 +7,7 @@ import { Card } from "@/components/ui/card";
 import { Nav } from "@/components/Nav";
 import { BuerFloatingButton } from "@/components/BuerFloatingButton";
 import { useLocalState, STORAGE_KEYS } from "@/lib/use-local-state";
+import { M5_STORAGE_KEYS } from "@/lib/interview-types";
 import { useM3DBSync, type M3Row } from "@/lib/sync/useM3DBSync";
 import { M3_OPTIMIZATION_GOALS, type M3OptimizationGoalKey } from "@/lib/m3-optimization-goals";
 import {
@@ -221,6 +222,7 @@ function ResultContent() {
   // 注:JD 关键词清单 + 命中已改成确定性(jdContext.jd_keywords + lib/keyword-match),不再走 LLM
   const [llmMetrics, setLlmMetrics] = useState<LlmMetrics | null>(null);
   const [llmMetricsRefreshing, setLlmMetricsRefreshing] = useState(false);
+  const [llmMetricsError, setLlmMetricsError] = useState<string | null>(null);
   // LLM 语义关键词命中(带证据)— 补子串匹配抓不到的能力/职责类词
   const [llmKwResults, setLlmKwResults] = useState<
     { keyword: string; hit: boolean; evidence: string }[] | null
@@ -232,7 +234,7 @@ function ResultContent() {
   // 读模块 5 复盘 highlight(不持久化在 STORAGE_KEYS 里,直接读 raw key,fail-safe)
   useEffect(() => {
     try {
-      const raw = window.localStorage.getItem("from_debrief_highlight");
+      const raw = window.localStorage.getItem(M5_STORAGE_KEYS.FROM_DEBRIEF_HIGHLIGHT);
       if (raw) setFromDebriefHighlight(JSON.parse(raw));
     } catch {
       // ignore
@@ -416,7 +418,7 @@ function ResultContent() {
     /* eslint-disable react-hooks/set-state-in-effect */
     setActiveTab("diff");
     try {
-      const raw = window.localStorage.getItem("from_debrief_highlight");
+      const raw = window.localStorage.getItem(M5_STORAGE_KEYS.FROM_DEBRIEF_HIGHLIGHT);
       if (raw) {
         const p = JSON.parse(raw) as { question?: string; excerpt?: string };
         if (p?.excerpt) setBackfillCtx({ question: p.question ?? "", excerpt: p.excerpt });
@@ -453,6 +455,7 @@ function ResultContent() {
       return;
     }
     setLlmMetricsRefreshing(true);
+    setLlmMetricsError(null);
     try {
       // V2 只给 LLM STAR 完整度 + 硬门槛对齐(关键词命中已确定性化,见 lib/keyword-match)
       const acceptedEditsForDiff = data
@@ -539,6 +542,7 @@ function ResultContent() {
       writeArtifact("metrics_json", metricsCacheKey, { sig: metricsSig, contentSig, metrics });
     } catch (err) {
       console.error("[loadLlmMetrics] failed:", err);
+      setLlmMetricsError(err instanceof Error ? err.message : "评分加载失败");
     } finally {
       setLlmMetricsRefreshing(false);
     }
@@ -1458,6 +1462,15 @@ function ResultContent() {
   }
 
   if (!parsedResume) {
+    // 数据仍在加载(auth/DB 未就绪)→ 显示读取中,别闪"还没读到你的简历"
+    if (dbLoading) {
+      return (
+        <div className="max-w-[600px] mx-auto px-6 py-20 text-center">
+          <div className="inline-block animate-spin w-8 h-8 border-2 border-esther-blue border-t-transparent rounded-full mb-4" />
+          <p className="text-sm text-ink-soft">正在读取你的简历…</p>
+        </div>
+      );
+    }
     return (
       <div className="flex items-center justify-center p-6 py-20">
         <Card className="p-6 max-w-md">
@@ -1532,6 +1545,18 @@ function ResultContent() {
 
             {/* V3 评分大卡(照抄竞品)*/}
             <div className="max-w-[1320px] mx-auto px-6 pt-4">
+              {llmMetricsError && !llmMetrics && !llmMetricsRefreshing && (
+                <div className="mb-3 flex items-center justify-between gap-3 rounded-lg border border-esther-red/40 bg-esther-red/5 px-4 py-2.5">
+                  <p className="text-xs text-ink-soft">综合评分加载失败({llmMetricsError})— 不影响关键词命中等其它分析。</p>
+                  <button
+                    type="button"
+                    onClick={() => loadLlmMetrics()}
+                    className="shrink-0 inline-flex items-center rounded-full border border-esther-red/50 text-esther-red px-3 py-1 text-xs font-medium hover:bg-esther-red/10 transition-colors"
+                  >
+                    重试
+                  </button>
+                </div>
+              )}
               <M3ScoreDashboard data={dashboardData} />
             </div>
 

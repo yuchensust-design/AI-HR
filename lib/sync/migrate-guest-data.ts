@@ -74,15 +74,20 @@ export async function migrateGuestDataOnLogin(
   if (parsed || jd || (hidden && hidden.length > 0) || finalResume?.markdown) {
     const convId = await createConversation("m3", "我的简历 · 迁移", supabase);
     if (convId) {
+      // upsert(create-or-update):即便子表行因偶发失败没被预插,也能补建,
+      // 避免 update 0 行命中导致迁移的简历/JD/素材静默丢失。
       const { error } = await supabase
         .from("m3_resumes")
-        .update({
-          parsed_resume_json: parsed,
-          jd_context_json: jd,
-          hidden_experience_json: hidden,
-          final_resume_md: finalResume?.markdown ?? null,
-        })
-        .eq("conversation_id", convId);
+        .upsert(
+          {
+            conversation_id: convId,
+            parsed_resume_json: parsed,
+            jd_context_json: jd,
+            hidden_experience_json: hidden,
+            final_resume_md: finalResume?.markdown ?? null,
+          },
+          { onConflict: "conversation_id" },
+        );
       if (error) report.errors.push(`m3: ${error.message}`);
       else report.m3 = true;
     }

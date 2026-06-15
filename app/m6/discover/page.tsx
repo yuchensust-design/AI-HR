@@ -188,7 +188,10 @@ function DiscoverPageInner() {
         if (job) await fetchDetail(job);
       }
     };
-    void Promise.all([work(), work()]); // 并发 2,温和不打爆爬虫
+    // 并发 2,温和不打爆爬虫;catch 让后台预抓的异常可观测,不静默吞掉
+    void Promise.all([work(), work()]).catch((err) => {
+      console.error("[m6 prefetch JD] background prefetch error", err);
+    });
     return () => {
       cancelled = true;
     };

@@ -75,9 +75,15 @@ export async function createConversation(
     return null;
   }
 
-  // 同时 insert 空的业务子表 row(便于后续 update,不用 upsert)
+  // 同时 insert 空的业务子表 row(便于后续 update)。查错并记日志——
+  // 若这步静默失败,后续 .update().eq(conversation_id) 会 0 行命中、数据静默丢失。
   const businessTable = MODULE_TABLES[module];
-  await supabase.from(businessTable).insert({ conversation_id: data.id });
+  const { error: childErr } = await supabase
+    .from(businessTable)
+    .insert({ conversation_id: data.id });
+  if (childErr) {
+    console.error("[conversations] business row create failed:", businessTable, childErr);
+  }
 
   return data.id as string;
 }

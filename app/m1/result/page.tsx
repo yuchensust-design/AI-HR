@@ -154,6 +154,7 @@ export default function Module1ResultPage() {
   const [refining, setRefining] = useState(false);
   const [refineError, setRefineError] = useState<string | null>(null);
   const [retrying, setRetrying] = useState(false);
+  const [retryError, setRetryError] = useState<string | null>(null);
 
   // M1→M4 直通：保存目标岗位(含测评个性化信号)到 localStorage + DB，然后跳转
   const handleGoToM4 = useCallback(async (role: TargetRole) => {
@@ -276,6 +277,7 @@ export default function Module1ResultPage() {
   const handleRetryAnalysis = async () => {
     if (!result?.answers) return;
     setRetrying(true);
+    setRetryError(null);
     try {
       const res = await fetch("/api/m1/recommend", {
         method: "POST",
@@ -297,6 +299,7 @@ export default function Module1ResultPage() {
       setFallbackKind(null);
     } catch (e) {
       console.warn("retry analysis failed:", e);
+      setRetryError(e instanceof Error ? e.message : "重试失败,请稍后再试");
     } finally {
       setRetrying(false);
     }
@@ -437,6 +440,9 @@ export default function Module1ResultPage() {
             <div className="max-w-[1100px] mx-auto px-6 py-3 flex flex-wrap items-center justify-between gap-3">
               <p className="text-sm text-ink leading-relaxed">
                 ⚠️ 实时分析失败,先用 sample 结果占位 — 不影响你浏览结构,可点右边重试真实分析。
+                {retryError && (
+                  <span className="block text-xs text-esther-red mt-1">重试失败:{retryError}</span>
+                )}
               </p>
               <button
                 onClick={handleRetryAnalysis}
