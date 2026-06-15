@@ -819,7 +819,10 @@ function ResultContent() {
     const gap: EditSuggestion[] = [];
     if (!data) return { done, confirm, needFill, gap };
     for (const e of data.edits) {
-      if (e.category === "gap-alert") {
+      if (decisions[e.id] === "reject") {
+        // 维持原文 = 不采纳 → 从所有分组移除,不再显示这条
+        continue;
+      } else if (e.category === "gap-alert") {
         gap.push(e);
       } else if (decisions[e.id] === "accept") {
         done.push(e);

@@ -113,7 +113,9 @@ function tokenInCorpus(rawToken: string, corpus: string): boolean {
     )
       .replace(/\s+/g, "")
       .toLowerCase();
-    return lowered.includes(magCore);
+    // corpus 也去空格再比:原文常写"12 亿 / 10.5 万"(数字与单位间有空格),
+    // 不去空格会把原文本就有的量级数字误判成编造。
+    return lowered.replace(/\s+/g, "").includes(magCore);
   }
 
   // 单个数字(1-9)过于通用,豁免
@@ -212,9 +214,12 @@ export function normalizeEditSuggestions(
   sourceCorpus: string,
 ): EditSuggestion[] {
   return edits.map((edit) => {
+    // 关键:把这条 edit 自己的 original_text 并入 corpus —— 原文里本就有的数字
+    // (如"12 亿""10.5 万")必然算"有出处",绝不能被替成占位符。只拦 AI 真正新编的数字。
+    const perEditCorpus = `${sourceCorpus} ${edit.original_text ?? ""}`;
     const [newText, report] = normalizeSuggestedText(
       edit.suggested_text,
-      sourceCorpus,
+      perEditCorpus,
       edit.claim_type,
     );
     if (!report.modified && report.strongClaimsHit.length === 0) {

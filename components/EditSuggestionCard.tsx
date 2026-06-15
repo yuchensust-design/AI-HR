@@ -148,98 +148,7 @@ const SOURCE_META: Record<EditSource, { label: string; color: string; hint: stri
   },
 };
 
-const REJECT_OPTIONS: { kind: RejectReasonKind; label: string; hint: string }[] = [
-  { kind: "not-fact", label: "不是事实", hint: "重要 · 帮 Anti-fab 收集模型偏差" },
-  { kind: "no-emphasis", label: "不想强调", hint: "事实 OK,只是不在重点" },
-  { kind: "no-evidence", label: "暂无证据", hint: "可以补一下经历再说" },
-  { kind: "other", label: "其他", hint: "可加 1 句备注" },
-];
-
-function RejectPopover({
-  onConfirm,
-  onCancel,
-}: {
-  onConfirm: (reason: RejectReason) => void;
-  onCancel: () => void;
-}) {
-  const [selected, setSelected] = useState<RejectReasonKind | null>(null);
-  const [note, setNote] = useState("");
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    function onClick(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
-        onCancel();
-      }
-    }
-    document.addEventListener("mousedown", onClick);
-    return () => document.removeEventListener("mousedown", onClick);
-  }, [onCancel]);
-
-  function confirm() {
-    if (!selected) return;
-    onConfirm({
-      kind: selected,
-      note: note.trim() || undefined,
-      ts: Date.now(),
-    });
-  }
-
-  return (
-    <div
-      ref={ref}
-      className="absolute right-0 top-full mt-2 z-40 w-72 p-3 rounded-lg border-2 border-esther-red/40 bg-card shadow-lg"
-    >
-      <p className="text-[11px] text-ink mb-2 font-medium">
-        为什么维持原文?<span className="text-ink-muted font-normal"> · 理由会帮 Offer 捕手未来不重复推这条</span>
-      </p>
-      <div className="space-y-1 mb-2">
-        {REJECT_OPTIONS.map((opt) => (
-          <button
-            key={opt.kind}
-            type="button"
-            onClick={() => setSelected(opt.kind)}
-            className={[
-              "w-full text-left px-2 py-1.5 rounded text-[11px] transition-colors",
-              selected === opt.kind
-                ? "bg-esther-red/15 border border-esther-red/40 text-ink"
-                : "bg-warm-bg-deep/30 border border-transparent text-ink-soft hover:bg-warm-bg-deep/60",
-            ].join(" ")}
-          >
-            <span className="font-medium">{opt.label}</span>
-            <span className="text-[10px] text-ink-muted ml-1.5">· {opt.hint}</span>
-          </button>
-        ))}
-      </div>
-      {selected === "other" && (
-        <textarea
-          value={note}
-          onChange={(e) => setNote(e.target.value)}
-          placeholder="备注一句(可选)"
-          rows={2}
-          className="w-full text-[11px] p-1.5 rounded border border-border bg-card text-ink resize-none mb-2"
-        />
-      )}
-      <div className="flex items-center justify-end gap-2">
-        <button
-          type="button"
-          onClick={onCancel}
-          className="text-[11px] text-ink-muted hover:text-ink"
-        >
-          取消
-        </button>
-        <button
-          type="button"
-          onClick={confirm}
-          disabled={!selected}
-          className="inline-flex items-center justify-center rounded-full bg-esther-red text-white px-3 py-1 text-[11px] font-medium hover:bg-esther-red/80 transition-colors disabled:opacity-40"
-        >
-          确认维持
-        </button>
-      </div>
-    </div>
-  );
-}
+// 维持原文 = 一键不采纳(不再弹理由窗,减少摩擦);理由 kind 固定 "other"。
 
 /** 匹配内联占位符「【请补充X】」(非全局,只用于 .test;捕获组取提示文案) */
 const FILL_TEST = /【请补充[^】]*?】/;
@@ -369,7 +278,6 @@ export function EditSuggestionCard({
   const claimType: ClaimType = edit.claim_type ?? "needs_confirmation";
   const claimMeta = CLAIM_TYPE_META[claimType];
 
-  const [showRejectPopover, setShowRejectPopover] = useState(false);
   /** §8.28 Wave 4: inline 编辑模式 — 用户自己改文案 */
   const [editing, setEditing] = useState(false);
   const [draftText, setDraftText] = useState(finalSuggested);
@@ -379,12 +287,8 @@ export function EditSuggestionCard({
     edit.priority === "high" ? "重要" : edit.priority === "medium" ? "中" : "次要";
 
   function handleRejectClick() {
-    setShowRejectPopover(true);
-  }
-
-  function handleRejectConfirm(reason: RejectReason) {
-    setShowRejectPopover(false);
-    onReject(reason);
+    // 一键不采纳:直接撤下这条(父组件分组会移除 reject 的卡)
+    onReject({ kind: "other", ts: Date.now() });
   }
 
   return (
@@ -589,12 +493,6 @@ export function EditSuggestionCard({
             >
               ✗ 维持原文
             </button>
-            {showRejectPopover && (
-              <RejectPopover
-                onConfirm={handleRejectConfirm}
-                onCancel={() => setShowRejectPopover(false)}
-              />
-            )}
             {!editing && onCustomEdit && (
               <button
                 onClick={() => {
