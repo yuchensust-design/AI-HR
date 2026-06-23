@@ -74,8 +74,9 @@ async function main() {
     const parsed = JSON.parse(fs.readFileSync(path.join("lib", "demo", "linzhou-m3-parsed.json"), "utf8"));
     const jdctx = JSON.parse(fs.readFileSync(path.join("lib", "demo", "linzhou-m3-jdctx.json"), "utf8"));
     const CONV_ID = "0a1b2c3d-0000-4000-8000-00000000a3b1";
-    // 幂等:先删旧的林舟 m3 会话,再插
-    await sb.from("conversations").delete().eq("user_id", uid).eq("module", "m3");
+    // 一键重置:删林舟所有会话(m2/m3/m4/m5,子表 ON DELETE CASCADE 自动清),再插基础简历会话
+    // 演示前重跑本脚本即可把账号恢复到干净起点
+    await sb.from("conversations").delete().eq("user_id", uid);
     const { error: cErr } = await sb.from("conversations").insert({
       id: CONV_ID,
       user_id: uid,
