@@ -1,0 +1,105 @@
+{
+  "gapReport": {
+    "overall_fit": 3,
+    "bridge_fit": "covered",
+    "matched": [
+      { "jd_requirement": "参与AI产品需求调研与市场分析", "resume_evidence": "实习中参与用户调研、整理反馈;拾光项目设计交易流程与信用分机制" },
+      { "jd_requirement": "协助产品规划", "resume_evidence": "实习参与需求评审、写需求文档;拾光从 0 到 1 设计产品功能" },
+      { "jd_requirement": "善于跨职能沟通协作", "resume_evidence": "实习配合技术团队;拾光带队开发;软技能列出沟通协调" },
+      { "jd_requirement": "主动性强、学习能力强", "resume_evidence": "拾光从 0 到 1 搭建并持续迭代;课程项目主动尝试大模型" },
+      { "jd_requirement": "熟练产品设计工具者优先", "resume_evidence": "技能列出 Axure、Figma" },
+      { "jd_requirement": "英语流畅优先", "resume_evidence": "英语 CET-6" }
+    ],
+    "gaps": [
+      { "jd_requirement": "对人工智能产品有基础理解", "current_coverage": "partial", "evidence": "简历有 AI 学习助手课程项目,但描述模糊(\"调了调提示词\"),缺对 AI 产品原理、能力边界、评估方式的体现", "why_matters": "AI PM 的核心门槛——说不清模型能力边界,需求和方案都会落空", "impact": 5, "fixable_in": { "sprint": true, "standard": true, "deep": false } },
+      { "jd_requirement": "协助AI功能设计与原型绘制", "current_coverage": "partial", "evidence": "有 Axure/Figma 技能,但未在项目里展示 AI 功能的设计与交互说明", "why_matters": "AI 功能的原型(prompt 流、兜底、置信展示)和普通功能不同,需要专门体现", "impact": 4, "fixable_in": { "sprint": true, "standard": true, "deep": false } },
+      { "jd_requirement": "推动迭代", "current_coverage": "partial", "evidence": "项目提及持续迭代,但缺具体迭代方法和效果数据(\"留存有一些提升\")", "why_matters": "数据驱动迭代是 PM 的硬证据,光说\"迭代过\"不够", "impact": 3, "fixable_in": { "sprint": false, "standard": true, "deep": false } },
+      { "jd_requirement": "收集用户反馈做体验提升", "current_coverage": "partial", "evidence": "实习提及整理用户反馈,但未说明如何转化为产品改进", "why_matters": "要体现\"反馈→洞察→改进\"的闭环,而不仅是收集", "impact": 3, "fixable_in": { "sprint": true, "standard": true, "deep": false } }
+    ],
+    "summary": "林舟的产品基本功(0→1、需求、协作)已对口 AI PM 实习,真正的缺口集中在「AI 产品专属能力」——对模型能力边界的理解、AI 功能的设计与评估、数据驱动迭代。这些用一个 2-3 周的小项目就能补上。"
+  },
+  "recommend": {
+    "bridgeFit": "covered",
+    "offLibrary": false,
+    "cards": [
+      {
+        "kind": "project",
+        "source_gaps": [
+          { "jd_requirement": "对人工智能产品有基础理解", "why_gap": "课程项目只\"调了调提示词\",没体现对模型能力边界与评估的理解" },
+          { "jd_requirement": "协助AI功能设计与原型绘制", "why_gap": "没展示过 AI 功能的原型与交互(prompt 流 / 兜底 / 置信展示)" },
+          { "jd_requirement": "推动迭代", "why_gap": "缺数据驱动迭代的方法与效果证据" }
+        ],
+        "target_role": "AI 产品经理(实习)",
+        "target_company": null,
+        "title": "把 AI 学习助手做成「能投递」的 RAG 答疑产品(含 PRD + 指标 + 内测)",
+        "why": "你已经做过 AI 学习助手的雏形——这次不是从零开始,而是把它从「课程玩具」升级成「有 PRD、有指标、有真实内测数据」的产品级经历。正好一口气补上「理解 AI 产品 / AI 功能设计 / 数据驱动迭代」三个缺口,而且和你现有简历无缝衔接。",
+        "weeks": 3,
+        "plan_unit": "week",
+        "weekly_plan": [
+          {
+            "week": 1,
+            "goal": "想清楚做什么——写出一份真正的 AI 产品 PRD",
+            "tasks": [
+              { "id": "w1-d1-prd", "day": "Day 1-2", "task": "定位问题:选一个具体场景(如\"考研政治答疑\"),写用户故事 + 核心指标(答对率/采纳率)", "hours": "4h" },
+              { "id": "w1-d3-rag", "day": "Day 3-4", "task": "搞懂 RAG 能力边界:跑通一个最小 RAG demo,记录它\"答得好/答不了\"的边界,写进 PRD 的能力与兜底设计", "hours": "5h" },
+              { "id": "w1-d5-proto", "day": "Day 5-7", "task": "用 Figma 画 AI 功能原型:提问流、引用来源展示、答不出时的兜底话术、用户纠错入口", "hours": "5h" }
+            ]
+          },
+          {
+            "week": 2,
+            "goal": "做出来 + 能用——上线一个可内测的版本",
+            "tasks": [
+              { "id": "w2-d1-build", "day": "Day 8-10", "task": "搭好 RAG 答疑(知识库 + 检索 + 生成),把兜底和引用展示实现出来", "hours": "8h" },
+              { "id": "w2-d4-eval", "day": "Day 11-12", "task": "建一个 30 题评测集,量出答对率基线,定义\"采纳率/求助率\"埋点", "hours": "4h" },
+              { "id": "w2-d6-recruit", "day": "Day 13-14", "task": "招 15-20 名同学内测,收集真实问答日志与反馈", "hours": "3h" }
+            ]
+          },
+          {
+            "week": 3,
+            "goal": "用数据迭代一轮——拿出可写进简历的成果",
+            "tasks": [
+              { "id": "w3-d1-analyze", "day": "Day 15-17", "task": "分析内测日志:找出答错/求助最多的场景,定位是检索问题还是 prompt 问题", "hours": "5h" },
+              { "id": "w3-d4-iterate", "day": "Day 18-19", "task": "针对性迭代(改检索切分 / 改 prompt / 加兜底),重跑评测集对比答对率前后变化", "hours": "5h" },
+              { "id": "w3-d6-writeup", "day": "Day 20-21", "task": "写一页复盘:指标前后对比 + 一条可投递的 STAR 简历经历", "hours": "3h" }
+            ]
+          }
+        ],
+        "deliverables": [
+          "一份 AI 产品 PRD(含能力边界与兜底设计)",
+          "Figma AI 功能原型(提问流 / 引用 / 兜底 / 纠错)",
+          "可内测的 RAG 答疑工具",
+          "30 题评测集 + 答对率前后对比",
+          "一页内测复盘报告"
+        ],
+        "metrics_dictionary": [
+          { "name": "答对率", "definition": "评测集中回答正确的题目占比", "data_source": "自建 30 题评测集,人工标注" },
+          { "name": "采纳率", "definition": "用户对 AI 回答点\"有用/采纳\"的占比", "data_source": "内测埋点" },
+          { "name": "求助率", "definition": "用户对同一问题追问/转人工的占比", "data_source": "内测问答日志" }
+        ],
+        "skills_required": ["RAG 基础", "Prompt 工程", "Figma 原型", "评测集设计", "基础数据分析"],
+        "risks": [
+          { "risk": "技术搭建卡住,做不出可用版本", "mitigation": "用现成 RAG 模板(如 Dify / LangChain 快速起步),重点放在产品设计与评测,不死磕底层实现" },
+          { "risk": "招不到足够内测用户", "mitigation": "先在本班/社群小范围(10 人也行),重点是拿到真实问答日志而非规模" }
+        ],
+        "learning_resources": [
+          { "type": "doc", "title": "RAG 入门与最佳实践", "note": "搞懂检索增强生成的基本盘与常见坑", "lang": "zh" },
+          { "type": "doc", "title": "AI 产品评测怎么做", "note": "如何给 AI 功能定义可量化的质量指标", "lang": "zh" }
+        ]
+      },
+      {
+        "kind": "learning",
+        "covers_gaps": ["对人工智能产品有基础理解"],
+        "title": "AI 产品能力边界速读(冲刺版)",
+        "why": "如果暂时没时间做整个项目,先用 3-5 天把\"模型能做什么、不能做什么、怎么评估\"补上,面试至少能聊清楚。",
+        "concepts": ["大模型能力与幻觉边界", "RAG 的适用场景", "AI 功能的兜底设计", "AI 产品的质量指标"],
+        "resources": [
+          { "type": "doc", "title": "给 PM 的大模型能力地图", "note": "一篇讲清模型能做/不能做", "lang": "zh" },
+          { "type": "video", "title": "AI 产品经理入门", "note": "AI 功能从需求到评估的方法", "lang": "zh" }
+        ],
+        "micro_deliverable": "一页笔记:列出 3 个\"AI 适合 / 不适合\"的产品场景 + 各自的兜底设计",
+        "est_hours": "10-15h",
+        "honest_use": "这是\"入门理解\",能让你在面试里聊清楚 AI 产品;但要写进简历当经历,还得做上面那个项目。"
+      }
+    ]
+  }
+}

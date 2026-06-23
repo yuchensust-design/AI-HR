@@ -1,0 +1,113 @@
+{
+  "jd_summary": "某互联网公司AI产品经理实习岗，要求对AI产品有基础理解，具备逻辑思维、沟通协作和学习能力，熟练产品设计工具和英语流畅优先。",
+  "jd_keywords": [
+    "ai产品需求调研",
+    "市场分析",
+    "产品规划",
+    "ai产品功能设计",
+    "原型绘制",
+    "产品迭代",
+    "开发跟进",
+    "用户反馈收集",
+    "体验提升",
+    "人工智能理解",
+    "逻辑思维",
+    "跨职能沟通",
+    "技术团队协作",
+    "主动性",
+    "学习能力",
+    "产品设计工具",
+    "英语流畅"
+  ],
+  "must_have": [
+    "对人工智能产品有基础理解",
+    "良好逻辑思维",
+    "善于跨职能沟通协作",
+    "主动性强、学习能力强"
+  ],
+  "nice_to_have": [
+    "熟练产品设计工具",
+    "英语流畅"
+  ],
+  "jd_requirements_parsed": [
+    {
+      "type": "domain",
+      "text": "对人工智能产品有基础理解"
+    },
+    {
+      "type": "soft",
+      "text": "良好逻辑思维"
+    },
+    {
+      "type": "soft",
+      "text": "善于跨职能沟通协作"
+    },
+    {
+      "type": "soft",
+      "text": "主动性强、学习能力强"
+    },
+    {
+      "type": "tool",
+      "text": "熟练产品设计工具"
+    },
+    {
+      "type": "soft",
+      "text": "英语流畅"
+    }
+  ],
+  "match_highlights": [
+    {
+      "user_strength": "某互联网公司增长产品实习生经历",
+      "jd_requirement": "善于跨职能沟通协作",
+      "evidence": "参与需求评审、配合技术团队跟进开发、整理用户反馈，体现了跨职能协作能力"
+    },
+    {
+      "user_strength": "校园二手交易小程序项目",
+      "jd_requirement": "良好逻辑思维",
+      "evidence": "从0到1设计交易流程和信用分机制，体现了产品逻辑设计能力"
+    },
+    {
+      "user_strength": "AI学习助手课程项目",
+      "jd_requirement": "对人工智能产品有基础理解",
+      "evidence": "使用大模型构建答疑助手，调优提示词，证明对AI产品有实践理解"
+    },
+    {
+      "user_strength": "工具技能：Axure、Figma",
+      "jd_requirement": "熟练产品设计工具（优先）",
+      "evidence": "简历中列出Axure和Figma，符合优先条件"
+    },
+    {
+      "user_strength": "英语CET-6",
+      "jd_requirement": "英语流畅（优先）",
+      "evidence": "CET-6证书表明具备英语基础能力"
+    }
+  ],
+  "gaps": [
+    {
+      "jd_requirement": "主动性强、学习能力强",
+      "why_gap": "简历中缺乏主动发起项目或快速学习新领域的明确事例，描述偏被动执行",
+      "fixable": "易补<2周"
+    },
+    {
+      "jd_requirement": "良好逻辑思维",
+      "why_gap": "虽然项目体现一定逻辑，但缺少结构化分析或数据驱动决策的明确证据",
+      "fixable": "中等1-2月"
+    },
+    {
+      "jd_requirement": "熟练产品设计工具",
+      "why_gap": "仅列出工具名称，未展示具体产出或熟练程度",
+      "fixable": "易补<2周"
+    },
+    {
+      "jd_requirement": "英语流畅",
+      "why_gap": "CET-6仅证明基础，缺乏实际应用场景（如英文文档阅读或交流）",
+      "fixable": "中等1-2月"
+    }
+  ],
+  "priority_score": 4,
+  "meta": {
+    "mode": "full",
+    "confidence": "high",
+    "parsed_at": "2026-06-23T16:37:05.470Z"
+  }
+}

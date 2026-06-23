@@ -22,6 +22,8 @@ import { promises as fs } from "fs";
 import path from "path";
 import { NextRequest, NextResponse } from "next/server";
 import { chat } from "@/lib/llm";
+import { demoFreeze } from "@/lib/demo-mode";
+import m6Demo from "@/lib/demo/linzhou-m6.json";
 
 const CRAWLER_BASE_URL = process.env.CRAWLER_BASE_URL ?? "http://localhost:3030";
 const CRAWLER_API_KEY = process.env.CRAWLER_API_KEY ?? "dev-secret-change-me";
@@ -372,6 +374,10 @@ async function runFormatter(jobs: Job[]): Promise<Job[]> {
 // ============ POST ============
 export async function POST(request: NextRequest) {
   try {
+    // 演示账号:2s 假思考后返回冻结的林舟推荐结果(其他账号照常真跑)
+    const __demo = await demoFreeze(request, m6Demo);
+    if (__demo) return __demo;
+
     const body = await request.json();
     const parsedResume = body.parsedResume;
     const cityOverride = typeof body.cityOverride === "string" ? body.cityOverride : undefined;

@@ -1,0 +1,252 @@
+{
+  "edits": [
+    {
+      "id": "edit-001",
+      "target": "experience[0].bullets[0]",
+      "bullet_id": "e0-04kbjfaez7-b0-eoui",
+      "original_text": "负责新人引导流程的改版,优化了一下注册转化",
+      "suggested_text": "主导新人引导流程改版，通过A/B测试优化注册转化路径，推动注册转化率提升【请补充百分比】%",
+      "evidence_source": "parsed_resume.experience[0].bullets[0]",
+      "evidence_audit": [
+        {
+          "source": "resume",
+          "excerpt": "负责新人引导流程的改版,优化了一下注册转化"
+        }
+      ],
+      "claim_type": "needs_confirmation",
+      "source": "resume",
+      "confidence": 0.85,
+      "linked_jd_keyword": "产品迭代",
+      "reason": "责任→成就重写，加入量化占位符和A/B测试关键词",
+      "category": "narrative-tools",
+      "priority": "high",
+      "fab_warning": null,
+      "jd_requirement_text": null,
+      "fixable": null
+    },
+    {
+      "id": "edit-002",
+      "target": "experience[0].bullets[1]",
+      "bullet_id": "e0-04kbjfaez7-b1-zqyv",
+      "original_text": "参与日常需求评审,写过一些需求文档",
+      "suggested_text": "参与日常需求评审，撰写【请补充数量】份产品需求文档（PRD），协同开发、设计团队推进功能上线",
+      "evidence_source": "parsed_resume.experience[0].bullets[1]",
+      "evidence_audit": [
+        {
+          "source": "resume",
+          "excerpt": "参与日常需求评审,写过一些需求文档"
+        }
+      ],
+      "claim_type": "needs_confirmation",
+      "source": "resume",
+      "confidence": 0.8,
+      "linked_jd_keyword": "跨职能沟通",
+      "reason": "强化跨职能协作，加入量化占位符",
+      "category": "narrative-tools",
+      "priority": "high",
+      "fab_warning": null,
+      "jd_requirement_text": null,
+      "fixable": null
+    },
+    {
+      "id": "edit-003",
+      "target": "experience[0].bullets[2]",
+      "bullet_id": "e0-04kbjfaez7-b2-h6g7",
+      "original_text": "配合做了几次用户调研,整理用户反馈",
+      "suggested_text": "配合完成【请补充次数】次用户调研，收集并整理【请补充数量】条用户反馈，提炼核心需求驱动产品迭代",
+      "evidence_source": "parsed_resume.experience[0].bullets[2]",
+      "evidence_audit": [
+        {
+          "source": "resume",
+          "excerpt": "配合做了几次用户调研,整理用户反馈"
+        }
+      ],
+      "claim_type": "needs_confirmation",
+      "source": "resume",
+      "confidence": 0.8,
+      "linked_jd_keyword": "用户反馈收集",
+      "reason": "量化调研和反馈数量，突出用户驱动迭代",
+      "category": "narrative-tools",
+      "priority": "high",
+      "fab_warning": null,
+      "jd_requirement_text": null,
+      "fixable": null
+    },
+    {
+      "id": "edit-004",
+      "target": "projects[0].bullets[0]",
+      "bullet_id": "p0-qzjr6qaez7-b0-9p21",
+      "original_text": "从 0 到 1 带队做了一个校园二手交易小程序,累计 8000 多个注册用户",
+      "suggested_text": "从 0 到 1 主导校园二手交易小程序「拾光」的产品规划与落地，上线后累计吸引 8000+ 注册用户，验证了校园 C2C 交易需求",
+      "evidence_source": "parsed_resume.projects[0].bullets[0]",
+      "evidence_audit": [
+        {
+          "source": "resume",
+          "excerpt": "从 0 到 1 带队做了一个校园二手交易小程序,累计 8000 多个注册用户"
+        }
+      ],
+      "claim_type": "explicit",
+      "source": "resume",
+      "confidence": 0.95,
+      "linked_jd_keyword": "产品规划",
+      "reason": "强动词+量化+业务价值，匹配JD产品规划与逻辑思维",
+      "category": "narrative-tools",
+      "priority": "high",
+      "fab_warning": null,
+      "jd_requirement_text": null,
+      "fixable": null
+    },
+    {
+      "id": "edit-005",
+      "target": "projects[0].bullets[1]",
+      "bullet_id": "p0-qzjr6qaez7-b1-u2tb",
+      "original_text": "设计了交易流程和信用分机制",
+      "suggested_text": "设计完整交易流程与信用分评价机制，通过规则约束降低交易纠纷率，保障平台信任基础",
+      "evidence_source": "parsed_resume.projects[0].bullets[1]",
+      "evidence_audit": [
+        {
+          "source": "resume",
+          "excerpt": "设计了交易流程和信用分机制"
+        }
+      ],
+      "claim_type": "inferred",
+      "source": "resume",
+      "confidence": 0.85,
+      "linked_jd_keyword": "ai产品功能设计",
+      "reason": "将职责转化为功能设计成果，突出逻辑思维与产品设计能力",
+      "category": "narrative-tools",
+      "priority": "high",
+      "fab_warning": null,
+      "jd_requirement_text": null,
+      "fixable": null
+    },
+    {
+      "id": "edit-006",
+      "target": "projects[0].bullets[2]",
+      "bullet_id": "p0-qzjr6qaez7-b2-8jfk",
+      "original_text": "上线后持续迭代,留存有一些提升",
+      "suggested_text": "上线后基于用户反馈持续迭代，推动次日留存率提升【请补充百分比】%",
+      "evidence_source": "parsed_resume.projects[0].bullets[2]",
+      "evidence_audit": [
+        {
+          "source": "resume",
+          "excerpt": "上线后持续迭代,留存有一些提升"
+        }
+      ],
+      "claim_type": "needs_confirmation",
+      "source": "resume",
+      "confidence": 0.75,
+      "linked_jd_keyword": "产品迭代",
+      "reason": "量化占位符引导用户补充具体数据，匹配产品迭代关键词",
+      "category": "quantification",
+      "priority": "medium",
+      "fab_warning": null,
+      "jd_requirement_text": null,
+      "fixable": null
+    },
+    {
+      "id": "edit-007",
+      "target": "projects[1].bullets[0]",
+      "bullet_id": "p1-wl9flnaez7-b0-3oux",
+      "original_text": "用大模型做了一个能答疑的学习助手,给同学用过",
+      "suggested_text": "基于大模型 API 搭建 AI 学习助手，实现课程知识自动答疑，覆盖【请补充人数】名同学日常使用",
+      "evidence_source": "parsed_resume.projects[1].bullets[0]",
+      "evidence_audit": [
+        {
+          "source": "resume",
+          "excerpt": "用大模型做了一个能答疑的学习助手,给同学用过"
+        }
+      ],
+      "claim_type": "inferred",
+      "source": "resume",
+      "confidence": 0.85,
+      "linked_jd_keyword": "人工智能理解",
+      "reason": "明确技术动作+量化占位符，突出AI实践理解",
+      "category": "narrative-tools",
+      "priority": "high",
+      "fab_warning": null,
+      "jd_requirement_text": null,
+      "fixable": null
+    },
+    {
+      "id": "edit-008",
+      "target": "projects[1].bullets[1]",
+      "bullet_id": "p1-wl9flnaez7-b1-cu1n",
+      "original_text": "调了调提示词,效果还行",
+      "suggested_text": "通过优化 prompt 工程提升回答准确率，使常见问题解答准确率提升至【请补充百分比】%",
+      "evidence_source": "parsed_resume.projects[1].bullets[1]",
+      "evidence_audit": [
+        {
+          "source": "resume",
+          "excerpt": "调了调提示词,效果还行"
+        }
+      ],
+      "claim_type": "needs_confirmation",
+      "source": "resume",
+      "confidence": 0.75,
+      "linked_jd_keyword": "人工智能理解",
+      "reason": "将模糊表述转化为具体动作+量化占位符，体现学习能力",
+      "category": "narrative-tools",
+      "priority": "medium",
+      "fab_warning": null,
+      "jd_requirement_text": null,
+      "fixable": null
+    },
+    {
+      "id": "edit-009",
+      "target": "activities[0].bullets[0]",
+      "bullet_id": "a0-gwql1zaez7-b0-wz6z",
+      "original_text": "运营学生会公众号,发推文,涨了一些粉丝",
+      "suggested_text": "负责学生会公众号日常运营，策划并发布【请补充篇数】篇推文，通过内容优化实现粉丝增长【请补充人数】+%",
+      "evidence_source": "parsed_resume.activities[0].bullets[0]",
+      "evidence_audit": [
+        {
+          "source": "resume",
+          "excerpt": "运营学生会公众号,发推文,涨了一些粉丝"
+        }
+      ],
+      "claim_type": "needs_confirmation",
+      "source": "resume",
+      "confidence": 0.85,
+      "linked_jd_keyword": "用户反馈收集",
+      "reason": "原文缺乏量化，用占位符引导用户补充具体数据，提升说服力",
+      "category": "quantification",
+      "priority": "high",
+      "fab_warning": null,
+      "jd_requirement_text": null,
+      "fixable": null
+    }
+  ],
+  "default_accept_count": 3,
+  "optimization_summary": "本次找了 9 处可改(覆盖 3 个板块)",
+  "original_issues": [
+    "实习经历缺乏量化成果，如注册转化率提升具体数值",
+    "项目描述中留存提升无具体数据支撑",
+    "AI学习助手项目描述模糊，未体现产品思维",
+    "缺乏主动发起或主导项目的明确事例",
+    "产品设计工具仅列名称，未展示熟练度",
+    "英语能力仅CET-6，无实际应用场景",
+    "逻辑思维体现不足，缺少结构化分析证据"
+  ],
+  "optimization_directions": [
+    "用具体数据量化实习和项目成果",
+    "补充AI学习助手的产品设计细节",
+    "突出主动性和学习能力的事例",
+    "展示Axure/Figma的具体产出",
+    "增加英文文档或交流经历",
+    "强化数据驱动决策的描述"
+  ],
+  "used_supplements": [
+    "bullet-writer",
+    "ats-optimizer",
+    "tencent-resume-guide",
+    "narrative-tools",
+    "quantifier"
+  ],
+  "inferred_persona": "未判定",
+  "anti_fab_filtered": 0,
+  "anti_fab_filter_reasons": [],
+  "anti_fab_normalized": 0,
+  "anti_fab_downgraded": 0,
+  "generated_at": "2026-06-23T16:37:18.776Z"
+}

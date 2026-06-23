@@ -21,6 +21,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { chat } from "@/lib/llm";
 import type { GapReport, GapCoverage, ScoredGap, BridgeFit } from "@/lib/m4-types";
+import { demoFreeze } from "@/lib/demo-mode";
+import m4Demo from "@/lib/demo/linzhou-m4.json";
 
 // 线上防 Vercel 默认 10s 静默超时(Hobby 上限 60s)
 export const maxDuration = 60;
@@ -238,6 +240,10 @@ function normalizeGap(g: Record<string, unknown>): ScoredGap {
 
 export async function POST(request: NextRequest) {
   try {
+    // 演示账号:返回冻结的林舟差距报告
+    const __demo = await demoFreeze(request, m4Demo.gapReport);
+    if (__demo) return __demo;
+
     const body = await request.json();
     const mode = body.mode as string;
 

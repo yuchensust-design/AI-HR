@@ -1,0 +1,113 @@
+{
+  "keywords": ["AI 产品经理", "产品经理实习", "用户增长", "数据分析"],
+  "city": "深圳",
+  "reasoning": "从你简历抽出「产品 0→1 / 用户增长 / 数据分析 / AI 项目」几个关键词,目标城市取你意向地深圳,优先匹配 AI 产品 / 产品经理实习岗。",
+  "jobs": [
+    {
+      "id": "demo-zhilian-ai-intern",
+      "platform": "zhilian",
+      "title": "【实习】AI 技术产品实习生",
+      "company": "某央企科技集团",
+      "city": "深圳",
+      "district": "南山区",
+      "salary": "240-300 元/天",
+      "salaryMin": 240,
+      "salaryMax": 300,
+      "experience": "实习",
+      "education": "本科及以上",
+      "tags": ["可提供实习证明", "1V1 导师", "大数据", "AI 产品"],
+      "jdText": "参与 AI 产品的需求调研与功能设计,配合算法/工程团队推进迭代,收集用户反馈做体验优化。要求对 AI 产品有基础理解、逻辑清晰、沟通协作能力强。",
+      "jdUrl": "",
+      "matchScore": 80,
+      "matchBreakdown": { "skills": 11, "experience": 13, "education": 13, "industry": 13, "target_alignment": 14, "employability": 11, "city": 5 },
+      "matchHighlights": [
+        "你从 0 到 1 带队做过拾光小程序(8000+ 注册),产品落地经验直接对口「需求调研 + 功能设计」",
+        "增长产品实习里做过用户引导和数据,匹配「收集反馈做体验优化」",
+        "做过 AI 学习助手课程项目,对 AI 产品有初步接触,踩中岗位方向"
+      ],
+      "matchGaps": [
+        "JD 看重「对 AI 产品有基础理解」——你只有课程级 AI 项目,缺对模型能力边界/评估的体现(可补:把 AI 学习助手做成带 PRD + 指标的产品)",
+        "缺「AI 功能的设计与原型」证据(可补:产出一份 AI 功能原型 + 交互说明)"
+      ]
+    },
+    {
+      "id": "demo-zhilian-hw-intern",
+      "platform": "zhilian",
+      "title": "硬件产品经理实习生(AI 方向)",
+      "company": "某智能硬件/声学公司",
+      "city": "深圳",
+      "district": "宝安区",
+      "salary": "150-200 元/天",
+      "salaryMin": 150,
+      "salaryMax": 200,
+      "experience": "实习",
+      "education": "本科",
+      "tags": ["人工智能产品", "智能硬件", "C 端产品", "需求分析"],
+      "jdText": "协助 AI 硬件产品的需求分析、竞品调研与原型设计,跟进开发,整理用户反馈。",
+      "jdUrl": "",
+      "matchScore": 73,
+      "matchBreakdown": { "skills": 11, "experience": 12, "education": 12, "industry": 11, "target_alignment": 12, "employability": 10, "city": 5 },
+      "matchHighlights": [
+        "C 端产品 + 需求分析与你拾光小程序经历契合",
+        "Axure/Figma 满足原型设计要求"
+      ],
+      "matchGaps": [
+        "偏硬件方向,你的经历都是软件/小程序,需在面试里讲清可迁移性",
+        "同样缺 AI 产品的专项证据"
+      ]
+    },
+    {
+      "id": "demo-liepin-ecom-intern",
+      "platform": "liepin",
+      "title": "电商产品经理实习生",
+      "company": "某跨境电商公司",
+      "city": "深圳",
+      "district": "南山区",
+      "salary": "200-250 元/天",
+      "salaryMin": 200,
+      "salaryMax": 250,
+      "experience": "实习",
+      "education": "本科",
+      "tags": ["电商", "C 端产品", "数据驱动", "5000-10000 人"],
+      "jdText": "参与电商产品功能设计与迭代,做数据分析与用户调研,推动体验优化。",
+      "jdUrl": "",
+      "matchScore": 68,
+      "matchBreakdown": { "skills": 10, "experience": 12, "education": 12, "industry": 9, "target_alignment": 11, "employability": 9, "city": 5 },
+      "matchHighlights": [
+        "拾光是 C2C 交易产品,和电商交易场景高度相关",
+        "做过用户调研与转化优化,匹配「数据驱动 + 体验优化」"
+      ],
+      "matchGaps": [
+        "缺规范的数据分析产出(可补:用一次真实 A/B 或漏斗分析补证据)",
+        "方向偏电商而非 AI,需想清楚是否主投"
+      ]
+    },
+    {
+      "id": "demo-liepin-ai-pm-tob",
+      "platform": "liepin",
+      "title": "AI 产品经理(to B)",
+      "company": "某深圳互联网公司",
+      "city": "深圳",
+      "district": "南山区",
+      "salary": "18-28k · 17薪",
+      "salaryMin": 18,
+      "salaryMax": 28,
+      "experience": "1-3 年",
+      "education": "本科",
+      "tags": ["AI 产品", "to B", "战略融资", "大模型"],
+      "jdText": "负责 AI 产品(to B)从需求到上线全流程,定义指标驱动迭代,跨研发/算法协作。",
+      "jdUrl": "",
+      "matchScore": 58,
+      "matchBreakdown": { "skills": 10, "experience": 8, "education": 12, "industry": 13, "target_alignment": 12, "employability": 6, "city": 5 },
+      "matchHighlights": [
+        "方向(AI 产品 + 数据驱动迭代)和你的目标完全一致",
+        "你有 0→1 产品和大模型项目的底子"
+      ],
+      "matchGaps": [
+        "这是 1-3 年经验的正式岗,你目前是实习起点,经验不足(建议作为「值得探索」的拉伸目标)",
+        "缺 to B 产品和完整上线经验"
+      ]
+    }
+  ],
+  "stats": { "scraped": 26, "scored": 26, "recommended": 4, "blockedPlatforms": [], "total": 4, "isMock": false }
+}

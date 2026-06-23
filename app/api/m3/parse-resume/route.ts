@@ -25,6 +25,8 @@ import { promises as fs } from "fs";
 import path from "path";
 import { NextRequest, NextResponse } from "next/server";
 import { chat } from "@/lib/llm";
+import { demoFreeze } from "@/lib/demo-mode";
+import m3ParsedDemo from "@/lib/demo/linzhou-m3-parsed.json";
 
 // Vercel serverless 函数超时:LLM 调用常 >10s,默认 10s 会 504 → 必须显式拉到 60s(Hobby 上限)
 export const maxDuration = 60;
@@ -276,6 +278,10 @@ function computeTagDistribution(
 
 export async function POST(request: NextRequest) {
   try {
+    // 演示账号:返回冻结的林舟解析简历(1s,解析本就快)
+    const __demo = await demoFreeze(request, m3ParsedDemo, 1000);
+    if (__demo) return __demo;
+
     const body = await request.json();
     const resumeText = String(body.resumeText ?? "").trim();
 

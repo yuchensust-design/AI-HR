@@ -32,6 +32,8 @@ import type {
   M4LearningDraftCore,
   M4Resource,
 } from "@/lib/m4-types";
+import { demoFreeze } from "@/lib/demo-mode";
+import m4Demo from "@/lib/demo/linzhou-m4.json";
 
 export const maxDuration = 60;
 
@@ -458,6 +460,10 @@ function normProject(p: Record<string, unknown>, tier: "standard" | "deep"): M4P
 
 export async function POST(request: NextRequest) {
   try {
+    // 演示账号:返回冻结的林舟补强项目卡
+    const __demo = await demoFreeze(request, m4Demo.recommend);
+    if (__demo) return __demo;
+
     const body = (await request.json()) as RequestBody;
     const { timeTier, gaps, targetRole, parsedResumeBrief } = body;
     const bridgeFit: BridgeFit = body.bridgeFit ?? "covered";

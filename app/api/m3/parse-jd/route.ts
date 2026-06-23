@@ -29,6 +29,8 @@ import path from "path";
 import { NextRequest, NextResponse } from "next/server";
 import { chat } from "@/lib/llm";
 import { canonicalizeKeyword } from "@/lib/keyword-match";
+import { demoFreeze } from "@/lib/demo-mode";
+import m3JdDemo from "@/lib/demo/linzhou-m3-jdctx.json";
 
 // Vercel serverless 函数超时:LLM 调用常 >10s,默认 10s 会 504 → 必须显式拉到 60s(Hobby 上限)
 export const maxDuration = 60;
@@ -270,6 +272,10 @@ async function extractJdKeywords(
 
 export async function POST(request: NextRequest) {
   try {
+    // 演示账号:返回冻结的林舟 JD 拆解(含 gaps,驱动后面补项目)
+    const __demo = await demoFreeze(request, m3JdDemo, 1500);
+    if (__demo) return __demo;
+
     const body = await request.json();
     const mode = body.mode as string;
 

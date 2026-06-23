@@ -18,6 +18,8 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { chat, type ChatMessage } from "@/lib/llm";
+import { isDemoRequest, demoSleep } from "@/lib/demo-mode";
+import m2Script from "@/lib/demo/linzhou-m2.json";
 import {
   OPTION_SETS,
   REFRAME_RULES,
@@ -451,6 +453,14 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const history: ChatMessage[] = Array.isArray(body.history) ? body.history : [];
+
+    // 演示账号:按对话轮数返回脚本化的「认一认」挖掘(2 轮:铺开 → 追问出 bullet)
+    if (await isDemoRequest(request)) {
+      await demoSleep(1500);
+      const userTurns = history.filter((m) => m.role === "user").length;
+      const idx = Math.min(userTurns, m2Script.length - 1);
+      return NextResponse.json(m2Script[idx]);
+    }
     const persona = typeof body.persona_tag === "string" && body.persona_tag ? body.persona_tag : undefined;
     const depth: Depth = ["shallow", "medium", "deep"].includes(body.depth) ? body.depth : "shallow";
     const intent = typeof body.intent === "string" ? body.intent : undefined;

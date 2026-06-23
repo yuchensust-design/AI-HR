@@ -1,0 +1,56 @@
+[
+  {
+    "say": "没有现成简历也没关系~ 我们不靠凭空回忆,而是「认一认」。大学这几年,下面这些事你做过哪些?先勾出来,我顺着帮你把它变成能写进简历的素材。",
+    "ask": {
+      "type": "multi_select",
+      "prompt": "这些经历类型,你有过哪些?(可多选)",
+      "option_set": "experience_categories",
+      "options": [
+        { "label": "课程项目 / 课设大作业", "competency": "项目执行", "high_signal": true },
+        { "label": "社团 / 学生会 / 组织活动", "competency": "组织协调", "high_signal": false },
+        { "label": "实习 / 兼职", "competency": "职场实践", "high_signal": true },
+        { "label": "竞赛 / 比赛", "competency": "目标达成", "high_signal": true },
+        { "label": "个人项目 / 自己捣鼓的东西", "competency": "主动性", "high_signal": true },
+        { "label": "公众号 / 短视频 / 内容创作", "competency": "内容表达", "high_signal": false }
+      ],
+      "other_label": "还有别的,我自己说"
+    },
+    "phase": "spread",
+    "delta_roles": [],
+    "delta_stories": [],
+    "delta_bullets": [],
+    "suggest_wrap": false,
+    "done": false
+  },
+  {
+    "say": "你选了「个人项目」和「课程项目」——很多人觉得这些不算经历,其实正好是简历里最稀缺的主动性证据。就你说的那个 AI 学习助手,我顺着追一句:当时是你一个人做的,还是带了人?有没有人真的用起来?",
+    "ask": {
+      "type": "open",
+      "prompt": "简单说说:这个 AI 学习助手解决了谁的什么问题?大概多少人用过?"
+    },
+    "phase": "illuminate",
+    "delta_roles": [
+      { "org_type": "个人项目", "role": "独立开发", "period": "课程期间", "charter": "做一个能答疑的 AI 学习助手", "excavation_depth": "medium" }
+    ],
+    "delta_stories": [],
+    "delta_bullets": [
+      {
+        "text": "独立开发一个基于大模型的学习答疑助手,面向同班同学提供课程问题解答",
+        "star_breakdown": { "s": "复习时同学常被同一类问题卡住", "t": "做一个随时能问的答疑助手", "a": "用大模型搭了问答,迭代提示词", "r": "给班里同学用过(具体人数待你补)" },
+        "competency": "主动性 / 技术应用",
+        "sufficiency": "draftable",
+        "depth_met": false,
+        "anti_fab_note": "「多少人用过 / 答得准不准」这些数字你还没说,先标草稿待补,我不替你编"
+      },
+      {
+        "text": "通过迭代提示词优化回答质量,积累了对大模型能力边界的理解",
+        "competency": "AI 产品理解",
+        "sufficiency": "draftable",
+        "depth_met": false,
+        "anti_fab_note": "效果提升幅度待你补真实感受/数据"
+      }
+    ],
+    "suggest_wrap": true,
+    "done": false
+  }
+]

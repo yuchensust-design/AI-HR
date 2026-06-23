@@ -1,0 +1,83 @@
+{
+  "scores": [5, 13, 8, 10, 14, 6],
+  "code": "E14 I13 S10 A8 C6 R5",
+  "confidence": "high",
+  "positive": [
+    {
+      "industry": "互联网",
+      "role_type": "AI 产品经理(实习)",
+      "why_fit": "E14(企业型最高)爱推动事情发生 + I13(研究型高)重逻辑分析,正是 PM 的两块底料;你做过增长实习和 AI 学习助手,方向直接对口",
+      "match": "高",
+      "match_percentage": 88,
+      "employability_level": "now"
+    },
+    {
+      "industry": "互联网",
+      "role_type": "数据分析 / 增长分析",
+      "why_fit": "I13 重数据推理 + 增长实习里你做过转化和留存的拆解,用数字说话的角色很契合",
+      "match": "高",
+      "match_percentage": 82,
+      "employability_level": "now"
+    },
+    {
+      "industry": "互联网 / 创业",
+      "role_type": "0→1 产品负责人 / 独立开发者",
+      "why_fit": "E14 最高说明你更想主导而非执行;你已经从 0 到 1 带队做了拾光小程序(8000+ 注册),再补一段更硬的产品落地就能往这条路走",
+      "match": "高",
+      "match_percentage": 85,
+      "employability_level": "needs_project"
+    },
+    {
+      "industry": "互联网",
+      "role_type": "用户研究员",
+      "why_fit": "I13 愿意挖背后原理 + S10 能跟人聊,你做过用户调研,适合做用户洞察;补一套系统的研究方法就能投",
+      "match": "中",
+      "match_percentage": 76,
+      "employability_level": "needs_project"
+    },
+    {
+      "industry": "互联网 / 研究",
+      "role_type": "AI 算法 / 机器学习方向",
+      "why_fit": "I13(研究型高)愿意深挖原理;但这类岗位普遍要读研 + 论文,属长期深造方向",
+      "match": "中",
+      "match_percentage": 72,
+      "employability_level": "long_term",
+      "long_term_note": {
+        "realistic_cost": "诚实代价:通常要读研 + 跟一两个有产出的项目,2-3 年深造投入,不是这次找实习能补齐的",
+        "first_validation": "低成本验证第一步:先在 AI 产品 / 数据分析岗上手,验证你对算法本身的热情,再决定要不要读研"
+      }
+    }
+  ],
+  "negative": [
+    {
+      "industry": "传统行政",
+      "role_type": "档案管理 / 资料录入",
+      "why_consuming": "80% 时间在重复处理标准化流程,你的 E+I 表达欲和分析欲会被压抑"
+    },
+    {
+      "industry": "销售商务",
+      "role_type": "电话销售 / 地推",
+      "why_consuming": "你的 I13 偏好深度思考,纯转化型销售的快节奏浅交互容易让你疲倦"
+    },
+    {
+      "industry": "制造业",
+      "role_type": "质量管理 / 品控",
+      "why_consuming": "C6+R5 都偏低,长期靠流程和标准化,你的创造性会找不到出口"
+    }
+  ],
+  "refine_chips": ["去掉销售类", "想要更稳定", "加技术深度", "偏数据方向"],
+  "rationale": {
+    "interestEvidence": "你选了「数据 & AI」「内容创作」两个 tag(数据 & AI 强度最高),跟 AI PM / 数据分析方向直接连线。",
+    "experienceEvidence": "增长产品实习(做过新人引导和转化)+ 拾光小程序 0→1(8000+ 注册)+ AI 学习助手课程项目 → 已经在做产品和数据驱动,跟 AI PM / 增长方向最匹配。",
+    "preferenceSignals": "E14(企业型最高)说明你更愿意主导、推动;I13(研究型高)说明你愿意深挖原理,而不是被动执行。",
+    "confidence": "high",
+    "confidenceWhy": "答了 18 道题,Top1 = E14 / Top2 = I13 都在「高」区间,六维分布倾向明显,推荐稳定。",
+    "cautions": [
+      "match% 是相对契合度,不是「一定能上岸」",
+      "投递前请用『简历整理』结合具体 JD 再核对"
+    ],
+    "nextStep": "可以先去『简历整理』,把增长实习 + 拾光项目针对 AI 产品经理的 JD 重点调一版。",
+    "whyNotOther": "档案 / 电销 / 品控这类没推,是因为你的 R(实用)5 + C(常规)6 都偏低,长期机械流程容易让你的 E+I 找不到出口。"
+  },
+  "disclaimer": "本次推荐基于测评 + 兴趣 + 你的简历做三段融合。投递前请用『简历整理』模块结合具体 JD 再核对。"
+}

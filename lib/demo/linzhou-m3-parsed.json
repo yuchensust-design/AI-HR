@@ -1,0 +1,159 @@
+{
+  "basic": {
+    "name": "林舟",
+    "phone": "138-0000-0000",
+    "email": "linzhou@example.com",
+    "school": "华东某211高校",
+    "major": "信息管理与信息系统",
+    "year_level": "大三",
+    "gpa": null
+  },
+  "education": [
+    {
+      "school": "华东某211高校",
+      "major": "信息管理与信息系统",
+      "degree": "本科",
+      "period": "2023.09 至今",
+      "gpa": null,
+      "rank": null,
+      "research_direction": null,
+      "advisor": null,
+      "courses": [
+        "数据结构",
+        "数据库",
+        "用户体验设计",
+        "数据分析",
+        "运营管理"
+      ],
+      "awards": []
+    }
+  ],
+  "experience": [
+    {
+      "org": "某互联网公司",
+      "role": "增长产品 实习生",
+      "period": "2024.07–2024.10",
+      "bullets": [
+        {
+          "text": "负责新人引导流程的改版,优化了一下注册转化",
+          "narrative_tag": "lacks_metric"
+        },
+        {
+          "text": "参与日常需求评审,写过一些需求文档",
+          "narrative_tag": "vague_action"
+        },
+        {
+          "text": "配合做了几次用户调研,整理用户反馈",
+          "narrative_tag": "lacks_metric"
+        }
+      ]
+    }
+  ],
+  "projects": [
+    {
+      "name": "校园二手交易小程序「拾光」",
+      "period": "2023.10–2024.05",
+      "role": "联合创始人(产品)",
+      "tech_stack": [],
+      "bullets": [
+        {
+          "text": "从 0 到 1 带队做了一个校园二手交易小程序,累计 8000 多个注册用户",
+          "narrative_tag": "strong"
+        },
+        {
+          "text": "设计了交易流程和信用分机制",
+          "narrative_tag": "responsibility_driven"
+        },
+        {
+          "text": "上线后持续迭代,留存有一些提升",
+          "narrative_tag": "lacks_metric"
+        }
+      ]
+    },
+    {
+      "name": "AI 学习助手(课程项目)",
+      "period": "2024.03–2024.06",
+      "role": null,
+      "tech_stack": [],
+      "bullets": [
+        {
+          "text": "用大模型做了一个能答疑的学习助手,给同学用过",
+          "narrative_tag": "vague_action"
+        },
+        {
+          "text": "调了调提示词,效果还行",
+          "narrative_tag": "vague_action"
+        }
+      ]
+    }
+  ],
+  "activities": [
+    {
+      "org": "校学生会 宣传部",
+      "role": "",
+      "period": "2023.09–2024.06",
+      "bullets": [
+        {
+          "text": "运营学生会公众号,发推文,涨了一些粉丝",
+          "narrative_tag": "lacks_metric"
+        }
+      ]
+    }
+  ],
+  "self_eval": [],
+  "skill_groups": [
+    {
+      "category": "工具",
+      "items": [
+        "Axure",
+        "Figma",
+        "SQL 基础",
+        "Python 基础"
+      ]
+    },
+    {
+      "category": "软技能",
+      "items": [
+        "沟通协调",
+        "需求梳理",
+        "用户调研"
+      ]
+    },
+    {
+      "category": "语言能力",
+      "items": [
+        "英语 CET-6"
+      ]
+    }
+  ],
+  "skills": {
+    "languages": [
+      "英语 CET-6"
+    ],
+    "frameworks": [],
+    "tools": [
+      "Axure",
+      "Figma",
+      "SQL 基础",
+      "Python 基础"
+    ],
+    "domain": [
+      "沟通协调",
+      "需求梳理",
+      "用户调研"
+    ]
+  },
+  "raw_text": "林舟  信息管理与信息系统  大三在读\n求职意向:AI 产品经理(实习)\n电话 138-0000-0000   邮箱 linzhou@example.com\n\n教育背景\n华东某 211 高校  信息管理与信息系统  2023.09 至今\n主修课程:数据结构、数据库、用户体验设计、数据分析、运营管理\n英语 CET-6\n\n实习经历\n某互联网公司  增长产品 实习生  2024.07–2024.10\n- 负责新人引导流程的改版,优化了一下注册转化\n- 参与日常需求评审,写过一些需求文档\n- 配合做了几次用户调研,整理用户反馈\n\n项目经历\n校园二手交易小程序「拾光」  联合创始人(产品)  2023.10–2024.05\n- 从 0 到 1 带队做了一个校园二手交易小程序,累计 8000 多个注册用户\n- 设计了交易流程和信用分机制\n- 上线后持续迭代,留存有一些提升\n\nAI 学习助手(课程项目)  2024.03–2024.06\n- 用大模型做了一个能答疑的学习助手,给同学用过\n- 调了调提示词,效果还行\n\n校园活动\n校学生会 宣传部  2023.09–2024.06\n- 运营学生会公众号,发推文,涨了一些粉丝\n\n技能\n工具:Axure、Figma、SQL 基础、Python 基础\n软技能:沟通协调、需求梳理、用户调研",
+  "meta": {
+    "parse_quality": "good",
+    "missing_critical": [],
+    "narrative_tag_distribution": {
+      "total": 9,
+      "responsibility_driven": 0.11,
+      "lacks_metric": 0.44,
+      "vague_action": 0.33,
+      "strong": 0.11
+    },
+    "parsed_at": "2026-06-23T16:36:57.393Z"
+  }
+}
