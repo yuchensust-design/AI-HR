@@ -1621,11 +1621,7 @@ function Module5LiveContent() {
               <button
                 type="button"
                 onClick={() => dispatch({ type: "USER_ANSWER_DONE" })}
-                disabled={
-                  state.currentTranscript.trim().length === 0 &&
-                  state.interimTranscript.trim().length === 0
-                }
-                className="px-4 h-11 rounded-full bg-esther-blue text-white hover:bg-esther-blue-dark transition-colors text-sm disabled:bg-ink-muted disabled:cursor-not-allowed"
+                className="px-4 h-11 rounded-full bg-esther-blue text-white hover:bg-esther-blue-dark transition-colors text-sm"
               >
                 ✓ 答完了
               </button>
