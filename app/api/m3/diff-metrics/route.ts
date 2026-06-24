@@ -23,6 +23,8 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { chat } from "@/lib/llm";
+import { demoFreeze } from "@/lib/demo-mode";
+import diffDemo from "@/lib/demo/linzhou-m3-diffmetrics.json";
 
 // Vercel serverless 函数超时:LLM 调用常 >10s,默认 10s 会 504 → 必须显式拉到 60s(Hobby 上限)
 export const maxDuration = 60;
@@ -110,6 +112,10 @@ ${resumeSkillsText || "(无)"}
 
 export async function POST(request: NextRequest) {
   try {
+    // 演示账号:返回冻结的评分指标(综合评分另在前端覆盖到 ~80)
+    const __demo = await demoFreeze(request, diffDemo, 0);
+    if (__demo) return __demo;
+
     const body = await request.json();
     const v1Bullets = Array.isArray(body.v1Bullets) ? body.v1Bullets : [];
     const v2Bullets = Array.isArray(body.v2Bullets) ? body.v2Bullets : [];

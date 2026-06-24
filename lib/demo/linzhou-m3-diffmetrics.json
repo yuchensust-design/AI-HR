@@ -6,13 +6,13 @@
   },
   "star_complete_v1": {
     "complete": 0,
-    "partial": 8,
-    "total": 16
+    "partial": 12,
+    "total": 17
   },
   "star_complete_v2": {
     "complete": 0,
-    "partial": 8,
-    "total": 16
+    "partial": 14,
+    "total": 17
   },
   "hard_req_total": 4,
   "hard_req_v1_aligned": 3,
@@ -24,21 +24,21 @@
       "v2": true
     },
     {
-      "req": "计算机、软件工程、数据科学等相关专业优先",
+      "req": "理解AI技术边界（大模型、机器学习等）",
       "v1": true,
       "v2": true
     },
     {
-      "req": "理解算法模型的基本原理与性能指标",
+      "req": "具备数据分析能力（SQL/Python）",
+      "v1": true,
+      "v2": true
+    },
+    {
+      "req": "理解算法模型原理与性能指标",
       "v1": false,
-      "v2": true
-    },
-    {
-      "req": "撰写PRD与验收标准",
-      "v1": true,
       "v2": true
     }
   ],
-  "llm_explain": "v2在硬门槛对齐上略有提升，但STAR完整度仍以partial为主，建议进一步强化结果量化。",
-  "generated_at": "2026-06-24T08:12:34.623Z"
+  "llm_explain": "v2在STAR完整度上略有提升，部分bullet补充了结果或情境；硬门槛对齐方面，v2新增了对算法模型原理与性能指标的理解，完全满足JD要求。",
+  "generated_at": "2026-06-24T14:48:00.933Z"
 }

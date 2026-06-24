@@ -17,6 +17,8 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { chat } from "@/lib/llm";
+import { demoFreeze } from "@/lib/demo-mode";
+import kwDemo from "@/lib/demo/linzhou-m3-matchkw.json";
 
 // Vercel serverless 函数超时:LLM 调用常 >10s,默认 10s 会 504 → 必须显式拉到 60s(Hobby 上限)
 export const maxDuration = 60;
@@ -39,6 +41,10 @@ const SYSTEM = `你是资深招聘官 + 简历评估官。我会给你一份简�
 
 export async function POST(request: NextRequest) {
   try {
+    // 演示账号:返回冻结的语义命中(命中/缺口稳定)
+    const __demo = await demoFreeze(request, kwDemo, 0);
+    if (__demo) return __demo;
+
     const body = await request.json();
     const jdKeywords: string[] = Array.isArray(body.jdKeywords)
       ? body.jdKeywords.map((k: unknown) => String(k).trim()).filter(Boolean)

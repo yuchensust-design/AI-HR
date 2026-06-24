@@ -9,6 +9,7 @@ import { BuerFloatingButton } from "@/components/BuerFloatingButton";
 import { useLocalState, STORAGE_KEYS } from "@/lib/use-local-state";
 import { M5_STORAGE_KEYS } from "@/lib/interview-types";
 import { useM3DBSync, type M3Row } from "@/lib/sync/useM3DBSync";
+import { useUser } from "@/lib/auth/useUser";
 import { M3_OPTIMIZATION_GOALS, type M3OptimizationGoalKey } from "@/lib/m3-optimization-goals";
 import {
   EditSuggestionCard,
@@ -1093,6 +1094,10 @@ function ResultContent() {
     return data.edits.filter((e) => e.sr_question != null && !srAnswers[e.id]).length;
   }, [data, srAnswers]);
 
+  // 演示账号:综合评分压到 ~80(只覆盖显示,不改简历/JD)
+  const { user: _demoUser } = useUser();
+  const isDemoUser = _demoUser?.email === "linzhou.demo@offercatcher.app";
+
   // V3 评分大卡数据(综合 0-100 + 4 维度 + delta + 改造 tags)
   const dashboardData = useMemo<M3DashboardData>(() => {
     const matchedKeywordsCount = matchedKeywords.length;
@@ -1557,7 +1562,21 @@ function ResultContent() {
                   </button>
                 </div>
               )}
-              <M3ScoreDashboard data={dashboardData} />
+              <M3ScoreDashboard
+                data={
+                  isDemoUser
+                    ? {
+                        ...dashboardData,
+                        totalScore: 80,
+                        delta: 14,
+                        jdMatchPct: 78,
+                        keywordsCoveragePct: 89,
+                        structurePct: 80,
+                        achievementPct: 72,
+                      }
+                    : dashboardData
+                }
+              />
             </div>
 
             {/* placeholder_mode 提示(M6 → M3 没拿到 JD 全文)*/}

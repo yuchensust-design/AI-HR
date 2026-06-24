@@ -31,6 +31,8 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { chat } from "@/lib/llm";
+import { isDemoRequest, demoSleep } from "@/lib/demo-mode";
+import m3EditsDemo from "@/lib/demo/linzhou-m3-edits.json";
 import { goalsToPromptHint, M3_OPTIMIZATION_GOALS, type M3OptimizationGoalKey } from "@/lib/m3-optimization-goals";
 import {
   decideSkillRoute,
@@ -273,6 +275,12 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const { parsedResume, jdContext, hiddenExperiences, fromDebriefHighlight, optimizationGoals } = body;
+
+    // 演示账号:2s 假思考后返回冻结的改写建议(内容=真跑捕获,原样;不演回流,无条件冻结)
+    if (await isDemoRequest(request)) {
+      await demoSleep(2000);
+      return NextResponse.json(m3EditsDemo);
+    }
 
     if (!parsedResume) {
       return NextResponse.json({ error: "parsedResume required" }, { status: 400 });
