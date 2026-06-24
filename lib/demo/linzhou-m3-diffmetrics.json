@@ -1,0 +1,44 @@
+{
+  "gap_breakdown": {
+    "easy": 1,
+    "mid": 2,
+    "hard": 1
+  },
+  "star_complete_v1": {
+    "complete": 0,
+    "partial": 8,
+    "total": 16
+  },
+  "star_complete_v2": {
+    "complete": 0,
+    "partial": 8,
+    "total": 16
+  },
+  "hard_req_total": 4,
+  "hard_req_v1_aligned": 3,
+  "hard_req_v2_aligned": 4,
+  "hard_req_items": [
+    {
+      "req": "本科及以上",
+      "v1": true,
+      "v2": true
+    },
+    {
+      "req": "计算机、软件工程、数据科学等相关专业优先",
+      "v1": true,
+      "v2": true
+    },
+    {
+      "req": "理解算法模型的基本原理与性能指标",
+      "v1": false,
+      "v2": true
+    },
+    {
+      "req": "撰写PRD与验收标准",
+      "v1": true,
+      "v2": true
+    }
+  ],
+  "llm_explain": "v2在硬门槛对齐上略有提升，但STAR完整度仍以partial为主，建议进一步强化结果量化。",
+  "generated_at": "2026-06-24T08:12:34.623Z"
+}
