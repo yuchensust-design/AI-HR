@@ -1,75 +1,95 @@
 {
   "gapReport": {
-    "overall_fit": 4,
+    "overall_fit": 2,
     "matched": [
       {
-        "jd_requirement": "参与AI产品需求调研与市场分析",
-        "resume_evidence": "实习经历中用户调研、竞品分析；项目经历中AI学习助手的产品构思"
+        "jd_requirement": "具备良好的逻辑思维与数据分析能力，能通过数据驱动产品优化",
+        "resume_evidence": "实习经历中配合数据团队做A/B测试验证改版效果，跟踪注册转化与次日留存；校园数据分析大赛用Python+SQL分析校园消费数据；技能组包含SQL、Python数据分析、A/B测试基础、漏斗分析。"
       },
       {
-        "jd_requirement": "协助AI功能设计与原型绘制",
-        "resume_evidence": "实习经历中方案设计、原型；项目经历中Axure原型设计"
+        "jd_requirement": "优秀的跨团队沟通能力，能有效协调技术、业务、运营等多方资源，推动项目落地",
+        "resume_evidence": "实习经历中参与每周需求评审，独立撰写4篇PRD，跟进2个功能从需求到上线；项目经历中带4人团队从0到1完成小程序，统筹产品、设计、开发排期；校学生会带5人小组运营公众号。"
       },
       {
-        "jd_requirement": "配合技术团队跟进开发",
-        "resume_evidence": "实习经历中需求协同、跟进功能上线；项目经历中团队协作"
-      },
-      {
-        "jd_requirement": "收集用户反馈做体验提升",
-        "resume_evidence": "实习经历中用户调研、数据验证；项目经历中持续迭代"
-      },
-      {
-        "jd_requirement": "对人工智能产品有基础理解",
-        "resume_evidence": "项目经历AI学习助手（大模型、RAG、Prompt工程）；课程人工智能导论"
-      },
-      {
-        "jd_requirement": "良好逻辑思维",
-        "resume_evidence": "实习经历中漏斗分析、方案设计；项目经历中产品设计"
-      },
-      {
-        "jd_requirement": "善于跨职能沟通协作",
-        "resume_evidence": "实习经历中需求协同；项目经历中团队协作"
-      },
-      {
-        "jd_requirement": "主动性强、学习能力强",
-        "resume_evidence": "多个项目从0到1主导；自我评价中学习能力"
-      },
-      {
-        "jd_requirement": "熟练产品设计工具者优先",
-        "resume_evidence": "技能组中Axure、Figma、墨刀"
-      },
-      {
-        "jd_requirement": "英语流畅优先",
-        "resume_evidence": "英语CET-6"
+        "jd_requirement": "本科及以上学历，计算机、软件工程、数据科学等相关专业优先",
+        "resume_evidence": "华东某211高校信息管理与信息系统专业本科大三在读，专业相关，且课程包含数据结构、数据库原理、数据分析与挖掘、人工智能导论等。"
       }
     ],
     "gaps": [
       {
-        "jd_requirement": "协助产品规划",
+        "jd_requirement": "负责AI产品的全生命周期管理，从需求调研、产品规划到落地推广，主导AI功能的设计与迭代",
         "current_coverage": "partial",
-        "evidence": "简历有产品迭代经验，但未明确体现产品规划（如路线图、优先级决策）",
-        "why_matters": "产品规划是PM核心能力，实习需参与",
-        "impact": 3,
+        "evidence": "简历有产品全流程经验（用户调研、PRD、原型、数据验证），但仅限于非AI产品（增长产品、校园小程序）和课程项目（AI学习助手），缺乏商业AI产品从规划到推广的完整经历。",
+        "why_matters": "岗位核心职责，需证明能独立主导AI产品全周期。",
+        "impact": 5,
         "fixable_in": {
           "sprint": false,
+          "standard": false,
+          "deep": true
+        }
+      },
+      {
+        "jd_requirement": "深入理解AI技术边界（如大模型、机器学习、NLP等），结合业务场景设计可落地的产品方案，平衡技术可行性与用户体验",
+        "current_coverage": "partial",
+        "evidence": "AI学习助手项目涉及大模型+RAG+Prompt工程，但仅停留在课程项目层面，未在真实业务场景中落地，且简历未体现对机器学习、NLP等更广AI技术的理解。",
+        "why_matters": "岗位要求深入理解AI技术以设计可行方案。",
+        "impact": 5,
+        "fixable_in": {
+          "sprint": false,
+          "standard": true,
+          "deep": true
+        }
+      },
+      {
+        "jd_requirement": "协同算法、研发、测试团队推进AI产品开发，定义清晰的产品需求文档（PRD）与验收标准，确保项目按时交付",
+        "current_coverage": "partial",
+        "evidence": "简历有撰写PRD和跟进功能上线的经验，但未涉及与算法团队协作，且AI学习助手项目为个人主导，缺乏跨团队协同AI产品开发的证据。",
+        "why_matters": "岗位要求与算法等团队协作推进AI产品。",
+        "impact": 4,
+        "fixable_in": {
+          "sprint": false,
+          "standard": true,
+          "deep": true
+        }
+      },
+      {
+        "jd_requirement": "跟踪AI行业动态与竞品分析，挖掘用户需求，输出具有竞争力的AI产品策略，提升产品市场占有率",
+        "current_coverage": "none",
+        "evidence": "简历未提及AI行业动态跟踪、竞品分析或产品策略输出，仅有用户调研和竞品分析技能标签，但无实际应用。",
+        "why_matters": "岗位要求持续关注AI趋势并制定策略。",
+        "impact": 4,
+        "fixable_in": {
+          "sprint": true,
           "standard": true,
           "deep": false
         }
       },
       {
-        "jd_requirement": "推动迭代",
-        "current_coverage": "partial",
-        "evidence": "简历有迭代经验但缺乏量化成果（如具体提升指标）",
-        "why_matters": "体现推动力和结果导向",
-        "impact": 3,
+        "jd_requirement": "具备2年以上AI产品经理经验，熟悉至少一种AI技术领域（如大模型应用、计算机视觉、语音交互等），有成功落地AI产品的案例",
+        "current_coverage": "none",
+        "evidence": "简历为本科大三在读，无全职工作经验；AI学习助手为课程项目，非商业成功落地案例。",
+        "why_matters": "硬性年限要求，且需要成功案例。",
+        "impact": 5,
         "fixable_in": {
           "sprint": false,
+          "standard": false,
+          "deep": false
+        }
+      },
+      {
+        "jd_requirement": "理解算法模型的基本原理与性能指标",
+        "current_coverage": "partial",
+        "evidence": "AI学习助手项目涉及大模型应用，但未体现对模型原理（如损失函数、评估指标）的理解，简历中无相关描述。",
+        "why_matters": "岗位要求能与算法团队有效沟通。",
+        "impact": 3,
+        "fixable_in": {
+          "sprint": true,
           "standard": true,
           "deep": false
         }
       }
     ],
-    "summary": "整体匹配度较高，已具备AI产品基础理解、产品设计工具和完整产品流程经验。主要缺口在于产品规划与迭代推动的量化证据，可通过补充项目路线图或迭代成果数据在2-4周内弥补。",
+    "summary": "用户具备产品基础能力和数据分析能力，但缺乏AI产品经理所需的2年经验、商业AI产品落地案例以及对AI技术边界的深入理解。最需补强的是通过一个完整的AI产品项目（如大模型应用）来展示从需求到落地的全流程，并学习AI行业动态与竞品分析方法。诚实提醒：2年经验要求短期无法满足，但可通过高质量项目证明能力，争取面试机会。",
     "bridge_fit": "covered"
   },
   "recommend": {
@@ -80,18 +100,22 @@
         "kind": "project",
         "source_gaps": [
           {
-            "jd_requirement": "协助产品规划",
-            "why_gap": "有产品迭代经验,但没明确体现路线图/优先级决策这类规划产出"
+            "jd_requirement": "有成功落地 AI 产品的案例",
+            "why_gap": "AI 学习助手还是课程项目,缺一个带 PRD、指标、真实用户的完整落地案例"
           },
           {
-            "jd_requirement": "推动迭代",
-            "why_gap": "有迭代经验但缺量化成果(具体提升了多少没数据支撑)"
+            "jd_requirement": "深入理解 AI 技术边界(大模型/NLP)",
+            "why_gap": "偏应用层,缺对能力边界与评估的体现"
+          },
+          {
+            "jd_requirement": "PRD 与验收标准",
+            "why_gap": "写过 PRD 但缺明确验收标准/指标定义"
           }
         ],
         "target_role": "AI 产品经理(实习)",
         "target_company": null,
         "title": "把 AI 学习助手做成「能投递」的 RAG 答疑产品(含 PRD + 指标 + 内测)",
-        "why": "你已经做过 AI 学习助手的雏形——这次把它升级成带 PRD(路线图+优先级)、明确指标、并用数据驱动迭代的完整产品,正好补上「产品规划」和「数据驱动迭代」这两块,而且和你简历无缝衔接。",
+        "why": "你已经做过 AI 学习助手的雏形——这次把它升级成带 PRD(含验收标准)、明确指标、并用数据驱动迭代的完整产品,正好补上 JD 最看重的「成功落地 AI 产品的案例 / 深入理解 AI 技术 / PRD」三块,而且和你简历无缝衔接。",
         "weeks": 3,
         "plan_unit": "week",
         "weekly_plan": [
@@ -227,8 +251,8 @@
       {
         "kind": "learning",
         "covers_gaps": [
-          "协助产品规划",
-          "推动迭代"
+          "深入理解 AI 技术边界",
+          "理解算法模型原理与性能指标"
         ],
         "title": "AI 产品能力边界速读(冲刺版)",
         "why": "如果暂时没时间做整个项目,先用 3-5 天把\"模型能做什么、不能做什么、怎么评估\"补上,面试至少能聊清楚。",

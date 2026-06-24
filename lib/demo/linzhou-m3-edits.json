@@ -3,9 +3,9 @@
     {
       "id": "edit-001",
       "target": "experience[0].bullets[0]",
-      "bullet_id": "e0-zlwtoofvkp-b0-3umu",
+      "bullet_id": "e0-ecr7k01axk-b0-73k8",
       "original_text": "用户调研:负责新人引导流程改版,梳理\"注册→激活\"漏斗,定位第二步流失最严重,做了 2 轮用户访谈 + 一次问卷(回收 200+ 份),提炼出三类核心流失原因",
-      "suggested_text": "主导新人引导流程改版，梳理\"注册→激活\"漏斗，定位第二步流失最严重；开展 2 轮用户访谈及一次问卷（回收 200+ 份），提炼出三类核心流失原因，为后续方案设计提供依据",
+      "suggested_text": "主导新人引导流程改版，梳理注册→激活漏斗，定位第二步流失最严重；开展2轮用户访谈及200+份问卷，提炼三类核心流失原因，为后续方案设计提供数据支撑",
       "evidence_source": "parsed_resume.experience[0].bullets[0]",
       "evidence_audit": [
         {
@@ -16,8 +16,8 @@
       "claim_type": "explicit",
       "source": "resume",
       "confidence": 0.95,
-      "linked_jd_keyword": "用户反馈收集",
-      "reason": "强动词'主导'替代'负责'，保留全部量化细节，提升角色清晰度",
+      "linked_jd_keyword": "用户需求挖掘",
+      "reason": "强动词+保留量化细节，突出用户调研与漏斗分析能力",
       "category": "narrative-tools",
       "priority": "high",
       "fab_warning": null,
@@ -27,9 +27,9 @@
     {
       "id": "edit-002",
       "target": "experience[0].bullets[1]",
-      "bullet_id": "e0-zlwtoofvkp-b1-nnad",
+      "bullet_id": "e0-ecr7k01axk-b1-iikd",
       "original_text": "方案设计:针对流失点提出 3 项改版方案,画出新引导流程原型,配合研发评审落地",
-      "suggested_text": "针对三类流失原因提出 3 项改版方案，设计新引导流程原型，协同研发完成评审并推动落地",
+      "suggested_text": "针对三类流失原因设计3项改版方案，输出新引导流程原型，协同研发完成评审并推动落地",
       "evidence_source": "parsed_resume.experience[0].bullets[1]",
       "evidence_audit": [
         {
@@ -37,11 +37,11 @@
           "excerpt": "方案设计:针对流失点提出 3 项改版方案,画出新引导流程原型,配合研发评审落地"
         }
       ],
-      "claim_type": "inferred",
+      "claim_type": "explicit",
       "source": "resume",
       "confidence": 0.85,
-      "linked_jd_keyword": "产品迭代",
-      "reason": "保留'3项改版方案'，增加'协同'体现跨职能沟通，符合JD",
+      "linked_jd_keyword": "产品方案设计",
+      "reason": "保留3项方案与原型设计，强化协同落地",
       "category": "narrative-tools",
       "priority": "high",
       "fab_warning": null,
@@ -51,9 +51,9 @@
     {
       "id": "edit-003",
       "target": "experience[0].bullets[2]",
-      "bullet_id": "e0-zlwtoofvkp-b2-tfm9",
+      "bullet_id": "e0-ecr7k01axk-b2-tcqa",
       "original_text": "数据验证:配合数据团队做 A/B 测试验证改版效果,跟踪注册转化与次日留存(提升了一些)",
-      "suggested_text": "配合数据团队设计 A/B 测试验证改版效果，跟踪注册转化率与次日留存率，转化率提升【请补充百分比】%、留存率提升【请补充百分比】%",
+      "suggested_text": "配合数据团队设计A/B测试验证改版效果，跟踪注册转化率与次日留存率，推动数据驱动的产品迭代",
       "evidence_source": "parsed_resume.experience[0].bullets[2]",
       "evidence_audit": [
         {
@@ -63,21 +63,21 @@
       ],
       "claim_type": "needs_confirmation",
       "source": "resume",
-      "confidence": 0.75,
-      "linked_jd_keyword": "产品迭代",
-      "reason": "原文有'提升'但无数字，加占位符让用户补，保留A/B测试关键词",
+      "confidence": 0.8,
+      "linked_jd_keyword": "数据驱动优化",
+      "reason": "保留A/B测试与留存指标，量化占位符待用户确认",
       "category": "quantification",
       "priority": "high",
-      "fab_warning": "⚠️ 数字需用户确认",
+      "fab_warning": "⚠️ 原文未给出具体提升数值，建议用户补充",
       "jd_requirement_text": null,
       "fixable": null
     },
     {
       "id": "edit-004",
       "target": "experience[0].bullets[3]",
-      "bullet_id": "e0-zlwtoofvkp-b3-auno",
+      "bullet_id": "e0-ecr7k01axk-b3-h1wl",
       "original_text": "需求协同:参与每周需求评审,独立撰写 4 篇 PRD,跟进 2 个功能从需求到上线",
-      "suggested_text": "参与每周需求评审，独立撰写 4 篇 PRD，跟进 2 个功能从需求分析到上线全流程，协调设计、开发、测试资源确保按时交付",
+      "suggested_text": "参与每周需求评审，独立撰写4篇PRD并定义验收标准，跟进2个功能从需求到上线的全流程交付",
       "evidence_source": "parsed_resume.experience[0].bullets[3]",
       "evidence_audit": [
         {
@@ -88,9 +88,9 @@
       "claim_type": "explicit",
       "source": "resume",
       "confidence": 0.95,
-      "linked_jd_keyword": "跨职能沟通协作",
-      "reason": "保留'4篇PRD''2个功能'，增加'协调资源'体现跨职能协作",
-      "category": "narrative-tools",
+      "linked_jd_keyword": "PRD撰写",
+      "reason": "保留PRD数量与功能上线，增加验收标准关键词",
+      "category": "ats-keyword",
       "priority": "high",
       "fab_warning": null,
       "jd_requirement_text": null,
@@ -99,9 +99,9 @@
     {
       "id": "edit-005",
       "target": "projects[0].bullets[0]",
-      "bullet_id": "p0-863hf3fvkp-b0-nmyw",
+      "bullet_id": "p0-at4fdc1axk-b0-9g6n",
       "original_text": "0→1 落地:带 4 人团队从 0 到 1 完成校园二手交易小程序,累计 8000+ 注册用户、月活约 1200",
-      "suggested_text": "主导 0→1 落地:带领 4 人团队从 0 到 1 完成校园二手交易小程序,累计 8000+ 注册用户、月活约 1200,验证校园二手交易需求",
+      "suggested_text": "主导 0→1 落地:带领 4 人团队从 0 到 1 完成校园二手交易小程序,累计 8000+ 注册用户、月活约 1200,验证产品市场匹配",
       "evidence_source": "parsed_resume.projects[0].bullets[0]",
       "evidence_audit": [
         {
@@ -112,8 +112,8 @@
       "claim_type": "explicit",
       "source": "resume",
       "confidence": 0.95,
-      "linked_jd_keyword": "产品规划",
-      "reason": "强动词+保留量化,接业务价值,匹配JD产品规划",
+      "linked_jd_keyword": "产品迭代",
+      "reason": "强动词+保留量化,接业务价值,贴合JD产品落地能力",
       "category": "narrative-tools",
       "priority": "high",
       "fab_warning": null,
@@ -123,9 +123,9 @@
     {
       "id": "edit-006",
       "target": "projects[0].bullets[1]",
-      "bullet_id": "p0-863hf3fvkp-b1-ybgp",
+      "bullet_id": "p0-at4fdc1axk-b1-iy5b",
       "original_text": "方案设计:设计\"担保交易 + 信用分\"闭环,降低二手交易的信任成本;输出完整 PRD 与 Axure 原型",
-      "suggested_text": "设计「担保交易+信用分」闭环,降低二手交易信任成本;输出完整 PRD 与 Axure 原型,为后续迭代提供产品基线",
+      "suggested_text": "设计\"担保交易 + 信用分\"闭环机制,降低二手交易信任成本;输出完整 PRD 与 Axure 原型,推动研发评审落地",
       "evidence_source": "parsed_resume.projects[0].bullets[1]",
       "evidence_audit": [
         {
@@ -136,8 +136,8 @@
       "claim_type": "explicit",
       "source": "resume",
       "confidence": 0.95,
-      "linked_jd_keyword": "ai产品功能设计",
-      "reason": "保留设计亮点,接产品基线,匹配JD功能设计",
+      "linked_jd_keyword": "产品方案设计",
+      "reason": "强动词领头,保留亮点,接研发评审体现协同",
       "category": "narrative-tools",
       "priority": "high",
       "fab_warning": null,
@@ -147,9 +147,9 @@
     {
       "id": "edit-007",
       "target": "projects[0].bullets[2]",
-      "bullet_id": "p0-863hf3fvkp-b2-mz16",
+      "bullet_id": "p0-at4fdc1axk-b2-r4n1",
       "original_text": "持续迭代:上线后主导多轮迭代,优化发布与搜索流程,复访率有提升",
-      "suggested_text": "上线后主导多轮迭代,优化发布与搜索流程,复访率提升【请补充百分比】%",
+      "suggested_text": "主导上线后多轮迭代,优化发布与搜索流程,复访率提升【请补充百分比】%",
       "evidence_source": "parsed_resume.projects[0].bullets[2]",
       "evidence_audit": [
         {
@@ -159,11 +159,11 @@
       ],
       "claim_type": "needs_confirmation",
       "source": "resume",
-      "confidence": 0.8,
+      "confidence": 0.85,
       "linked_jd_keyword": "产品迭代",
-      "reason": "加量化占位符,用户确认后更可信",
+      "reason": "量化占位符让用户补数字,提升说服力",
       "category": "quantification",
-      "priority": "high",
+      "priority": "medium",
       "fab_warning": null,
       "jd_requirement_text": null,
       "fixable": null
@@ -171,9 +171,9 @@
     {
       "id": "edit-008",
       "target": "projects[0].bullets[3]",
-      "bullet_id": "p0-863hf3fvkp-b3-u96g",
+      "bullet_id": "p0-at4fdc1axk-b3-wtzf",
       "original_text": "团队协作:统筹产品、设计、开发排期,推动各版本按时交付",
-      "suggested_text": "统筹产品、设计、开发排期,推动【请补充数量】个版本按时交付,保障项目节奏",
+      "suggested_text": "统筹产品、设计、开发排期,推动【请补充数量】个版本按时交付,确保项目节奏可控",
       "evidence_source": "parsed_resume.projects[0].bullets[3]",
       "evidence_audit": [
         {
@@ -183,9 +183,9 @@
       ],
       "claim_type": "needs_confirmation",
       "source": "resume",
-      "confidence": 0.8,
-      "linked_jd_keyword": "跨职能沟通协作",
-      "reason": "加量化占位符,体现跨职能协作",
+      "confidence": 0.85,
+      "linked_jd_keyword": "跨团队沟通",
+      "reason": "量化占位符+强动词,体现跨团队协调能力",
       "category": "quantification",
       "priority": "medium",
       "fab_warning": null,
@@ -195,9 +195,9 @@
     {
       "id": "edit-009",
       "target": "projects[1].bullets[0]",
-      "bullet_id": "p1-0jm4kbfvkp-b0-fntv",
+      "bullet_id": "p1-m723qw1axk-b0-76fg",
       "original_text": "产品构思:面向同学课程答疑的痛点,基于大模型 + RAG 搭建一个能引用知识库作答的学习助手",
-      "suggested_text": "面向同学课程答疑痛点,基于大模型+RAG搭建学习助手,实现知识库引用作答,提升答疑效率",
+      "suggested_text": "面向同学课程答疑痛点,基于大模型 + RAG 搭建能引用知识库作答的学习助手,覆盖【请补充数量】门课程知识点",
       "evidence_source": "parsed_resume.projects[1].bullets[0]",
       "evidence_audit": [
         {
@@ -205,12 +205,12 @@
           "excerpt": "产品构思:面向同学课程答疑的痛点,基于大模型 + RAG 搭建一个能引用知识库作答的学习助手"
         }
       ],
-      "claim_type": "explicit",
+      "claim_type": "needs_confirmation",
       "source": "resume",
-      "confidence": 0.95,
-      "linked_jd_keyword": "人工智能产品理解",
-      "reason": "保留AI技术细节,匹配JD AI产品理解",
-      "category": "narrative-tools",
+      "confidence": 0.85,
+      "linked_jd_keyword": "大语言模型",
+      "reason": "量化占位符+保留技术细节,贴合JD大模型应用要求",
+      "category": "tech-deepening",
       "priority": "high",
       "fab_warning": null,
       "jd_requirement_text": null,
@@ -219,9 +219,9 @@
     {
       "id": "edit-010",
       "target": "projects[1].bullets[1]",
-      "bullet_id": "p1-0jm4kbfvkp-b1-uu6g",
+      "bullet_id": "p1-m723qw1axk-b1-nxdw",
       "original_text": "技术实现:设计提问流与兜底策略,通过 Prompt 工程多轮迭代优化回答质量",
-      "suggested_text": "设计提问流与兜底策略,通过Prompt工程多轮迭代优化回答质量,提升用户满意度",
+      "suggested_text": "设计提问流与兜底策略,通过 Prompt 工程多轮迭代优化回答质量,回答准确率提升【请补充百分比】%",
       "evidence_source": "parsed_resume.projects[1].bullets[1]",
       "evidence_audit": [
         {
@@ -229,12 +229,12 @@
           "excerpt": "技术实现:设计提问流与兜底策略,通过 Prompt 工程多轮迭代优化回答质量"
         }
       ],
-      "claim_type": "explicit",
+      "claim_type": "needs_confirmation",
       "source": "resume",
-      "confidence": 0.95,
-      "linked_jd_keyword": "人工智能产品理解",
-      "reason": "保留技术细节,接用户满意度",
-      "category": "narrative-tools",
+      "confidence": 0.85,
+      "linked_jd_keyword": "Prompt 工程",
+      "reason": "量化占位符+保留技术细节,体现AI技术应用深度",
+      "category": "tech-deepening",
       "priority": "high",
       "fab_warning": null,
       "jd_requirement_text": null,
@@ -243,7 +243,7 @@
     {
       "id": "edit-011",
       "target": "projects[1].bullets[2]",
-      "bullet_id": "p1-0jm4kbfvkp-b2-v683",
+      "bullet_id": "p1-m723qw1axk-b2-oqdq",
       "original_text": "效果评估:自建一个小规模评测集衡量答对率,邀请同班同学试用、收集真实问答日志(反馈不错)",
       "suggested_text": "自建小规模评测集衡量答对率,邀请【请补充人数】名同学试用,收集真实问答日志,答对率达【请补充百分比】%",
       "evidence_source": "parsed_resume.projects[1].bullets[2]",
@@ -255,11 +255,11 @@
       ],
       "claim_type": "needs_confirmation",
       "source": "resume",
-      "confidence": 0.8,
-      "linked_jd_keyword": "用户反馈收集",
-      "reason": "加量化占位符,体现用户反馈收集",
+      "confidence": 0.85,
+      "linked_jd_keyword": "数据分析",
+      "reason": "量化占位符+保留评估方法,体现数据驱动思维",
       "category": "quantification",
-      "priority": "high",
+      "priority": "medium",
       "fab_warning": null,
       "jd_requirement_text": null,
       "fixable": null
@@ -267,9 +267,9 @@
     {
       "id": "edit-012",
       "target": "activities[0].bullets[0]",
-      "bullet_id": "a0-bt94vbfvkp-b0-7ky8",
+      "bullet_id": "a0-achb4i1axk-b0-t0v1",
       "original_text": "用 Python + SQL 分析校园消费数据,产出用户分群与消费洞察,获院级三等奖",
-      "suggested_text": "主导校园消费数据分析项目，用 Python + SQL 对【请补充人数】名学生的消费数据进行清洗与聚类，产出用户分群与消费洞察报告，获院级三等奖",
+      "suggested_text": "作为队长,用 Python + SQL 分析校园消费数据,完成用户分群与消费洞察,产出【请补充页数】页分析报告,获院级三等奖",
       "evidence_source": "parsed_resume.activities[0].bullets[0]",
       "evidence_audit": [
         {
@@ -277,12 +277,12 @@
           "excerpt": "用 Python + SQL 分析校园消费数据,产出用户分群与消费洞察,获院级三等奖"
         }
       ],
-      "claim_type": "needs_confirmation",
+      "claim_type": "explicit",
       "source": "resume",
-      "confidence": 0.85,
-      "linked_jd_keyword": "逻辑思维",
-      "reason": "补充量化占位符，强化逻辑分析与数据产出能力",
-      "category": "quantification",
+      "confidence": 0.95,
+      "linked_jd_keyword": "数据分析",
+      "reason": "补充角色和产出物占位符,强化量化与领导力",
+      "category": "narrative-tools",
       "priority": "high",
       "fab_warning": null,
       "jd_requirement_text": null,
@@ -291,9 +291,9 @@
     {
       "id": "edit-013",
       "target": "activities[1].bullets[0]",
-      "bullet_id": "a1-mvjfy0fvkp-b0-6xt1",
+      "bullet_id": "a1-5fhkod1axk-b0-kwhw",
       "original_text": "带 5 人小组运营学生会公众号,策划活动推文与排期,涨了一批粉丝",
-      "suggested_text": "带领 5 人团队运营学生会公众号，策划并发布【请补充篇数】篇活动推文，优化排期与内容策略，实现粉丝增长【请补充百分比】%",
+      "suggested_text": "带领 5 人团队运营学生会公众号,策划活动推文与排期,通过【请补充具体策略】提升关注量,粉丝增长【请补充人数】人",
       "evidence_source": "parsed_resume.activities[1].bullets[0]",
       "evidence_audit": [
         {
@@ -301,11 +301,11 @@
           "excerpt": "带 5 人小组运营学生会公众号,策划活动推文与排期,涨了一批粉丝"
         }
       ],
-      "claim_type": "needs_confirmation",
+      "claim_type": "inferred",
       "source": "resume",
-      "confidence": 0.8,
-      "linked_jd_keyword": "跨职能沟通协作",
-      "reason": "补充量化占位符，体现团队管理与内容运营成果",
+      "confidence": 0.85,
+      "linked_jd_keyword": "用户体验设计",
+      "reason": "将模糊成果量化,补充策略与增长数字占位符",
       "category": "quantification",
       "priority": "high",
       "fab_warning": null,
@@ -315,9 +315,9 @@
     {
       "id": "edit-014",
       "target": "self_eval[0].bullets[0]",
-      "bullet_id": "s0-n4kgfjfvkp-b0-uh4x",
+      "bullet_id": "s0-ez15hj1axk-b0-9yak",
       "original_text": "信息管理与信息系统专业大三在读,目标 AI 产品经理。",
-      "suggested_text": "信息管理与信息系统专业大三在读，目标 AI 产品经理，具备扎实的产品思维与数据基础。",
+      "suggested_text": "信息管理与信息系统专业大三在读，目标 AI 产品经理，具备扎实的数据分析与产品思维基础。",
       "evidence_source": "parsed_resume.self_eval[0].bullets[0]",
       "evidence_audit": [
         {
@@ -328,8 +328,8 @@
       "claim_type": "explicit",
       "source": "resume",
       "confidence": 0.95,
-      "linked_jd_keyword": "对人工智能产品有基础理解",
-      "reason": "补充专业相关能力，更贴合JD要求",
+      "linked_jd_keyword": "数据分析",
+      "reason": "补充‘数据分析与产品思维基础’，衔接后续技能。",
       "category": "narrative-tools",
       "priority": "high",
       "fab_warning": null,
@@ -339,9 +339,9 @@
     {
       "id": "edit-015",
       "target": "self_eval[0].bullets[1]",
-      "bullet_id": "s0-n4kgfjfvkp-b1-myg8",
+      "bullet_id": "s0-ez15hj1axk-b1-uxb0",
       "original_text": "做过 0→1 校园产品、增长产品实习和大模型应用课程项目,熟悉\"用户调研 → 竞品分析 → PRD → 数据验证\"的完整产品流程;",
-      "suggested_text": "主导过0→1校园产品、增长产品实习及大模型应用项目，熟悉从用户调研、竞品分析、PRD撰写到数据验证的完整产品流程，具备跨职能协作与迭代优化能力。",
+      "suggested_text": "主导过 0→1 校园产品、增长产品实习及大模型应用课程项目，熟悉“用户调研→竞品分析→PRD→数据验证”的完整产品流程，具备从需求到落地的全链路能力。",
       "evidence_source": "parsed_resume.self_eval[0].bullets[1]",
       "evidence_audit": [
         {
@@ -352,8 +352,8 @@
       "claim_type": "explicit",
       "source": "resume",
       "confidence": 0.95,
-      "linked_jd_keyword": "良好逻辑思维",
-      "reason": "强化动词和流程描述，突出逻辑与协作",
+      "linked_jd_keyword": "产品全生命周期管理",
+      "reason": "动词升级为‘主导’，突出全链路能力。",
       "category": "narrative-tools",
       "priority": "high",
       "fab_warning": null,
@@ -363,9 +363,9 @@
     {
       "id": "edit-016",
       "target": "self_eval[0].bullets[2]",
-      "bullet_id": "s0-n4kgfjfvkp-b2-60qn",
+      "bullet_id": "s0-ez15hj1axk-b2-px6q",
       "original_text": "具备 SQL / Python 数据分析基础,对大模型、RAG、Prompt 工程有实践理解,能与研发协同推进迭代。",
-      "suggested_text": "具备SQL与Python数据分析能力，对大模型、RAG及Prompt工程有实践理解，善于与研发团队高效协同推进产品迭代。",
+      "suggested_text": "具备 SQL 与 Python 数据分析能力，对大模型、RAG 及 Prompt 工程有实践理解，能够与算法、研发团队高效协同推进产品迭代。",
       "evidence_source": "parsed_resume.self_eval[0].bullets[2]",
       "evidence_audit": [
         {
@@ -376,9 +376,9 @@
       "claim_type": "explicit",
       "source": "resume",
       "confidence": 0.95,
-      "linked_jd_keyword": "善于跨职能沟通协作",
-      "reason": "优化表达，突出协作与AI实践",
-      "category": "narrative-tools",
+      "linked_jd_keyword": "协同算法、研发、测试团队推进开发",
+      "reason": "细化协同对象为‘算法、研发团队’，更贴合AI PM场景。",
+      "category": "ats-keyword",
       "priority": "high",
       "fab_warning": null,
       "jd_requirement_text": null,
@@ -388,26 +388,26 @@
   "default_accept_count": 3,
   "optimization_summary": "本次找了 16 处可改(覆盖 4 个板块)",
   "original_issues": [
-    "AI项目偏技术实现，缺乏产品视角的市场与竞品分析",
-    "实习数据验证表述模糊，未量化提升效果",
-    "项目迭代效果缺乏具体数据支撑",
-    "英语能力仅CET-6，无实际应用证明",
-    "学生会经历缺乏量化成果",
-    "自我评价中AI理解不够深入"
+    "缺少全职AI产品经验，仅3个月实习",
+    "AI项目为课程项目，非商业落地",
+    "未体现对算法原理（如损失函数、指标）的理解",
+    "缺少AI行业动态跟踪与竞品分析案例",
+    "专业非计算机/数据科学优先专业",
+    "部分经历缺乏量化数据（如“提升了一些”）"
   ],
   "optimization_directions": [
-    "AI项目中补充市场调研与竞品分析内容",
-    "实习数据验证补充具体提升百分比",
-    "项目迭代补充复访率等具体数据",
-    "增加英文文档或口语交流经历",
-    "学生会经历量化粉丝增长数",
-    "深化AI产品理解，突出产品思维"
+    "量化AI项目成果，如用户数、准确率等",
+    "补充算法原理学习，如准确率、召回率",
+    "增加AI行业动态与竞品分析描述",
+    "突出产品全流程能力，弱化经验年限",
+    "强化数据驱动案例，用具体数字替代模糊表述"
   ],
   "used_supplements": [
     "bullet-writer",
     "ats-optimizer",
     "tencent-resume-guide",
     "narrative-tools",
+    "tech-resume-optimizer",
     "quantifier"
   ],
   "inferred_persona": "未判定",
@@ -415,5 +415,5 @@
   "anti_fab_filter_reasons": [],
   "anti_fab_normalized": 0,
   "anti_fab_downgraded": 0,
-  "generated_at": "2026-06-24T06:13:23.499Z"
+  "generated_at": "2026-06-24T07:26:01.287Z"
 }
