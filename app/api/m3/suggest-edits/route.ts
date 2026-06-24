@@ -31,9 +31,6 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { chat } from "@/lib/llm";
-import { isDemoRequest, demoSleep } from "@/lib/demo-mode";
-import m3EditsDemo from "@/lib/demo/linzhou-m3-edits.json";
-import m3EditsAfterDemo from "@/lib/demo/linzhou-m3-edits-after.json";
 import { goalsToPromptHint, M3_OPTIMIZATION_GOALS, type M3OptimizationGoalKey } from "@/lib/m3-optimization-goals";
 import {
   decideSkillRoute,
@@ -276,14 +273,6 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const { parsedResume, jdContext, hiddenExperiences, fromDebriefHighlight, optimizationGoals } = body;
-
-    // 演示账号:返回冻结的林舟改写建议(2.5s 假思考)
-    // 预置「前/后」两态:hiddenExperiences 非空 = 已从 m4 补项目回流 → 返回「缺口已补」态;否则返回现场版
-    if (await isDemoRequest(request)) {
-      await demoSleep(2500);
-      const backfilled = Array.isArray(hiddenExperiences) && hiddenExperiences.length > 0;
-      return NextResponse.json(backfilled ? m3EditsAfterDemo : m3EditsDemo);
-    }
 
     if (!parsedResume) {
       return NextResponse.json({ error: "parsedResume required" }, { status: 400 });
