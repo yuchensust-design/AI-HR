@@ -676,12 +676,6 @@ function DiscoverPageInner() {
           {/* 结果列表 */}
           {jobsForActiveTab.length > 0 && (
             <section className="mt-8">
-              {/* 推荐 tab 保留标题;关键词搜索 tab 不显示"共 X 个"统计标题 */}
-              {showMatch && (
-                <h2 className="text-lg font-semibold text-ink mb-4">
-                  为你推荐 {jobsForActiveTab.length} 个岗位
-                </h2>
-              )}
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                 {jobsForActiveTab.map((job) => (
                   <JobCard

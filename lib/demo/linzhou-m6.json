@@ -5,7 +5,7 @@
     "AI产品经理"
   ],
   "city": "深圳",
-  "reasoning": "你有一段增长产品实习和校园二手交易小程序项目，'产品经理'是稳岗位；'增长产品经理'是冲岗位，贴合实习方向；'AI产品经理'是探岗位，结合课程项目。城市根据用户指定选深圳。",
+  "reasoning": "你最近一段实习是增长产品实习生，项目经历有校园产品从0到1经验，稳选产品经理；增长产品经理是略高的冲刺方向；AI产品经理是相关探索方向，与课程项目和大模型经历呼应。城市根据用户指定选深圳。",
   "jobs": [
     {
       "id": "zhilian_CCL1524196370J41017503104",
@@ -28,23 +28,102 @@
       "scrapedAt": "2026-06-24T05:33:29.931Z",
       "matchScore": 68,
       "matchBreakdown": {
-        "skills": 15,
+        "skills": 18,
         "experience": 15,
         "education": 15,
+        "industry": 2,
+        "target_alignment": 12,
+        "employability": 3,
+        "city": 3
+      },
+      "matchHighlights": [
+        "JD要求AI产品经理，你做过AI学习助手项目（用大模型），方向正好对口。",
+        "JD经验不限，你大三在读，时间上完全合适。",
+        "JD在深圳，你偏好深圳，地点一致。"
+      ],
+      "matchGaps": [
+        "JD要求大模型/智能穿戴/机器人经验，你只有课程项目（可补：做一个智能穿戴产品需求文档或demo）。",
+        "JD要求软件/IT服务行业，你暂无相关经验（可补：学习行业知识，关注行业动态）。",
+        "JD要求本科，你符合，无gap。"
+      ]
+    },
+    {
+      "id": "zhilian_CC596859220J40858342211",
+      "platform": "zhilian",
+      "title": "产品运营实习生",
+      "company": "深圳市盼游国际旅行社有限公司",
+      "city": "广州",
+      "district": "黄埔 联和",
+      "salary": "150-200元/天",
+      "education": "经验不限",
+      "tags": [
+        "电商类产品",
+        "产品迭代",
+        "C端用户",
+        "民营",
+        "20-99人",
+        "旅游服务"
+      ],
+      "jdUrl": "http://www.zhaopin.com/jobdetail/CC596859220J40858342211.htm?refcode=4019&srccode=401903&preactionid=d4b0d408-32ec-436e-a6e8-ce713ad106dc",
+      "scrapedAt": "2026-06-24T05:47:35.573Z",
+      "matchScore": 62,
+      "matchBreakdown": {
+        "skills": 12,
+        "experience": 14,
+        "education": 15,
         "industry": 3,
-        "target_alignment": 15,
+        "target_alignment": 10,
         "employability": 10,
         "city": 5
       },
       "matchHighlights": [
-        "JD经验不限，完全符合你的应届生身份",
-        "你简历中的AI学习助手项目，直接命中JD的'大模型'方向",
-        "你求职意向为AI产品经理，与岗位高度匹配"
+        "JD经验不限，你作为大三学生完全可投",
+        "你“拾光”小程序为C端产品，与JD“C端用户”直接匹配",
+        "你实习中参与需求评审和需求文档，与JD“产品迭代”相关"
       ],
       "matchGaps": [
-        "JD要求智能穿戴/机器人经验，你暂无相关背景（可补：做一份智能穿戴产品调研报告）",
-        "你AI项目为课程项目，深度有限（可补：用LangChain做一个更完整的RAG demo）",
-        "JD未明确技能，但推测需要产品文档能力，你需求文档经验较浅（可补：写一份AI产品PRD）"
+        "JD要求电商类产品经验，你“拾光”为二手交易，有一定电商属性但非专业电商（可补：学习电商后台逻辑，写一篇电商产品分析）",
+        "JD公司为旅游服务行业，你无旅游行业经验（可补：调研旅游产品，输出竞品分析）",
+        "JD要求产品运营，你更偏产品，运营经验不足（可补：学习用户运营、活动运营，做一个小型运营方案）"
+      ]
+    },
+    {
+      "id": "liepin_1972679993",
+      "platform": "liepin",
+      "title": "人工智能/AI产品经理（AI Product Manager）",
+      "company": "广东高驰运动科技有限公司",
+      "city": "东莞",
+      "district": "松山湖",
+      "salary": "12-20k",
+      "salaryMin": 12,
+      "salaryMax": 20,
+      "experience": "经验不限",
+      "education": "本科",
+      "tags": [
+        "智能硬件/消费电子",
+        "100-499人"
+      ],
+      "jdUrl": "https://www.liepin.com/job/1972679993.shtml?pgRef=c_pc_search_page%3Ac_pc_search_job_listcard%402_72679993%3A1%3A5621eb7f-528a-4bfd-b66f-f5d743b786ee&d_sfrom=search_prime&d_ckId=null&d_curPage=0&d_pageSize=40&d_headId=null&d_posi=3&skId=0o4h77kojxa2anoq4lykb0pf24072pob&fkId=0o4h77kojxa2anoq4lykb0pf24072pob&ckId=0o4h77kojxa2anoq4lykb0pf24072pob&sfrom=search_job_pc&curPage=0&pageSize=40&index=3",
+      "scrapedAt": "2026-06-24T05:47:35.281Z",
+      "matchScore": 58,
+      "matchBreakdown": {
+        "skills": 12,
+        "experience": 10,
+        "education": 15,
+        "industry": 3,
+        "target_alignment": 10,
+        "employability": 10,
+        "city": 0
+      },
+      "matchHighlights": [
+        "JD要求‘经验不限’，你作为大三学生完全可投",
+        "你‘AI学习助手’项目与JD‘AI产品经理’方向匹配",
+        "你具备用户调研经验，JD可能涉及用户需求分析（推断）"
+      ],
+      "matchGaps": [
+        "JD公司为智能硬件/运动科技，你无相关行业经验（可补：研究运动科技产品并输出分析报告）",
+        "JD未明确技能，但推断需硬件或运动领域知识，你简历无体现（可补：学习智能硬件基础或运动科学）",
+        "你项目经历偏校园，缺乏商业产品经验（可补：参与开源或实习项目）"
       ]
     },
     {
@@ -66,23 +145,141 @@
       "scrapedAt": "2026-06-24T05:33:29.931Z",
       "matchScore": 55,
       "matchBreakdown": {
-        "skills": 10,
+        "skills": 12,
         "experience": 12,
         "education": 12,
         "industry": 3,
         "target_alignment": 10,
+        "employability": 3,
+        "city": 3
+      },
+      "matchHighlights": [
+        "JD要求1-3年经验，你大三实习+项目接近1年，部分匹配。",
+        "JD要求产品经理，你的实习和校园项目都是产品方向。",
+        "JD在深圳，你偏好深圳，地点一致。"
+      ],
+      "matchGaps": [
+        "JD要求产业互联网平台经验，你暂无直接经验（可补：研究一个产业互联网案例并输出分析报告）。",
+        "JD要求民营公司，你无全职经验（可补：实习经历可部分弥补，持续积累）。",
+        "JD要求本科，你符合，无gap。"
+      ]
+    },
+    {
+      "id": "zhilian_CC383625320J40866295409",
+      "platform": "zhilian",
+      "title": "首页产品运营",
+      "company": "北京三快在线科技有限公司",
+      "city": "深圳",
+      "district": "龙华 民治",
+      "salary": "面议",
+      "experience": "1-3年",
+      "education": "本科",
+      "tags": [
+        "上市公司",
+        "10000人以上",
+        "互联网生活服务(O2O)"
+      ],
+      "jdUrl": "http://www.zhaopin.com/jobdetail/CC383625320J40866295409.htm?refcode=4019&srccode=401903&preactionid=4ef41c6f-fd04-40fb-a8a3-d095ee44c6b3",
+      "scrapedAt": "2026-06-24T05:46:54.448Z",
+      "matchScore": 55,
+      "matchBreakdown": {
+        "skills": 12,
+        "experience": 12,
+        "education": 10,
+        "industry": 4,
+        "target_alignment": 10,
         "employability": 5,
+        "city": 2
+      },
+      "matchHighlights": [
+        "JD要求1-3年经验，你实习3个月接近下限，可投性较高",
+        "JD为互联网生活服务O2O，你实习公司为互联网公司，行业匹配",
+        "JD要求产品运营，你实习为增长产品，方向相关"
+      ],
+      "matchGaps": [
+        "JD要求数据驱动运营，你简历缺乏数据分析量化成果（可补：在项目中加入转化率等数据指标）",
+        "JD要求首页产品运营，你无首页产品经验（可补：学习首页产品设计或参与相关项目）",
+        "JD要求1-3年经验，你经验不足（可补：延长实习或参与更多项目）"
+      ]
+    },
+    {
+      "id": "liepin_https://www.liepin.com/a/75508821.shtml?pgRef=c_pc_search_page%3Ac_pc_search_job_listcard%401_75508821%3A1%3A7411ae2a-4e63-4e59-98a8-b8518da0eccb&d_sfrom=search_prime&d_ckId=null&d_curPage=0&d_pageSize=40&d_headId=null&d_posi=1&skId=ejkxv3zsbcun5lo1pdmtndvrowrmhxx8&fkId=ejkxv3zsbcun5lo1pdmtndvrowrmhxx8&ckId=ejkxv3zsbcun5lo1pdmtndvrowrmhxx8&sfrom=search_job_pc&curPage=0&pageSize=40&index=1",
+      "platform": "liepin",
+      "title": "深圳AI产品经理-智慧搜索/互联网产品运营中级助理",
+      "company": "某上海人力资源服务上市公司",
+      "city": "深圳",
+      "district": "龙岗区",
+      "salary": "16-17k",
+      "salaryMin": 16,
+      "salaryMax": 17,
+      "experience": "3年",
+      "education": "统招本科",
+      "tags": [
+        "人力资源服务",
+        "已上市",
+        "2000-5000人"
+      ],
+      "jdUrl": "https://www.liepin.com/a/75508821.shtml?pgRef=c_pc_search_page%3Ac_pc_search_job_listcard%401_75508821%3A1%3A7411ae2a-4e63-4e59-98a8-b8518da0eccb&d_sfrom=search_prime&d_ckId=null&d_curPage=0&d_pageSize=40&d_headId=null&d_posi=1&skId=ejkxv3zsbcun5lo1pdmtndvrowrmhxx8&fkId=ejkxv3zsbcun5lo1pdmtndvrowrmhxx8&ckId=ejkxv3zsbcun5lo1pdmtndvrowrmhxx8&sfrom=search_job_pc&curPage=0&pageSize=40&index=1",
+      "scrapedAt": "2026-06-24T05:33:11.519Z",
+      "matchScore": 48,
+      "matchBreakdown": {
+        "skills": 10,
+        "experience": 12,
+        "education": 8,
+        "industry": 3,
+        "target_alignment": 10,
+        "employability": 0,
         "city": 5
       },
       "matchHighlights": [
-        "JD要求1-3年经验，你有一段3个月实习，基本符合门槛",
-        "你简历中的校园二手交易小程序项目，与JD的'产业互联网平台'方向有相关性",
-        "岗位在深圳，与你偏好城市一致"
+        "JD标题是AI产品经理，和你的求职意向一致",
+        "你简历里的AI学习助手项目涉及大模型应用，和AI产品方向相关",
+        "城市深圳和你偏好一致"
       ],
       "matchGaps": [
-        "JD要求1-3年经验，你仅有一段实习，经验偏少（可补：再积累一段实习或深度项目）",
-        "JD未明确技能，但推测需要产品设计工具，你Axure/Figma基础可加强（可补：深入学习Axure高级交互）",
-        "JD公司为产业互联网平台，你项目为校园C端，行业理解需加深（可补：研究一个产业互联网案例）"
+        "JD要求3年经验，你是在校生没有全职经验（可补：积累至少1段AI产品实习）",
+        "JD没写详细技能，但title推断需要AI产品技能，你只有基础Python和课程项目（可补：系统学习AI产品方法论并做项目）",
+        "JD公司是人力资源服务，你没有相关行业经验（可补：研究人力资源行业AI应用场景）"
+      ]
+    },
+    {
+      "id": "liepin_1971442151",
+      "platform": "liepin",
+      "title": "AI产品经理",
+      "company": "博商管理科学研究院",
+      "city": "深圳",
+      "district": "南山区",
+      "salary": "17-20k",
+      "salaryMin": 17,
+      "salaryMax": 20,
+      "experience": "3年",
+      "education": "本科",
+      "tags": [
+        "培训服务",
+        "不需要融资",
+        "1000-2000人"
+      ],
+      "jdUrl": "https://www.liepin.com/job/1971442151.shtml?pgRef=c_pc_search_page%3Ac_pc_search_job_listcard%402_71442151%3A1%3A7411ae2a-4e63-4e59-98a8-b8518da0eccb&d_sfrom=search_prime&d_ckId=null&d_curPage=0&d_pageSize=40&d_headId=null&d_posi=6&skId=ejkxv3zsbcun5lo1pdmtndvrowrmhxx8&fkId=ejkxv3zsbcun5lo1pdmtndvrowrmhxx8&ckId=ejkxv3zsbcun5lo1pdmtndvrowrmhxx8&sfrom=search_job_pc&curPage=0&pageSize=40&index=6",
+      "scrapedAt": "2026-06-24T05:33:11.519Z",
+      "matchScore": 45,
+      "matchBreakdown": {
+        "skills": 10,
+        "experience": 10,
+        "education": 8,
+        "industry": 2,
+        "target_alignment": 10,
+        "employability": 0,
+        "city": 5
+      },
+      "matchHighlights": [
+        "JD要求本科，你大三在读，学历门槛基本满足。",
+        "JD提及AI产品经理，你有AI学习助手项目经历，方向相关。",
+        "JD所在行业为培训服务，你产品通用能力可迁移，有基础。"
+      ],
+      "matchGaps": [
+        "JD要求3年经验，你仅3个月实习，差距较大（可补：积累更多实习或项目经验）。",
+        "JD未明确技能，但AI产品经理通常需AI知识，你仅做过课程项目（可补：系统学习AI产品方法论并输出作品）。",
+        "JD公司为培训服务，你无行业背景（可补：研究培训行业AI应用案例）。"
       ]
     },
     {
@@ -107,32 +304,72 @@
       ],
       "jdUrl": "http://www.zhaopin.com/jobdetail/CCL1286706430J40984871402.htm?refcode=4019&srccode=401903&preactionid=ae93b695-8069-4c03-a4e7-4e28a18a4acf",
       "scrapedAt": "2026-06-24T05:33:13.409Z",
-      "matchScore": 55,
+      "matchScore": 45,
       "matchBreakdown": {
         "skills": 12,
         "experience": 10,
-        "education": 8,
+        "education": 12,
         "industry": 3,
-        "target_alignment": 15,
+        "target_alignment": 12,
         "employability": 0,
-        "city": 5
+        "city": 0
       },
       "matchHighlights": [
-        "你简历中的AI学习助手项目，与JD的'人工智能产品'方向直接相关",
-        "你具备SQL基础和Python基础，可支持数据分析工作",
-        "你熟悉Axure/Figma等工具，符合产品经理基本要求"
+        "你AI学习助手项目和JD的AI产品方向相关",
+        "你有SQL和Python基础，JD可能涉及数据分析",
+        "你大三在读，有产品实习和项目经验，学习能力强"
       ],
       "matchGaps": [
-        "JD要求3-5年经验，你目前大三无全职经验（可补：积累一段AI产品实习）",
-        "JD为工业视觉方向，你无相关领域知识（可补：学习计算机视觉基础并做demo）",
-        "JD为B端产品，你无B端产品经验（可补：研究B端产品设计并做相关项目）"
+        "JD要求3-5年经验，你是在校生没有全职经验（可补：积累实习或参与AI产品相关项目）",
+        "JD要求工业视觉领域经验，你没有相关背景（可补：学习计算机视觉基础并做项目）",
+        "JD要求B端产品经验，你只有C端校园项目（可补：参与B端产品项目或实习）"
+      ]
+    },
+    {
+      "id": "liepin_https://www.liepin.com/a/76240397.shtml?pgRef=c_pc_search_page%3Ac_pc_search_job_listcard%401_76240397%3A1%3A2834785f-f812-4306-8b22-470fa6e2d1e6&d_sfrom=search_prime&d_ckId=null&d_curPage=0&d_pageSize=40&d_headId=null&d_posi=9&skId=8e1o7anj4nkv4ke0covaha5czkbi9ixa&fkId=8e1o7anj4nkv4ke0covaha5czkbi9ixa&ckId=8e1o7anj4nkv4ke0covaha5czkbi9ixa&sfrom=search_job_pc&curPage=0&pageSize=40&index=9",
+      "platform": "liepin",
+      "title": "用户增长产品经理（整合营销向）",
+      "company": "某深圳大型计算机软件公司",
+      "city": "深圳",
+      "district": "南山区",
+      "salary": "20-40k·16薪",
+      "salaryMin": 20,
+      "salaryMax": 40,
+      "experience": "3年以上",
+      "education": "学历不限",
+      "tags": [
+        "计算机软件",
+        "战略融资",
+        "2000-5000人"
+      ],
+      "jdUrl": "https://www.liepin.com/a/76240397.shtml?pgRef=c_pc_search_page%3Ac_pc_search_job_listcard%401_76240397%3A1%3A2834785f-f812-4306-8b22-470fa6e2d1e6&d_sfrom=search_prime&d_ckId=null&d_curPage=0&d_pageSize=40&d_headId=null&d_posi=9&skId=8e1o7anj4nkv4ke0covaha5czkbi9ixa&fkId=8e1o7anj4nkv4ke0covaha5czkbi9ixa&ckId=8e1o7anj4nkv4ke0covaha5czkbi9ixa&sfrom=search_job_pc&curPage=0&pageSize=40&index=9",
+      "scrapedAt": "2026-06-24T05:33:09.353Z",
+      "matchScore": 44,
+      "matchBreakdown": {
+        "skills": 8,
+        "experience": 12,
+        "education": 15,
+        "industry": 3,
+        "target_alignment": 6,
+        "employability": 0,
+        "city": 0
+      },
+      "matchHighlights": [
+        "JD要求用户增长产品经理（整合营销向），你有增长产品实习经历，方向相关。",
+        "JD需要用户洞察，你具备用户调研和需求梳理能力，能支撑。",
+        "JD涉及营销传播，你运营过公众号并涨粉，体现传播能力。"
+      ],
+      "matchGaps": [
+        "JD要求3年以上经验，你仅3个月实习（可补：参与整合营销项目或实习）。",
+        "JD未明确学历，但经验要求高，你大三在读（可补：说明可全职实习时间）。",
+        "JD在深圳，你简历未提城市偏好（可补：明确表示愿意relocate）。"
       ]
     }
   ],
   "stats": {
-    "scraped": 44,
-    "scored": 44,
-    "recommended": 3,
+    "scraped": 40,
+    "scored": 40,
+    "recommended": 9,
     "blockedPlatforms": []
   }
 }
