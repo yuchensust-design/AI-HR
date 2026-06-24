@@ -501,9 +501,12 @@ export default function Module1ResultPage() {
             {/* 右：6维解读 — top3展开(3列)，其余紧凑(3列) */}
             <div>
               {(() => {
-                const top3Dims = DIMS.filter((d, i) =>
-                  result.code.split(" ").slice(0, 3).some((c) => c.startsWith(d))
-                );
+                // 按分数从高到低排(取 code 前三,code 本就按分数降序)→ 卡片顺序与上方「企业型·研究型·社交型」一致
+                const top3Dims = result.code
+                  .split(" ")
+                  .slice(0, 3)
+                  .map((c) => c.charAt(0) as Dimension)
+                  .filter((d) => DIMS.includes(d));
                 const otherDims = DIMS.filter((d) => !top3Dims.includes(d));
 
                 const renderCard = (dim: Dimension, expanded: boolean) => {

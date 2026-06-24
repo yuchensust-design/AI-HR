@@ -41,28 +41,20 @@ export function RIASECPersona({
   const peopleN = top3.filter((d) => PEOPLE_CAMP.includes(d)).length;
   const thingN = top3.filter((d) => THING_CAMP.includes(d)).length;
 
+  const PEOPLE = <span className="font-medium text-ink">和人 · 表达 · 影响</span>;
+  const THING = <span className="font-medium text-ink">钻研 · 数据 · 动手</span>;
+
   let contrast: ReactNode;
-  if (peopleN > thingN) {
-    contrast = (
-      <>
-        这三股劲儿都偏「<span className="font-medium text-ink">和人 · 表达 · 影响</span>」，
-        而不是「钻研 · 数据 · 动手」。
-      </>
-    );
-  } else if (thingN > peopleN) {
-    contrast = (
-      <>
-        这三股劲儿都偏「<span className="font-medium text-ink">钻研 · 数据 · 动手</span>」，
-        而不是「和人 · 表达 · 影响」。
-      </>
-    );
+  if (peopleN === 3) {
+    // 三个全在「和人」阵营 → 才能说"都偏…不是…"
+    contrast = <>这三股劲儿都偏「{PEOPLE}」，而不是「钻研 · 数据 · 动手」。</>;
+  } else if (thingN === 3) {
+    contrast = <>这三股劲儿都偏「{THING}」，而不是「和人 · 表达 · 影响」。</>;
+  } else if (peopleN > thingN) {
+    // 混合(2:1)→ 不能说"都偏",改成"整体更偏…但也有另一面"
+    contrast = <>整体更偏「{PEOPLE}」，但也有「{THING}」的一面。</>;
   } else {
-    contrast = (
-      <>
-        你既有「<span className="font-medium text-ink">和人 · 表达 · 影响</span>」的一面，
-        也有「<span className="font-medium text-ink">钻研 · 数据 · 动手</span>」的一面。
-      </>
-    );
+    contrast = <>整体更偏「{THING}」，但也有「{PEOPLE}」的一面。</>;
   }
 
   return (
