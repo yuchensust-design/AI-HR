@@ -102,6 +102,9 @@ export default function ProfilePage() {
   }
 
   const name = profile?.display_name || user.email?.split("@")[0] || "我";
+  // 演示账号:简历以 PDF 模版展示;其他用户展示上传的原文
+  const isDemoUser = user.email === "linzhou.demo@offercatcher.app";
+  const demoResumePdf = "/demo/linzhou-resume.pdf";
 
   return (
     <main className="min-h-screen bg-warm-bg">
@@ -189,7 +192,7 @@ export default function ProfilePage() {
         </section>
 
         {/* 我的简历 — 查看上传的原始简历 */}
-        {resumeText && (
+        {(resumeText || isDemoUser) && (
           <section className="mb-6">
             <button
               type="button"
@@ -245,30 +248,52 @@ export default function ProfilePage() {
         </div>
       </div>
 
-      {/* 简历原文弹窗 */}
-      {showResume && resumeText && (
+      {/* 简历弹窗:演示账号展示 PDF 模版,其他用户展示上传原文 */}
+      {showResume && (resumeText || isDemoUser) && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
           onClick={() => setShowResume(false)}
         >
           <div
-            className="bg-white rounded-3xl shadow-2xl max-w-2xl w-full max-h-[80vh] flex flex-col"
+            className={`bg-white rounded-3xl shadow-2xl w-full flex flex-col ${
+              isDemoUser ? "max-w-4xl h-[90vh]" : "max-w-2xl max-h-[80vh]"
+            }`}
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between px-6 py-4 border-b border-black/5">
-              <h3 className="text-lg font-medium text-ink">📄 我上传的简历(原始版)</h3>
-              <button
-                type="button"
-                onClick={() => setShowResume(false)}
-                className="text-ink-muted hover:text-ink text-xl leading-none"
-                aria-label="关闭"
-              >
-                ×
-              </button>
+              <h3 className="text-lg font-medium text-ink">📄 我上传的简历</h3>
+              <div className="flex items-center gap-4">
+                {isDemoUser && (
+                  <a
+                    href={demoResumePdf}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-xs text-esther-blue hover:underline"
+                  >
+                    新窗口打开 ↗
+                  </a>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setShowResume(false)}
+                  className="text-ink-muted hover:text-ink text-xl leading-none"
+                  aria-label="关闭"
+                >
+                  ×
+                </button>
+              </div>
             </div>
-            <pre className="overflow-auto px-6 py-5 text-sm text-ink whitespace-pre-wrap font-sans leading-relaxed">
-              {resumeText}
-            </pre>
+            {isDemoUser ? (
+              <iframe
+                src={demoResumePdf}
+                title="林舟简历"
+                className="flex-1 w-full rounded-b-3xl"
+              />
+            ) : (
+              <pre className="overflow-auto px-6 py-5 text-sm text-ink whitespace-pre-wrap font-sans leading-relaxed">
+                {resumeText}
+              </pre>
+            )}
           </div>
         </div>
       )}
