@@ -916,9 +916,6 @@ function RecommendTab({
             >
               {loading ? "AI 正在工作..." : "✨ 用我的简历推荐岗位 →"}
             </button>
-            <p className="text-xs text-ink-muted mt-2">
-              全流程约 60-90 秒,AI 抓取 + 评分 + 推荐,请稍候。
-            </p>
             <button
               onClick={() => setShowSwap((v) => !v)}
               className="text-xs text-esther-blue hover:underline mt-3 inline-block"
