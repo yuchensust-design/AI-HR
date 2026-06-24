@@ -47,6 +47,8 @@ export default function ProfilePage() {
     diaryCount: 0,
     trackerCount: 0,
   });
+  const [resumeText, setResumeText] = useState<string | null>(null);
+  const [showResume, setShowResume] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -66,6 +68,16 @@ export default function ProfilePage() {
       setConvs({ m2, m3, m4, m5 });
 
       const supabase = createClient();
+      // 拉最近一份简历的原文(给「查看上传简历」用)
+      if (m3.length > 0) {
+        const { data: rRow } = await supabase
+          .from("m3_resumes")
+          .select("parsed_resume_json")
+          .eq("conversation_id", m3[0].id)
+          .maybeSingle();
+        const pr = rRow?.parsed_resume_json as { raw_text?: string } | null;
+        if (pr?.raw_text) setResumeText(pr.raw_text);
+      }
       const [assessmentRes, diaryRes, trackerRes] = await Promise.all([
         supabase.from("m1_assessments").select("user_id", { count: "exact", head: true }),
         supabase.from("diary_entries").select("id", { count: "exact", head: true }),
@@ -176,6 +188,23 @@ export default function ProfilePage() {
           })}
         </section>
 
+        {/* 我的简历 — 查看上传的原始简历 */}
+        {resumeText && (
+          <section className="mb-6">
+            <button
+              type="button"
+              onClick={() => setShowResume(true)}
+              className="w-full text-left rounded-3xl bg-white border border-black/5 p-5 hover:border-esther-blue/40 transition flex items-center justify-between"
+            >
+              <span>
+                <span className="block text-sm text-ink-soft mb-1">📄 我的简历</span>
+                <span className="block text-lg text-ink">查看上传的原始简历 →</span>
+              </span>
+              <span className="text-xs text-ink-muted hidden sm:inline">点击查看全文</span>
+            </button>
+          </section>
+        )}
+
         {/* 单条数据(测评 / 日记 / 投递)*/}
         <section className="grid md:grid-cols-3 gap-4 mb-10">
           <Link
@@ -215,6 +244,34 @@ export default function ProfilePage() {
           </Link>
         </div>
       </div>
+
+      {/* 简历原文弹窗 */}
+      {showResume && resumeText && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          onClick={() => setShowResume(false)}
+        >
+          <div
+            className="bg-white rounded-3xl shadow-2xl max-w-2xl w-full max-h-[80vh] flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-6 py-4 border-b border-black/5">
+              <h3 className="text-lg font-medium text-ink">📄 我上传的简历(原始版)</h3>
+              <button
+                type="button"
+                onClick={() => setShowResume(false)}
+                className="text-ink-muted hover:text-ink text-xl leading-none"
+                aria-label="关闭"
+              >
+                ×
+              </button>
+            </div>
+            <pre className="overflow-auto px-6 py-5 text-sm text-ink whitespace-pre-wrap font-sans leading-relaxed">
+              {resumeText}
+            </pre>
+          </div>
+        </div>
+      )}
     </main>
   );
 }
