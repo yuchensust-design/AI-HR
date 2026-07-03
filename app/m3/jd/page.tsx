@@ -74,7 +74,7 @@ export default function JdPage() {
 
 function JdContent() {
   const router = useRouter();
-  const { isLoggedInWithConv, dbData, convQs, saveField } = useM3DBSync();
+  const { isLoggedInWithConv, dbData, convQs, saveField, loading: dbLoading } = useM3DBSync();
 
   const [localParsedResume] = useLocalState<ParsedResume | null>(
     STORAGE_KEYS.PARSED_RESUME,
@@ -284,7 +284,7 @@ function JdContent() {
           </section>
         )}
 
-        {!parsedResume && (
+        {!parsedResume && !(isLoggedInWithConv && dbLoading) && (
           <section className="bg-esther-yellow/20 border-b border-esther-yellow">
             <div className="max-w-[1100px] mx-auto px-6 py-3 text-sm text-ink">
               ⚠️ 还没读到你的简历 ·{" "}

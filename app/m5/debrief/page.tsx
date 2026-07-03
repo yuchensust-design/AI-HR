@@ -38,6 +38,7 @@ function highlightToHiddenExperience(
   const date = new Date().toISOString().slice(0, 10);
   return {
     question_id: `m5-debrief-${sessionId}-${h.excerpt.slice(0, 16).replace(/\s+/g, "-")}`,
+    material_kind: "experience",
     topic_name: `M5 复盘亮点 · ${h.question.slice(0, 30)} · ${date}`,
     raw_user_material: h.excerpt,
     star_breakdown: null,

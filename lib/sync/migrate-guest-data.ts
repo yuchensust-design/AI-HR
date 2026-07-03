@@ -20,7 +20,9 @@ const MIGRATED_AT_KEY = "data_migrated_at";
 
 type MigrateReport = {
   m1: boolean;
+  m2: boolean;
   m3: boolean;
+  m4: boolean;
   m5: number;
   diary: number;
   tracker: number;
@@ -49,7 +51,9 @@ export async function migrateGuestDataOnLogin(
 ): Promise<MigrateReport> {
   const report: MigrateReport = {
     m1: false,
+    m2: false,
     m3: false,
+    m4: false,
     m5: 0,
     diary: 0,
     tracker: 0,
@@ -57,13 +61,86 @@ export async function migrateGuestDataOnLogin(
   };
 
   // ===== m1 测评 =====
-  const riasec = readLocal<unknown>(STORAGE_KEYS.RIASEC_RESULT, null);
-  if (riasec) {
-    const { error } = await supabase
-      .from("m1_assessments")
-      .upsert({ user_id: userId, riasec_json: riasec });
+  // 游客 riasec_result 是扁平 RecommendResult(见 lib/m1-recommend-submit.ts);必须拆成
+  // m1_assessments 的两列 riasec_json + recommendation_json,否则 recommendation_json 为 NULL,
+  // result 页守卫(要求两列都非空)失败 → 清缓存 / 换设备后回退 SAMPLE 样例。对齐
+  // app/api/m1/recommend/route.ts 登录态写库的形状。
+  const riasec = readLocal<Record<string, unknown> | null>(STORAGE_KEYS.RIASEC_RESULT, null);
+  if (riasec && typeof riasec === "object") {
+    const { error } = await supabase.from("m1_assessments").upsert({
+      user_id: userId,
+      riasec_json: {
+        scores: riasec.scores ?? null,
+        code: riasec.code ?? null,
+        confidence: riasec.confidence ?? null,
+      },
+      recommendation_json: {
+        positive: riasec.positive ?? null,
+        negative: riasec.negative ?? null,
+        refine_chips: riasec.refine_chips ?? null,
+        rationale: riasec.rationale ?? null,
+        evidence: riasec.evidence ?? null,
+        disclaimer: riasec.disclaimer ?? null,
+      },
+      completed_at: new Date().toISOString(),
+    });
     if (error) report.errors.push(`m1: ${error.message}`);
     else report.m1 = true;
+  }
+
+  // ===== m2 挖经历 =====
+  // 游客 m2 数据按 scope='guest' 存 localStorage(intake_artifact:guest 等);迁移前无任何 m2 分支
+  // → 登录后 getOrCreateConversation 选到的新会话读空行,挖出的角色/bullets/对话全丢。
+  // 这里建一个 m2 会话并写 m2_intakes.intake_json={intake,bullets,fills,messages}(对齐 useM2DBSync)。
+  const m2Intake = readLocal<{ roles?: unknown[]; stories?: unknown[] } | null>(
+    `${STORAGE_KEYS.M2_INTAKE}:guest`,
+    null,
+  );
+  const m2Bullets = readLocal<unknown[]>(`${STORAGE_KEYS.M2_BULLETS}:guest`, []);
+  const m2Fills = readLocal<unknown>(`m2_bullet_fills:guest`, null);
+  const m2Messages = readLocal<unknown[]>(`m2_messages:guest`, []);
+  const hasM2 =
+    (Array.isArray(m2Bullets) && m2Bullets.length > 0) ||
+    (Array.isArray(m2Messages) && m2Messages.length > 0) ||
+    !!(m2Intake && (((m2Intake.roles?.length ?? 0) > 0) || ((m2Intake.stories?.length ?? 0) > 0)));
+  if (hasM2) {
+    const convId = await createConversation("m2", "我的挖经历 · 迁移", supabase);
+    if (convId) {
+      const { error } = await supabase
+        .from("m2_intakes")
+        .upsert(
+          {
+            conversation_id: convId,
+            intake_json: {
+              intake: m2Intake,
+              bullets: m2Bullets,
+              fills: m2Fills,
+              messages: m2Messages,
+            },
+          },
+          { onConflict: "conversation_id" },
+        );
+      if (error) report.errors.push(`m2: ${error.message}`);
+      else report.m2 = true;
+    }
+  }
+
+  // ===== m4 补项目 =====
+  // 游客 m4 卡片单轨存 localStorage(m4_projects);迁移前无 m4 分支 → 登录后 listConversations→convs[0]
+  // 选到的新会话读空行,卡片消失。建 m4 会话并写 m4_projects.learning_cards_json(对齐 useM4Projects)。
+  const m4Projects = readLocal<unknown[]>(STORAGE_KEYS.M4_PROJECTS, []);
+  if (Array.isArray(m4Projects) && m4Projects.length > 0) {
+    const convId = await createConversation("m4", "我的补项目 · 迁移", supabase);
+    if (convId) {
+      const { error } = await supabase
+        .from("m4_projects")
+        .upsert(
+          { conversation_id: convId, learning_cards_json: m4Projects },
+          { onConflict: "conversation_id" },
+        );
+      if (error) report.errors.push(`m4: ${error.message}`);
+      else report.m4 = true;
+    }
   }
 
   // ===== m3 简历 =====
@@ -141,7 +218,12 @@ export async function migrateGuestDataOnLogin(
   };
   const diary = readLocal<DiaryEntry[]>("buer_diary_entries", []);
   if (diary && diary.length > 0) {
+    // 关键:带上本地 id 作 DB 主键 + upsert onConflict id。
+    // 原来 insert 不带 id → DB 生成新 UUID,而 useDiarySync 同步时用的是本地 id,
+    // 两套 id 并存 → mergeEntriesFromDB 按 id 去重失效 → 登录后每篇日记重复显示两条。
+    // 与 useDiarySync「local id = DB id」的不变式对齐,迁移与实时同步互相幂等。
     const rows = diary.map((e) => ({
+      ...(e.id ? { id: e.id } : {}),
       user_id: userId,
       content: e.content ?? "",
       title: e.title ?? null,
@@ -153,7 +235,9 @@ export async function migrateGuestDataOnLogin(
       image_url: e.imageBase64 ?? null,
       created_at: e.createdAt ?? new Date().toISOString(),
     }));
-    const { error } = await supabase.from("diary_entries").insert(rows);
+    const { error } = await supabase
+      .from("diary_entries")
+      .upsert(rows, { onConflict: "id" });
     if (error) report.errors.push(`diary: ${error.message}`);
     else report.diary = rows.length;
   }

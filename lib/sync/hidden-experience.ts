@@ -26,6 +26,19 @@ export type HiddenExperience = {
     | null;
   candidate_bullets: { text: string; anti_fab_note: string | null }[];
   skeptical_flags?: string[];
+  /**
+   * 飞轮素材类型 — 让 suggest-edits 的 callHiddenBucket 按字段【确定性】分流落点,
+   * 不再只靠 topic_name 前缀猜(m2「挖经历·」/m5「M5 复盘亮点·」原本都不带「补项目/补能力」前缀,会落点误判)。
+   * - "project"    → 真做了项目,落 new:projects(STAR 成果)
+   * - "experience" → 真实经历亮点(挖经历 / 面试回流),同样落 new:projects(成果 bullet)
+   * - "learning"   → 只学了概念/入门,落 new:skills / new:self_eval,不冒充项目
+   * 旧数据没有此字段 → callHiddenBucket 退回 topic_name 前缀启发式。
+   */
+  material_kind?: "project" | "experience" | "learning";
+  /** 项目类素材的项目名称(让简历能以「项目格式」显示名称) */
+  project_name?: string;
+  /** 项目类素材的时间(起止),如 "2026.05 – 2026.05" 或 "约 3 周" */
+  project_period?: string;
 };
 
 /**

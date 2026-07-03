@@ -134,17 +134,30 @@ function fallbackKeywords(parsedResume: unknown, optimizedResume?: string): stri
     const s = String(v ?? "").trim();
     if (s && s.length <= 20 && !out.includes(s)) out.push(s);
   };
-  // 求职意向 / 目标岗位(字段名在不同版本里有出入,逐个试)
-  pushStr(r.job_intention);
-  pushStr(r.target_role);
-  pushStr(basic.job_intention);
-  pushStr(basic.intention);
-  // 最近一段经历的职位名
+  // 最近一段经历的职位名(parse-resume 产出字段名是 role,不是 title;旧数据可能有 title → 兼容)
   const exp = Array.isArray(r.experience) ? r.experience : Array.isArray(r.work) ? r.work : [];
-  if (exp.length > 0) pushStr((exp[0] as Record<string, unknown>)?.title);
-  // 技能前两项
-  const skills = Array.isArray(r.skills) ? r.skills : [];
-  for (const s of skills.slice(0, 2)) pushStr(typeof s === "string" ? s : (s as Record<string, unknown>)?.name);
+  if (exp.length > 0) {
+    const e0 = (exp[0] ?? {}) as Record<string, unknown>;
+    pushStr(e0.role ?? e0.title);
+  }
+  // 最近一个项目的角色(若有)
+  const projects = Array.isArray(r.projects) ? r.projects : [];
+  if (projects.length > 0) pushStr((projects[0] as Record<string, unknown>)?.role);
+  // 技能:parse-resume 的 skills 是对象 { languages, frameworks, tools, domain }(不是数组)。
+  // 取最贴近岗位方向的 domain / frameworks / tools 首项;兼容老的数组形 skills。
+  if (Array.isArray(r.skills)) {
+    for (const s of (r.skills as unknown[]).slice(0, 2)) {
+      pushStr(typeof s === "string" ? s : (s as Record<string, unknown>)?.name);
+    }
+  } else {
+    const skills = (r.skills ?? {}) as Record<string, unknown>;
+    for (const group of ["domain", "frameworks", "tools"]) {
+      const arr = skills[group];
+      if (Array.isArray(arr) && arr.length > 0) pushStr(arr[0]);
+    }
+  }
+  // 专业方向兜底(parse-resume 的 basic.major)
+  pushStr(basic.major);
   // 优化稿首行兜底(常含求职意向)
   if (out.length === 0 && optimizedResume) {
     const firstLine = optimizedResume.split("\n").map((l) => l.trim()).find((l) => l && !l.startsWith("#"));

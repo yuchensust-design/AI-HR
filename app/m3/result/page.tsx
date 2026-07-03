@@ -9,6 +9,7 @@ import { BuerFloatingButton } from "@/components/BuerFloatingButton";
 import { useLocalState, STORAGE_KEYS } from "@/lib/use-local-state";
 import { M5_STORAGE_KEYS } from "@/lib/interview-types";
 import { useM3DBSync, type M3Row } from "@/lib/sync/useM3DBSync";
+import { mergeHiddenExperience, type HiddenExperience } from "@/lib/sync/hidden-experience";
 import { useUser } from "@/lib/auth/useUser";
 import { M3_OPTIMIZATION_GOALS, type M3OptimizationGoalKey } from "@/lib/m3-optimization-goals";
 import {
@@ -150,7 +151,7 @@ function ResultContent() {
 
   const [localParsedResume, setLocalParsedResume] = useLocalState<ParsedResume>(STORAGE_KEYS.PARSED_RESUME, null);
   const [localJdContext, setLocalJdContext] = useLocalState<JdCtx>(STORAGE_KEYS.JD_CONTEXT, null);
-  const [localHidden] = useLocalState<HiddenList>(STORAGE_KEYS.HIDDEN_EXPERIENCES, []);
+  const [localHidden, , clearLocalHidden] = useLocalState<HiddenList>(STORAGE_KEYS.HIDDEN_EXPERIENCES, []);
   // 八大核心优化规则默认全生效,不再让用户选择
   const optimizationGoals = useMemo(
     () => M3_OPTIMIZATION_GOALS.map((g) => g.key) as M3OptimizationGoalKey[],
@@ -170,9 +171,32 @@ function ResultContent() {
       router.replace(`/m3?c=${convId}`);
     }
   }, [isLoggedInWithConv, dbLoading, parsedResume, convId, router]);
+  // 登录态:DB hidden + localStorage 待消费桶【合并】(去重)。
+  // 修飞轮断点:登录新账号(无带简历会话)在 m2/m5/m4 点「送进简历优化」时,backfill 因
+  // resolveResumeRow 找不到带简历的会话而返 null,fallback 只写了 localStorage;若这里只读 DB,
+  // 刚挖的素材就永远进不了 suggest-edits。合并后素材必被消费。
+  const dbHidden = (Array.isArray(dbData?.hidden_experience_json)
+    ? dbData!.hidden_experience_json
+    : []) as HiddenExperience[];
   const hiddenExperiences = (isLoggedInWithConv
-    ? (Array.isArray(dbData?.hidden_experience_json) ? dbData!.hidden_experience_json : [])
+    ? mergeHiddenExperience(dbHidden, (localHidden ?? []) as HiddenExperience[])
     : localHidden) as HiddenList;
+
+  // 把 localStorage 待消费素材落进当前会话 DB,使其永久属于这份简历;
+  // 仅当 DB 已含全部本地素材时才清本地桶(避免清早了导致素材在 dbData 刷新前闪失,
+  // 也避免同一份待消费素材在用户的其它简历会话里反复浮现)。
+  useEffect(() => {
+    if (!isLoggedInWithConv || dbLoading) return;
+    const local = (localHidden ?? []) as HiddenExperience[];
+    if (local.length === 0) return;
+    const merged = mergeHiddenExperience(dbHidden, local);
+    if (merged.length > dbHidden.length) {
+      void saveField("hidden_experience_json", merged);
+    } else {
+      clearLocalHidden();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLoggedInWithConv, dbLoading, localHidden, dbData]);
 
   const [status, setStatus] = useState<Status>("loading");
   const [errorMsg, setErrorMsg] = useState("");
@@ -932,6 +956,22 @@ function ResultContent() {
     }
     if (parsedResume.basic?.major) parts.push(parsedResume.basic.major);
     if (parsedResume.basic?.school) parts.push(parsedResume.basic.school);
+    // 飞轮关键修复:已采纳的 new: 新增(补项目 / 挖经历 / 面试回流)原文是"(新增)",
+    // 在已有 bullet 里找不到对应 → 上面的 acceptedById 替换不会把它们计入。
+    // 不补这一段,补来的项目/经历带的 JD 关键词永远进不了匹配语料 → 缺口永远消不掉。
+    if (data) {
+      for (const e of data.edits) {
+        if (
+          e.target?.startsWith("new:") &&
+          decisions[e.id] === "accept" &&
+          e.category !== "gap-alert"
+        ) {
+          const t = rewritten[e.id] ?? e.suggested_text;
+          if (t) parts.push(t);
+          if (e.new_project_name) parts.push(e.new_project_name);
+        }
+      }
+    }
     return parts.join("\n");
   }, [parsedResume, data, decisions, rewritten]);
 
@@ -2114,6 +2154,22 @@ function ResumePreview({
       !e.target.startsWith("new:skills") &&
       !e.target.startsWith("new:self_eval"),
   );
+  // 带 new_project_name 的(来自补项目 m4)→ 按项目名分组,渲染成「名称(时间)+ 成果」正经项目块;
+  // 不带名称的(挖经历 / 面试回流)→ 归到「补充项目经历」。
+  const namedNewProjects = (() => {
+    const m = new Map<string, { period: string; edits: typeof newProjectEdits }>();
+    for (const e of newProjectEdits) {
+      const name = (e.new_project_name ?? "").trim();
+      if (!name) continue;
+      const g = m.get(name) ?? { period: (e.new_project_period ?? "").trim(), edits: [] };
+      g.edits.push(e);
+      m.set(name, g);
+    }
+    return Array.from(m, ([name, g]) => ({ name, ...g }));
+  })();
+  const unnamedNewProjects = newProjectEdits.filter(
+    (e) => !(e.new_project_name ?? "").trim(),
+  );
   const NewTag = () => (
     <span className="ml-1.5 align-middle text-[10px] px-1.5 py-0.5 rounded-full bg-esther-blue/15 text-esther-blue font-medium">
       补经历新增
@@ -2434,14 +2490,38 @@ function ResumePreview({
               <ul>{renderBulletList("projects", [p])[0]}</ul>
             </div>
           ))}
-          {newProjectEdits.length > 0 && (
+          {/* 补项目(带名称/时间)→ 正经项目块:名称(时间)+ 成果 bullet */}
+          {namedNewProjects.map((g) => (
+            <div key={g.name} className="mb-3">
+              <div className="flex items-center justify-between gap-2 flex-wrap mb-1">
+                <p className="text-sm font-semibold text-ink">
+                  {g.name}
+                  <NewTag />
+                </p>
+                {g.period && (
+                  <span className="text-ink-muted font-normal text-xs">
+                    {g.period}
+                  </span>
+                )}
+              </div>
+              <ul className="list-disc pl-5 space-y-1.5">
+                {g.edits.map((e) => (
+                  <li key={e.id} className="text-sm text-ink leading-relaxed">
+                    {e.suggested_text}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+          {/* 挖经历 / 面试回流带来的(无项目名)→ 归到「补充项目经历」 */}
+          {unnamedNewProjects.length > 0 && (
             <div className="mb-3">
               <p className="text-sm font-semibold text-ink mb-1">
                 补充项目经历
                 <NewTag />
               </p>
               <ul className="list-disc pl-5 space-y-1.5">
-                {newProjectEdits.map((e) => (
+                {unnamedNewProjects.map((e) => (
                   <li key={e.id} className="text-sm text-ink leading-relaxed">
                     {e.suggested_text}
                   </li>

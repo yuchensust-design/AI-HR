@@ -91,6 +91,28 @@ describe("projectToHiddenExperience", () => {
     expect(he.candidate_bullets[0]!.text).toBe("校园外卖履约数据看板");
     expect(he.raw_user_material).toContain("项目:校园外卖履约数据看板");
   });
+
+  it("项目卡标 material_kind=project + 带项目名称/时间(让简历能按项目格式渲染)", () => {
+    const he = projectToHiddenExperience(project());
+    expect(he.material_kind).toBe("project");
+    expect(he.project_name).toBe("校园外卖履约数据看板");
+    expect(he.project_period).toBe("2026.05"); // started/done 同月 → 单点
+    expect(he.raw_user_material).toContain("时间:2026.05");
+  });
+
+  it("项目时间跨月 → 起止区间", () => {
+    const he = projectToHiddenExperience(
+      project({ started_at: "2026-03-01T00:00:00.000Z", done_at: "2026-05-28T00:00:00.000Z" }),
+    );
+    expect(he.project_period).toBe("2026.03 – 2026.05");
+  });
+
+  it("无起止时间 → 退回「约 N 周」", () => {
+    const he = projectToHiddenExperience(
+      project({ started_at: null, done_at: null, weeks: 3 }),
+    );
+    expect(he.project_period).toBe("约 3 周");
+  });
 });
 
 describe("projectToHiddenExperience · 学习卡(冲刺档)", () => {
@@ -109,5 +131,11 @@ describe("projectToHiddenExperience · 学习卡(冲刺档)", () => {
     const b = projectToHiddenExperience(learning()).candidate_bullets[0]!;
     expect(b.anti_fab_note).toMatch(/了解\/入门级/);
     expect(b.anti_fab_note).toMatch(/不得包装成做过完整项目/);
+  });
+
+  it("学习卡标 material_kind=learning(落技能/自我评价,不落项目),不带 project_name", () => {
+    const he = projectToHiddenExperience(learning());
+    expect(he.material_kind).toBe("learning");
+    expect(he.project_name).toBeUndefined();
   });
 });

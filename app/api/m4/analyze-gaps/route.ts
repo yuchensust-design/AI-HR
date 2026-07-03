@@ -93,10 +93,12 @@ async function fetchMarketJDSample(
   }
 }
 
-function buildSystemPrompt(mode: "full" | "role", hasMarketSample = false): string {
+function buildSystemPrompt(mode: "full" | "role", hasMarketSample = false, jdInferred = false): string {
   const modeNote =
     mode === "full"
-      ? "用户提供了完整 JD 文本,高保真拆解;confidence 视为 high。"
+      ? jdInferred
+        ? "用户没有真实 JD,这份 JD 文本是按岗位名 **AI 推断生成**的(非真实招聘 JD)。请按岗位通用要求拆解,**明示这是 generic / 非 JD-specific,confidence 视为 medium,不要当成高保真 JD-specific 拆解**。"
+        : "用户提供了完整 JD 文本,高保真拆解;confidence 视为 high。"
       : hasMarketSample
         ? "用户没给 JD,但已附上该岗位**真实在招样本**(实时招聘数据)。请优先据此拆解关键能力要求,比通用推断更贴近市场。"
         : "用户只给了岗位名(可能含公司名),用行业通用知识推断该岗位常见要求,**明示这是 generic / 非 JD-specific**。";
@@ -263,6 +265,9 @@ export async function POST(request: NextRequest) {
     }
 
     const focusGap = String(body.focusGap ?? "").trim().slice(0, 60);
+    // m4 现编的推断 JD(generate-jd)走 mode=full,但不是真实招聘 JD → 拆解口径降到 medium/generic,
+    // 与前端「非真实 JD,可编辑」横幅口径一致,不冒充高保真 JD-specific。
+    const jdInferred = Boolean(body.jdInferred);
 
     let userPrompt: string;
     let hasMarketSample = false;
@@ -307,7 +312,7 @@ export async function POST(request: NextRequest) {
 
     const raw = await chat(
       [
-        { role: "system", content: buildSystemPrompt(mode, hasMarketSample) },
+        { role: "system", content: buildSystemPrompt(mode, hasMarketSample, jdInferred) },
         { role: "user", content: userPrompt },
       ],
       { model: "chat", temperature: 0.3, max_tokens: 3000, jsonMode: true },

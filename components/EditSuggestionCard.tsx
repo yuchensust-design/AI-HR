@@ -52,6 +52,10 @@ export type EditSuggestion = {
   // gap-alert 特有字段(2026-06-02 v2)
   jd_requirement_text?: string | null;
   fixable?: string | null;
+  // 补项目飞轮(new:projects):服务端按 evidence_source 确定性回填的项目名称/时间,
+  // 让预览与定稿能把补来的项目按「名称(时间)+ 成果 bullet」渲染成正经项目块,而不是裸 bullet。
+  new_project_name?: string | null;
+  new_project_period?: string | null;
   // Skeptical Recruiter 时机 3(anti-fab oc-m3-antifab)
   sr_question?: SRQuestion | null;
 };

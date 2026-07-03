@@ -56,4 +56,27 @@ describe("bulletToHiddenExperience", () => {
     const he = bulletToHiddenExperience({ id: "y", text: "x" });
     expect(he.candidate_bullets[0]!.anti_fab_note).toMatch(/不得脑补/);
   });
+
+  it("标 material_kind=experience(让 callHiddenBucket 确定性落项目/经历)", () => {
+    expect(bulletToHiddenExperience(full).material_kind).toBe("experience");
+  });
+
+  it("有 STAR 时 raw_user_material 仍并入成稿文本(防丢用户刚填的数字)", () => {
+    // 模拟:STAR 里没有数字(占位符未替),但成稿 text 里有用户填好的真实数字
+    const filled: M2BulletLike = {
+      id: "b9",
+      text: "搭建快递代取小程序,日均代取 80 单、覆盖 4 栋楼",
+      star_breakdown: {
+        s: "宿舍楼快递点排长队",
+        t: "想提效",
+        a: "做了预约代取小程序",
+        r: "取件时间明显下降", // 注意:这里没有数字
+      },
+      competency: "执行落地",
+    };
+    const raw = bulletToHiddenExperience(filled).raw_user_material;
+    // 数字必须仍在 raw_user_material 里(否则 suggest-edits 生成阶段会丢)
+    expect(raw).toContain("80 单");
+    expect(raw).toContain("成稿");
+  });
 });

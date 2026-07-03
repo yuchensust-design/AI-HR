@@ -189,11 +189,26 @@ export type M4Project = M4ProjectItem | M4LearningItem;
  * question_id 用 m4-${id} 前缀,跨来源(面试 m5- / 挖经历 m2-)稳定去重。
  * 纯函数 → 可单测;不脑补数字,bullet 以用户 notes 实际成果为准。
  */
+/** 把项目起止时间整理成简历可读的「时间」串:有起止给区间,只有结束给单点,都没有退回「约 N 周」。 */
+function formatProjectPeriod(p: M4Project): string {
+  const ym = (s: string | null | undefined) =>
+    s ? s.slice(0, 7).replace("-", ".") : "";
+  const start = ym(p.started_at);
+  const end = ym(p.done_at);
+  if (start && end) return start === end ? start : `${start} – ${end}`;
+  if (end) return end;
+  if (start) return start;
+  // weeks 只在项目卡(M4ProjectItem)上有,学习卡没有 → 安全取
+  const weeks = "weeks" in p ? (p as { weeks?: number }).weeks : undefined;
+  return weeks ? `约 ${weeks} 周` : "";
+}
+
 export function projectToHiddenExperience(
   p: M4Project,
 ): import("@/lib/sync/hidden-experience").HiddenExperience {
   const date = (p.done_at ?? p.generated_at ?? "").slice(0, 10);
   const notes = (p.notes ?? "").trim();
+  const period = formatProjectPeriod(p);
 
   if (p.kind === "learning") {
     // 学习卡:诚实落点是"了解/入门 + 轻量产出",不冒充做过项目
@@ -207,6 +222,7 @@ export function projectToHiddenExperience(
       .join(";");
     return {
       question_id: `m4-${p.id}`,
+      material_kind: "learning",
       topic_name: `补能力 · ${(p.title ?? "").slice(0, 30)}${date ? ` · ${date}` : ""}`,
       raw_user_material: [
         `快速补强:${p.title}`,
@@ -241,9 +257,13 @@ export function projectToHiddenExperience(
     .join(";");
   return {
     question_id: `m4-${p.id}`,
+    material_kind: "project",
+    project_name: (p.title ?? "").trim() || undefined,
+    project_period: period || undefined,
     topic_name: `补项目 · ${(p.title ?? "").slice(0, 30)}${date ? ` · ${date}` : ""}`,
     raw_user_material: [
       `项目:${p.title}`,
+      period ? `时间:${period}` : "",
       p.why ? `补的 gap:${p.why}` : "",
       notes ? `我的实际成果(notes):${notes}` : "",
       deliverables ? `产出物:${deliverables}` : "",

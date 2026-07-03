@@ -37,6 +37,7 @@ type HiddenExperience = {
   star_breakdown: { situation?: string; task?: string; action?: string; result?: string } | null;
   candidate_bullets: { text: string; anti_fab_note: string | null }[];
   skeptical_flags?: string[];
+  material_kind?: "project" | "experience" | "learning";
 };
 
 type HistoryItem = {
@@ -72,7 +73,7 @@ export default function ExcavatePage() {
 
 function ExcavateContent() {
   const router = useRouter();
-  const { isLoggedInWithConv, dbData, convQs, saveField } = useM3DBSync();
+  const { isLoggedInWithConv, dbData, convQs, saveField, loading: dbLoading } = useM3DBSync();
 
   const [localParsedResume] = useLocalState(STORAGE_KEYS.PARSED_RESUME, null);
   const [localJdContext] = useLocalState(STORAGE_KEYS.JD_CONTEXT, null);
@@ -206,6 +207,8 @@ function ExcavateContent() {
       if (!isNone && !parsed.skipped) {
         const newHidden: HiddenExperience = {
           question_id: currentQ.id,
+          // Phase 3 挖出的都是真实经历 → 标 experience,让 callHiddenBucket 确定性落到 new:projects 成果 bullet
+          material_kind: "experience",
           topic_name: parsed.topic_name,
           raw_user_material: parsed.raw_user_material,
           star_breakdown: parsed.star_breakdown,
@@ -268,6 +271,19 @@ function ExcavateContent() {
   }
 
   const busy = status === "loading-question" || status === "saving" || status === "finalize";
+
+  // 登录态 DB 简历未加载完时 parsedResume 暂为 null —— 此窗口显示"读取中"而非误报"没读到简历"
+  // (对齐 app/m3/result/page.tsx 的 !dbLoading 守卫;否则首帧/刷新会整屏闪上传引导)。
+  if (isLoggedInWithConv && dbLoading) {
+    return (
+      <>
+        <Nav />
+        <main className="min-h-screen bg-warm-bg flex items-center justify-center p-6">
+          <p className="text-sm text-ink-soft">正在读取你的简历…</p>
+        </main>
+      </>
+    );
+  }
 
   if (!parsedResume) {
     return (

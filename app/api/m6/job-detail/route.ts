@@ -6,6 +6,8 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { isDemoRequest } from "@/lib/demo-mode";
+import m6Demo from "@/lib/demo/linzhou-m6.json";
 
 const CRAWLER_BASE_URL = process.env.CRAWLER_BASE_URL ?? "http://localhost:3030";
 const CRAWLER_API_KEY = process.env.CRAWLER_API_KEY ?? "dev-secret-change-me";
@@ -24,6 +26,16 @@ export async function POST(request: NextRequest) {
         { error: "jobId and platform required" },
         { status: 400 }
       );
+    }
+
+    // 演示账号:绝不碰真实爬虫(住宅爬虫对过期岗位 ID 会返空/503,弹"JD 拿不到"+死链 → 现场翻车)。
+    // 直接从冻结 fixture 取该岗 JD 全文。fixture 9 个岗位的 jdText 均已补满,前端 fetchDetail 一般已短路;
+    // 这里兜住"前端缓存了旧的空 jdText 岗位"等边角,确保 demo 永不发真请求。
+    if (await isDemoRequest(request)) {
+      const job = (m6Demo.jobs as Array<{ id: string; jdText?: string }>).find(
+        (j) => j.id === jobId,
+      );
+      return NextResponse.json({ jdText: job?.jdText ?? "", job: job ?? null, cached: true });
     }
 
     const upstream = await fetch(`${CRAWLER_BASE_URL}/detail`, {

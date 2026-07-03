@@ -971,6 +971,9 @@ function IntakeForm({
       // JD 框是唯一来源:有就用(粘贴的 / AI 生成的 / m3 带入的);
       // 还空但有岗位名 → 现场生成一份(填进框,让用户也看得见),再分析。
       let effectiveJd = jd.trim();
+      // 是否推断 JD(非真实招聘 JD):沿用已有 jdInferred 状态;本次现场生成的也算。
+      // 用本地变量传给 analyze-gaps —— setJdInferred 是异步,995 行 body 取不到刚 set 的值。
+      let inferred = jdInferred;
       if (effectiveJd.length < 20) {
         setPhase("正在按岗位名生成一份 JD…");
         try {
@@ -979,6 +982,7 @@ function IntakeForm({
             effectiveJd = gen;
             setJd(gen);
             setJdInferred(true);
+            inferred = true;
           }
         } catch {
           /* 生成失败 → 下面报错提示 */
@@ -997,6 +1001,7 @@ function IntakeForm({
         jdText: effectiveJd,
         parsedResume,
         focusGap: focus,
+        jdInferred: inferred,
       };
       const res = await fetch("/api/m4/analyze-gaps", {
         method: "POST",

@@ -27,8 +27,13 @@ function stableKey(b: M2BulletLike): string {
 export function bulletToHiddenExperience(b: M2BulletLike): HiddenExperience {
   const star = b.star_breakdown;
   const hasStar = !!(star && (star.s || star.t || star.a || star.r));
+  // 关键:b.text 是调用方已 assembleBullet 拼好的成稿(把【请补充】换成了用户填的真实数字)。
+  // hasStar 时若只用原始 STAR 当 raw_user_material,会丢掉用户刚填的数字(STAR.r 仍是占位符)。
+  // → 始终把成稿文本并进 raw_user_material,保证用户填的数字进入 suggest-edits 的主素材与反编造语料。
+  const filledBulletText = (b.text ?? "").trim();
   return {
     question_id: `m2-${stableKey(b)}`,
+    material_kind: "experience",
     topic_name: `挖经历 · ${b.competency ?? "经历亮点"}`,
     raw_user_material: hasStar
       ? [
@@ -36,10 +41,11 @@ export function bulletToHiddenExperience(b: M2BulletLike): HiddenExperience {
           star!.t && `任务:${star!.t}`,
           star!.a && `行动:${star!.a}`,
           star!.r && `结果:${star!.r}`,
+          filledBulletText && `成稿(以此处数字为准):${filledBulletText}`,
         ]
           .filter(Boolean)
           .join("\n")
-      : (b.text ?? ""),
+      : filledBulletText,
     star_breakdown: hasStar
       ? {
           situation: star!.s,

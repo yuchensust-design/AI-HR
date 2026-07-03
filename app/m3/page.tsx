@@ -87,6 +87,9 @@ function Module3Content() {
   // 已分析过的会话(有结果)→ 点进来直达结果页四大功能,而不是停在上传页。
   // ?setup=1 可强制留在设置页(改简历/JD 用)。
   const redirectedRef = useRef(false);
+  // 从看岗位(m6)跳来:记下来源,供 parseAndSaveJd 在抓不到 JD 全文(mode=role)时标 placeholder_mode。
+  // 旧路径 /m3/jd 才设这个标记,m6 现在直跳 /m3?setup=1 绕过了它 → 不补会丢失防编造降级。
+  const fromM6Ref = useRef(false);
   useEffect(() => {
     if (redirectedRef.current) return;
     if (sp.get("setup") === "1") return;
@@ -399,6 +402,7 @@ function Module3Content() {
         from_m6?: boolean;
       };
     const hasJdText = !!pending.jdText && pending.jdText.length > 50;
+      if (pending.from_m6) fromM6Ref.current = true;
       // 从看岗位跳来 → 表单精确反映当前点的这个岗位:岗位名/JD 全文都权威覆盖,
       // 抓不到 JD 全文时只带岗位名(清掉残留 JD,避免"新岗位名 + 旧 JD"混搭)。
       if (pending.from_m6 && (hasJdText || pending.roleName)) {
@@ -458,6 +462,9 @@ function Module3Content() {
         role_name: role || (parsed.role_name as string | undefined),
         rawJdText: text || undefined,
         raw_jd_text: text || undefined,
+        // m6 跳来但没抓到 JD 全文(role 模式)→ 标 placeholder_mode,让 suggest-edits 把 explicit
+        // 降级为 inferred + result 页显示「岗位摘要模式」黄条(对齐旧 /m3/jd 口径,防基于不存在的 JD 编造)。
+        ...(mode === "role" && fromM6Ref.current ? { placeholder_mode: true } : {}),
         meta: {
           ...((parsed.meta as Record<string, unknown> | undefined) ?? {}),
           mode,
@@ -591,7 +598,9 @@ function Module3Content() {
             </section>
 
             {/* 从其他模块回流:带着该模块用的简历 + 目标岗位 + 素材落地,确认后开始优化 */}
-            {(sp.get("from") === "m4" || sp.get("from") === "debrief") &&
+            {(sp.get("from") === "m4" ||
+              sp.get("from") === "debrief" ||
+              sp.get("from") === "m2") &&
               !needPickConv && (
                 <section className="border-b border-border bg-esther-blue/5">
                   <div className="max-w-[900px] mx-auto px-6 py-4">
@@ -599,11 +608,15 @@ function Module3Content() {
                       <span className="font-semibold text-esther-blue">
                         {sp.get("from") === "debrief"
                           ? "✓ 已从模拟面试带过来"
-                          : "✓ 已从补项目带过来"}
+                          : sp.get("from") === "m2"
+                            ? "✓ 已从挖经历带过来"
+                            : "✓ 已从补项目带过来"}
                       </span>
                       {sp.get("from") === "debrief"
                         ? " 你这场面试用的简历 + 目标岗位,以及刚采纳的面试亮点都已带上。"
-                        : " 你在补项目里用的简历 + 目标岗位,以及刚标记完成的那条补强素材都已带上。"}
+                        : sp.get("from") === "m2"
+                          ? " 你在挖经历里整理好的经历素材都已带上。"
+                          : " 你在补项目里用的简历 + 目标岗位,以及刚标记完成的那条补强素材都已带上。"}
                       {" 下面确认无误后点「开始优化」,AI 会把它揉进简历。"}
                     </p>
 

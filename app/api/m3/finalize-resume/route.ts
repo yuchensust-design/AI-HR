@@ -58,6 +58,8 @@ type EditApplied = {
   source?: "jd" | "resume" | "experience" | "interview";
   confidence?: number;
   linked_jd_keyword?: string | null;
+  new_project_name?: string | null;
+  new_project_period?: string | null;
 };
 
 function bulletText(b: Bullet): string {
@@ -189,16 +191,35 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // 补经历(项目型)带来的新经历:作为项目经历补充(STAR 由 suggested_text 承载)
+    // 补经历(项目型)带来的新经历:作为项目经历补充。
+    // 带 new_project_name 的(来自补项目 m4)→ 以「名称(时间)」表头 + 成果 bullet 渲染成正经项目;
+    // 不带名称的(挖经历 / 面试回流)→ 归到「补充项目经历」。
     if (newProjectBullets.length > 0) {
       if (!finalResume.projects || finalResume.projects.length === 0) {
         lines.push("## 项目经验");
       }
-      lines.push("**补充项目经历**");
+      const named = new Map<string, { period: string; texts: string[] }>();
+      const unnamed: string[] = [];
       for (const ne of newProjectBullets) {
-        lines.push(`- ${ne.suggested_text}`);
+        const name = (ne.new_project_name ?? "").trim();
+        if (name) {
+          const g = named.get(name) ?? { period: (ne.new_project_period ?? "").trim(), texts: [] };
+          g.texts.push(ne.suggested_text);
+          named.set(name, g);
+        } else {
+          unnamed.push(ne.suggested_text);
+        }
       }
-      lines.push("");
+      for (const [name, g] of named) {
+        lines.push(`**${name}**${g.period ? ` (${g.period})` : ""}`);
+        for (const t of g.texts) lines.push(`- ${t}`);
+        lines.push("");
+      }
+      if (unnamed.length > 0) {
+        lines.push("**补充项目经历**");
+        for (const t of unnamed) lines.push(`- ${t}`);
+        lines.push("");
+      }
     }
 
     // 社团/活动

@@ -479,9 +479,12 @@ hidden_experience_candidates(来自补经历 / 挖经历 / 面试回流 —— *
 ${JSON.stringify(hiddenExperiences, null, 2)}
 
 【本次任务】只为上面 hidden_experience_candidates 里**每一条**产出 hidden-experience-add 类 edit,按【hidden-experience-add 落点分流】规则:
-- 项目类(topic_name 以「补项目·」、有真实成果/产出物)→ target="new:projects[N].bullets",suggested_text 用 STAR 组织,结果只用素材里的真实数字、没有就用内联占位符,绝不编造。
-- 学习类(topic_name 以「补能力·」、anti_fab_note/honest_use 含"了解/入门")→ target="new:skills.tools"(或 .frameworks/.domain,只写素材真出现的技能)和/或 target="new:self_eval.bullets"(一句诚实自我评价)。
-- 每条 edit 必填:category="hidden-experience-add"、evidence_source="hidden_experiences[N]"、original_text="(新增)"。
+- **优先看每条素材的 material_kind 字段定落点(最权威,别靠 topic_name 猜)**:
+  · material_kind="project" 或 "experience" → 真做过的项目/经历 → target="new:projects[N].bullets",suggested_text 用 STAR 组织成一条成果经历。
+  · material_kind="learning" → 只学了概念/入门 → target="new:skills.tools"(或 .frameworks/.domain,只写素材真出现的技能)和/或 target="new:self_eval.bullets"(一句诚实自我评价),**绝不写成项目**。
+  · 没有 material_kind 字段时,才退回 topic_name 前缀判断(「补项目·」「挖经历·」「M5 复盘亮点·」→ 项目/经历;「补能力·」→ 学习)。
+- **结果只用素材里的真实数字(尤其 raw_user_material 里"成稿/我的实际成果(notes)"那几行的数字),没有就用内联占位符【请补充X】,绝不编造。**
+- 每条 edit 必填:category="hidden-experience-add"、evidence_source="hidden_experiences[N]"(N=该素材在上面数组里的下标,务必写对)、original_text="(新增)"。
 - **不要改任何已有 bullet,不要产 gap-alert / original_issues / optimization_directions。**
 返 JSON。`;
       try {
@@ -665,6 +668,39 @@ ${JSON.stringify(jdContext ?? null, null, 2)}
       return 0.78;
     }
 
+    // 确定性回填补项目的「名称 / 时间」:不靠 LLM 复制,直接按 evidence_source 的下标
+    // (hidden_experiences[N])查回原素材的 project_name/project_period。这样补来的项目能在
+    // 预览/定稿里渲染成「名称(时间)+ 成果 bullet」的正经项目块,而不是裸 bullet。
+    const hiddenList = Array.isArray(hiddenExperiences) ? hiddenExperiences : [];
+    const namedHidden = hiddenList.filter(
+      (h: unknown) => (h as { project_name?: string })?.project_name,
+    ) as { project_name?: string; project_period?: string }[];
+    function resolveNewProjectMeta(
+      cat: string,
+      target: string,
+      evidenceSource: string,
+    ): { name: string | null; period: string | null } {
+      if (cat !== "hidden-experience-add" || !target.startsWith("new:projects")) {
+        return { name: null, period: null };
+      }
+      const m = evidenceSource.match(/hidden_experiences?\[(\d+)\]/i);
+      const idx = m ? parseInt(m[1], 10) : NaN;
+      const byIdx =
+        Number.isInteger(idx) && idx >= 0 && idx < hiddenList.length
+          ? (hiddenList[idx] as { project_name?: string; project_period?: string })
+          : null;
+      const pick =
+        byIdx?.project_name
+          ? byIdx
+          : namedHidden.length === 1
+            ? namedHidden[0] // 兜底:整批只有一个带名项目时,下标没对上也认它
+            : null;
+      return {
+        name: pick?.project_name ?? null,
+        period: pick?.project_period ?? null,
+      };
+    }
+
     const editsRaw = Array.isArray(parsed.edits) ? parsed.edits : [];
     let filteredOutCount = 0;
     const filterReasons: string[] = [];
@@ -689,6 +725,7 @@ ${JSON.stringify(jdContext ?? null, null, 2)}
 
         const claimType = inferClaimType(el.claim_type, fabWarning, confidence);
         const evidenceAudit = normalizeEvidenceAudit(el.evidence_audit, source, evidenceSource);
+        const projMeta = resolveNewProjectMeta(cat, target, evidenceSource);
         // P0-B(offer-1-sparkling-hippo):根据 target 反查 parsedResume 中对应 bullet 的稳定 id
         const targetParts = parseBulletTarget(target);
         const bulletId = targetParts
@@ -718,6 +755,8 @@ ${JSON.stringify(jdContext ?? null, null, 2)}
           fab_warning: fabWarning,
           jd_requirement_text: jdReqText,
           fixable,
+          new_project_name: projMeta.name,
+          new_project_period: projMeta.period,
         } as EditSuggestion;
       })
       .filter((e) => {
